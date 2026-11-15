@@ -14,6 +14,7 @@ export interface CatalogProfile {
   research?: boolean;
   cloudHome: boolean;
   memoryEnabled?: boolean;
+  legacyMemoryEnabled?: boolean;
   /** The section's Chief of Staff; the server refuses Chief-only tools to every other bot. */
   chief: boolean;
   /** Only for Watcher's own tool. Never written into a schema: a list that names its bot can't share a prompt cache with other bots. */
@@ -34,6 +35,14 @@ export interface CatalogProfile {
   appHosting?: boolean;
 }
 
+const BOT_MEMORY_TOOLS = new Set(["memory_update", "memory_log"]);
+const LEGACY_MEMORY_TOOLS = new Set([...BOT_MEMORY_TOOLS, "propose_team_memory", "session_search"]);
+
+export function memoryToolAvailable(profile: CatalogProfile, name: string): boolean {
+  if (profile.legacyMemoryEnabled === false && LEGACY_MEMORY_TOOLS.has(name)) return false;
+  return profile.memoryEnabled !== false || !BOT_MEMORY_TOOLS.has(name);
+}
+
 /** Everything is off unless the harness says "1". */
 export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
   return {
@@ -44,6 +53,7 @@ export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
     research: env.OMB_RESEARCH === "1",
     cloudHome: env.OMB_CLOUD_HOME === "1",
     memoryEnabled: env.OMB_MEMORY_ENABLED !== "0",
+    legacyMemoryEnabled: env.OMB_LEGACY_MEMORY_ENABLED !== "0",
     chief: env.OMB_CHIEF_OF_STAFF === "1",
     botId: env.OMB_BOT_ID ?? "",
     team: env.OMB_TEAM_PEOPLE === "1",

@@ -100,13 +100,15 @@ export type TeamMemoryResolution =
 
 export class TeamMemory {
   private readonly file: string;
+  private readonly runtimeEnabled: boolean;
   private data: TeamMemoryFile;
   private saved: TeamMemoryFile;
   private readable = true;
 
-  constructor(file: string) {
+  constructor(file: string, { runtimeEnabled = true } = {}) {
     this.file = file;
-    this.data = this.load();
+    this.runtimeEnabled = runtimeEnabled;
+    this.data = this.load(runtimeEnabled);
     this.saved = this.snapshot();
   }
 
@@ -114,17 +116,19 @@ export class TeamMemory {
     return { version: 2, sections: Object.assign(Object.create(null), structuredClone(this.data.sections)) };
   }
 
-  private load(): TeamMemoryFile {
+  private load(migrate: boolean): TeamMemoryFile {
     try {
       const input = JSON.parse(readFileSync(this.file, "utf8"));
       if (!fileSchema.safeParse(input).success) throw new Error("invalid team memory");
       const data = emptyFile();
       // Own keys only, never inherited properties like __proto__.
       for (const [key, value] of Object.entries(input.sections)) {
-        const storageKey = input.version === 1 ? ensureSectionMemoryKey(key) : key;
+        const memoryKey = migrate ? ensureSectionMemoryKey : sectionMemoryKey;
+        const storageKey = input.version === 1 ? memoryKey(key) : key;
         data.sections[storageKey] = z.array(entrySchema).parse(value).map(entry => ({ ...entry, key: entry.key ?? `${entry.kind}:${entry.name.toLowerCase()}` }));
       }
-      if (input.version === 1) writeFileAtomic(this.file, JSON.stringify(data, null, 2), { mode: 0o600 });
+      if (migrate && input.version === 1)
+        writeFileAtomic(this.file, JSON.stringify(data, null, 2), { mode: 0o600 });
       return data;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.readable = false;
@@ -328,6 +332,7 @@ export class TeamMemory {
   }
 
   promptSelection(section: string | null | undefined): { text: string; loadedIds: string[]; total: number } {
+    if (!this.runtimeEnabled) return { text: "", loadedIds: [], total: 0 };
     const accepted = this.entries(section).filter(entry => entry.status === "accepted");
     if (!accepted.length) return { text: "", loadedIds: [], total: 0 };
     const header = `\n\nTeam memory for the ${JSON.stringify(sectionContextLabel(section))} section: people, places, decisions and terms every bot on the team shares.` +

@@ -1,7 +1,7 @@
 import { t } from "./i18n";
 
 export interface FeatureFlagConfig {
-  features?: { skillAuthoring?: boolean; skillReview?: boolean; skillReviewSteps?: number; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; claudeUserSkills?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; shareLearnedSkills?: "off" | "ask" | "auto"; roomMemoryCapture?: boolean; savedSteps?: boolean; savedStepsHere?: boolean; usbPhoneTakeover?: boolean };
+  features?: { skillAuthoring?: boolean; skillReview?: boolean; skillReviewSteps?: number; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; claudeUserSkills?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; shareLearnedSkills?: "off" | "ask" | "auto"; legacyMemory?: boolean; roomMemoryCapture?: boolean; savedSteps?: boolean; savedStepsHere?: boolean; usbPhoneTakeover?: boolean };
   browserEngine?: { kind: "engine" | "unavailable"; reason?: string; installable?: boolean; installing?: boolean; installError?: string };
 }
 
@@ -87,6 +87,11 @@ export function shareLearnedSkillsMode(config: FeatureFlagConfig | null | undefi
 
 export function roomMemoryCaptureEnabled(config: FeatureFlagConfig | null | undefined): boolean {
   return config?.features?.roomMemoryCapture === true;
+}
+
+/** Older servers omit this flag and keep built-in memory enabled. */
+export function legacyMemoryEnabled(config: FeatureFlagConfig | null | undefined): boolean {
+  return config?.features?.legacyMemory !== false;
 }
 
 export function savedStepsEnabled(config: FeatureFlagConfig | null | undefined): boolean {

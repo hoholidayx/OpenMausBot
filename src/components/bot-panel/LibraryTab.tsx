@@ -63,7 +63,7 @@ export function LibraryTab({ bot, onOpen }: { bot: Bot; onOpen: (page: SimplePag
   };
   const skillsOn = skills.skills.filter(skillSwitchOn).length;
   const notes = memory.docs ? panelMemoryNotes(memory.docs).length : null;
-  const memoryValue = bot.memoryEnabled === false ? t("botPanel.memory.off")
+  const memoryValue = !memory.memoryOn ? t("botPanel.memory.off")
     : notes === null ? (memory.error ? t("botPanel.memory.nothingYet") : undefined)
     : notes === 0 ? t("botPanel.memory.nothingYet")
     : notes === 1 ? t("botPanel.memory.note") : t("botPanel.memory.notes", { count: notes });

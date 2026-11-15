@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { legacyMemoryEnabled } from "@/lib/feature-flags";
 import { fetchMemoryDoc, fetchMemoryOverview, MEMORY_INDEX, type MemoryDoc } from "@/lib/memory";
 import { useStore, type Bot } from "@/state/store";
 
@@ -9,6 +10,8 @@ export interface MemoryNotesState {
   error: boolean;
   /** On a Team Cloud the notes are the signed-in person's own layer. */
   mine: boolean;
+  legacyMemory: boolean;
+  memoryOn: boolean;
   setDoc: (doc: MemoryDoc) => void;
   reload: () => Promise<void>;
 }
@@ -22,9 +25,11 @@ async function readDocs(botId: string, mine: boolean): Promise<MemoryDoc[]> {
 /** The notes the bot panel shows for a bot whose memory is on. They are read again as a turn starts and ends, so a note
  * the bot just saved shows. */
 export function useMemoryDoc(bot: Pick<Bot, "id" | "memoryEnabled" | "busy">): MemoryNotesState {
-  const mine = Boolean(useStore().state.config?.team);
+  const { state: { config } } = useStore();
+  const mine = Boolean(config?.team);
+  const legacyMemory = legacyMemoryEnabled(config);
   const [state, setState] = useState<{ botId: string; docs: MemoryDoc[] | null; error: boolean }>({ botId: bot.id, docs: null, error: false });
-  const memoryOn = bot.memoryEnabled !== false;
+  const memoryOn = legacyMemory && bot.memoryEnabled !== false;
 
   const read = async (botId: string, cancelled?: () => boolean) => {
     try {
@@ -48,6 +53,8 @@ export function useMemoryDoc(bot: Pick<Bot, "id" | "memoryEnabled" | "busy">): M
     docs: own ? state.docs : null,
     error: own && state.error,
     mine,
+    legacyMemory,
+    memoryOn,
     setDoc: (doc) => setState((current) => ({
       botId: bot.id,
       docs: (current.botId === bot.id ? current.docs ?? [] : []).map((existing) => existing.path === doc.path ? doc : existing),

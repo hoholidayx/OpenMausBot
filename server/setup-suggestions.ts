@@ -382,6 +382,7 @@ type EngineCapabilities = Partial<Pick<ProviderAdapter["capabilities"], "agentsM
 /** The server's side of the card's writer, read as each bot is made. */
 export interface SetupSuggestionsHost extends Pick<SetupSuggestionsDeps, "withinBudget" | "writer" | "log"> {
   store: SetupSuggestionsDeps["store"] & { readonly bots: readonly BotRecord[] };
+  includeAboutMe?: boolean;
   config(): Pick<AppConfig, "features" | "profile">;
   /** Several people share this place. */
   shared(): boolean;
@@ -420,7 +421,7 @@ export function setupSuggestionsFor(host: SetupSuggestionsHost) {
     canSetUp: (bot) => host.engine(bot)?.agentsMcp === true,
     withinBudget: host.withinBudget,
     writer: host.writer,
-    facts: (bot) => suggestionBasis(bot, { bots: host.store.bots, shared: host.shared(), aboutMe: host.config().profile?.aboutMe,
+    facts: (bot) => suggestionBasis(bot, { bots: host.store.bots, shared: host.shared(), aboutMe: host.includeAboutMe === false ? undefined : host.config().profile?.aboutMe,
       languageCode: host.languageCode(), canBrowse: host.engine(bot)?.browserMcp === true && host.browserOn() && bot.browser !== false }),
     apps: (bot) => {
       if (!host.engine(bot)?.composioMcp || bot.composio === false || !host.apps.configured()) return null;

@@ -45,6 +45,14 @@ describe("moving one memory layer's notes into another", () => {
     expect(await moveMemoryLayer("empty", "empty--member-p")).toBe(false);
     expect(await moveMemoryLayer("missing", "missing--member-p")).toBe(false);
   });
+
+  it("moves existing private notes without seeding new notes when memory is off", async () => {
+    put("maus", "MEMORY.md", "# Memory\n\n- private note\n");
+    expect(await moveMemoryLayer("maus", "maus--member-p", undefined, { seedMemory: false })).toBe(true);
+    expect(readFileSync(at("maus--member-p", "MEMORY.md"), "utf8")).toContain("private note");
+    expect(existsSync(at("maus", "MEMORY.md"))).toBe(false);
+    expect(existsSync(at("maus--member-p", "memory"))).toBe(false);
+  });
 });
 
 it.each([

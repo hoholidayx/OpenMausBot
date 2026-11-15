@@ -1,5 +1,33 @@
 # Bot memory
 
+## Legacy memory switch
+
+This checkout disables built-in memory at server startup unless
+`OMB_LEGACY_MEMORY=1` is set. The Bot Settings switches below apply only
+after enabling legacy memory on the server. Read `features.legacyMemory`
+from `GET /api/config` for the effective state.
+
+With legacy memory off:
+
+- New turns omit bot and team notes, About me text, the recent-work brief and
+  automatic recall. Agent memory tools and agent cross-conversation search
+  are unavailable.
+- Capture, tidy-up, dreams, daily logs and their change journal writes stop.
+  Existing notes and journals can be reviewed. Editing or publishing notes
+  through the old memory APIs requires legacy memory to be enabled.
+- Workspace moves and changes to the ownership of a personal bot can still
+  relocate previously saved notes and journals.
+- The current conversation, compaction, standing instructions, department
+  context, project files, skills and explicit task handoffs remain available.
+  A conversation starts a fresh model session the first time it runs after
+  switching memory modes and uses its retained conversation history.
+
+The switch covers OpenMausBot's built-in memory. Engines can have their own
+memory settings. Files that a bot can access through general file tools keep
+the access rules of that workspace.
+
+## When legacy memory is enabled
+
 By default, bots keep notes between tasks. The notes are plain markdown files in a
 folder on the computer running OpenMausBot — nothing is stored anywhere else,
 and you can open, edit, or delete any of it in any editor. **Bot Settings →

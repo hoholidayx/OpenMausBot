@@ -8,6 +8,7 @@ import { agentsMcp } from "../drivers/agents-mcp.ts";
 import { AGENTS_MCP_ENV } from "../drivers/agents-mcp-env.ts";
 import type { Json } from "../drivers/agents-client.ts";
 import { harnessMcpRequest, MAX_INPUT_BYTES, parseHarnessMcpKind } from "../harness-mcp-request.ts";
+import { legacyMemoryEnabled } from "../legacy-memory.ts";
 import { parseToolLimit, TOOL_LIMIT_HEADER } from "../tool-count-limit.ts";
 import { PASS, type RouteContext, type RouteHandler } from "./table.ts";
 
@@ -22,6 +23,7 @@ function agentsEnv(headers: IncomingHttpHeaders, token: string, harness: string)
   } catch {}
   const env: NodeJS.ProcessEnv = { OMB_HARNESS_URL: harness, OMB_COMMS_TOKEN: token };
   for (const key of AGENTS_MCP_ENV) if (typeof settings[key] === "string") env[key] = settings[key];
+  env.OMB_LEGACY_MEMORY_ENABLED = legacyMemoryEnabled ? "1" : "0";
   return env;
 }
 

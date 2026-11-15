@@ -81,8 +81,12 @@ function memorySeedFor(language?: string): string {
   return MEMORY_SEEDS[normalized] ?? MEMORY_SEEDS.en;
 }
 
-export function ensureWorkspace(botId: string, language?: string): string {
+export function ensureWorkspace(botId: string, language?: string, seedMemory = true): string {
   const dir = join(WORKSPACES_DIR, botId);
+  if (!seedMemory) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    return dir;
+  }
   // Memories can hold personal details: other local accounts must not read them.
   mkdirSync(join(dir, "memory"), { recursive: true, mode: 0o700 });
   const memoryFile = join(dir, "MEMORY.md");

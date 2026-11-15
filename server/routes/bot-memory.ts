@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ServerResponse } from "node:http";
 
 import { json } from "../harness/http.ts";
+import { LEGACY_MEMORY_DISABLED } from "../legacy-memory.ts";
 import {
   MEMORY_INDEX,
   MemoryStoreError,
@@ -24,6 +25,7 @@ import type { RequestAuth } from "../request-auth.ts";
 import { PASS, type RouteHandler } from "./table.ts";
 
 export interface BotMemoryRouteDeps {
+  legacyMemory?: boolean;
   bot(id: string): { id: string; memoryUpkeep?: boolean } | null | undefined;
   taskByThread(botId: string, threadId: string): { title?: string } | undefined;
   upkeep: Pick<MemoryUpkeep, "status" | "tidy">;
@@ -69,6 +71,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
           return replyMemoryError(res, error);
         }
       }
+      if (deps.legacyMemory === false) return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
       if (method === "PUT") {
         const parsed = z
           .object({ path: z.string().default(MEMORY_INDEX), text: z.string(), expectedHash: z.string().optional() })
@@ -109,6 +112,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
     if (m && method === "PUT") {
       // The old whole-file write, kept one release: no hash check, so it can overwrite a note the bot just wrote.
       if (!deps.bot(m[1])) return json(res, 404, { error: "no such bot" });
+      if (deps.legacyMemory === false) return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
       const parsed = z.object({ text: z.string() }).safeParse(await readBody(req));
       if (!parsed.success) return json(res, 400, { error: "text must be a string" });
       try {
@@ -162,6 +166,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
     m = path.match(/^\/api\/bots\/([\w-]+)\/memory\/journal\/([\w-]+)\/revert$/);
     if (m && method === "POST") {
       if (!deps.bot(m[1])) return json(res, 404, { error: "no such bot" });
+      if (deps.legacyMemory === false) return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
       await flushMemoryJournal(m[1]);
       const botId = m[1], changeId = m[2];
       const result = write(botId, () => revertMemoryChange(botId, changeId));
@@ -173,6 +178,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
     }
     m = path.match(/^\/api\/profile\/learned\/([\w-]+)\/remove$/);
     if (m && method === "POST") {
+      if (deps.legacyMemory === false) return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
       const removed = removeLearned(m[1], deps.aboutMe(auth), (text) => deps.saveAboutMe(text, auth));
       if (!removed) return json(res, 404, { error: "That fact was already removed." });
       return json(res, 200, { ok: true, aboutMe: deps.aboutMe(auth), learned: listLearnedFacts() });
@@ -181,12 +187,15 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
     if (m && method === "GET") {
       const bot = deps.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
+      if (deps.legacyMemory === false)
+        return json(res, 200, { enabled: false, modelSteps: false });
       return json(res, 200, { enabled: upkeepEnabled(bot), ...deps.upkeep.status(bot.id) });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/memory\/tidy$/);
     if (m && method === "POST") {
       const bot = deps.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
+      if (deps.legacyMemory === false) return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
       if (!upkeepEnabled(bot)) return json(res, 409, { error: "Switch on Memory upkeep for this bot first." });
       const report = await deps.upkeep.tidy(bot.id);
       await flushMemoryJournal(bot.id);
@@ -201,7 +210,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       if (auth.kind !== "loopback") {
         return json(res, 403, { error: `This only works on the computer running OpenMausBot. The memory folder there is ${workspacePath}`, workspacePath });
       }
-      const opened = await openMemoryLocation(m[1], parsed.data.target);
+      const opened = await openMemoryLocation(m[1], parsed.data.target, { seedMemory: deps.legacyMemory });
       if (!opened.ok) return json(res, 500, { error: opened.error, workspacePath: opened.workspacePath });
       return json(res, 200, opened);
     }

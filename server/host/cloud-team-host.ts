@@ -27,6 +27,7 @@ export interface CloudTeamHostDeps {
   serverProfile?: { read(): ServerProfile | undefined; clear(): void };
   /** Started on a team: each audience's engines get their own home (server/engine-homes). */
   engineHomes?: Pick<EngineHomes, "start">;
+  legacyMemory?: boolean;
 }
 
 export interface TeamSessionInfo { id: string; name: string; role: TeamRole }
@@ -56,7 +57,7 @@ export function createCloudTeamHost(deps: CloudTeamHostDeps) {
   const layer = (botId: string, threadId: string): string => {
     if (!team) return botId;
     const id = layerId(botId, audienceOf(threadId));
-    if (id !== botId) ensureWorkspace(id, deps.language?.());
+    if (id !== botId) ensureWorkspace(id, deps.language?.(), deps.legacyMemory);
     return id;
   };
   const claimed = (session: MemberSession) => session.email?.trim().toLowerCase() ?? "";
@@ -126,7 +127,7 @@ export function createCloudTeamHost(deps: CloudTeamHostDeps) {
     },
     /** The team's notes, read-only, for a turn that writes elsewhere (a room's or a member's layer). */
     sharedNotesPrompt(botId: string, threadId: string): string {
-      if (!team || layer(botId, threadId) === botId) return "";
+      if (deps.legacyMemory === false || !team || layer(botId, threadId) === botId) return "";
       const shared = loadMemory(botId);
       if (!shared) return "";
       return `\n\n${team.name}'s shared notes with you (read-only here; what you save in this conversation stays with it):\n${shared.text}`;
@@ -134,11 +135,11 @@ export function createCloudTeamHost(deps: CloudTeamHostDeps) {
     /** "About the user" for a turn: on a team only a member's own, with their name, in their own conversations; the
      * server's profile otherwise. */
     profileFor<T extends { aboutMe?: string }>(threadId: string, serverProfile: T | undefined): T | { aboutMe: string; person?: string } | undefined {
-      if (!team) return serverProfile;
+      if (!team) return deps.legacyMemory === false ? undefined : serverProfile;
       const person = ownPerson(audienceOf(threadId));
       if (!person) return undefined;
       const name = personName(person);
-      return { aboutMe: people.read(person), ...(name ? { person: name } : {}) };
+      return { aboutMe: deps.legacyMemory === false ? "" : people.read(person), ...(name ? { person: name } : {}) };
     },
     /** What a person is called in a bot's words and on their lines: the name they chose, else their address. */
     personName,

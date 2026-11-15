@@ -21,9 +21,9 @@ It gives the child a temporary data directory and home, chooses a free
 harness/webhook port pair, installs only the repository's fake engine, prints
 the URL, PID, data directory, and persistent log path, then stays attached to
 that exact child. The parent shell and the user's OpenMausBot data are
-untouched. Only `FAKE_CLAUDE_*` variables cross from the launcher's
-environment into that child, so a recipe can script the fake engine's mode,
-replies and tool calls without writing a wrapper CLI. Live calls add one
+untouched. The launcher passes specific fixture settings, including the
+`FAKE_CLAUDE_*` variables that control the fake engine's mode, replies and
+tool calls. Live calls add one
 exception: `OMB_OPENAI_LIVE_URL` crosses when it is a loopback
 `http://127.0.0.1:PORT` (the fake GPT-Live that
 `node --experimental-strip-types server/testing/fake-openai-live.ts` prints),
@@ -40,6 +40,9 @@ Mutating commands refuse silent port discovery. This prevents a verification
 recipe from sending messages to the user's running app by accident.
 
 ## Drive
+
+The fixture enables legacy memory for existing memory recipes. Set
+`OMB_LEGACY_MEMORY=0` when launching it to test the server with legacy memory off.
 
 Use only mapped, tested commands:
 

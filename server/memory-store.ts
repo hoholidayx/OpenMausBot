@@ -301,11 +301,14 @@ const spawnOpener: OpenerRunner = (command, args) =>
 export async function openMemoryLocation(
   botId: string,
   target: MemoryOpenTarget,
-  platform: NodeJS.Platform = process.platform,
-  run: OpenerRunner = spawnOpener,
+  { platform = process.platform, run = spawnOpener, seedMemory = true }: {
+    platform?: NodeJS.Platform;
+    run?: OpenerRunner;
+    seedMemory?: boolean;
+  } = {},
 ): Promise<{ ok: true; workspacePath: string } | { ok: false; error: string; workspacePath: string }> {
   assertBotId(botId);
-  const workspacePath = ensureWorkspace(botId);
+  const workspacePath = ensureWorkspace(botId, undefined, seedMemory);
   const location = target === "obsidian" ? obsidianUrlFor(workspacePath) : workspacePath;
   let command: string;
   let args: string[];

@@ -23,18 +23,18 @@ function joined(kept: string, added: string): string {
 }
 
 /** True when anything moved. */
-export async function moveMemoryLayer(from: string, to: string, language?: string): Promise<boolean> {
+export async function moveMemoryLayer(from: string, to: string, language?: string, { seedMemory = true } = {}): Promise<boolean> {
   const source = workspaceDir(from);
   if (!existsSync(source)) return false;
-  const target = ensureWorkspace(to, language);
+  const target = ensureWorkspace(to, language, seedMemory);
   let moved = false;
   const index = join(source, "MEMORY.md");
   const notes = existsSync(index) ? readMemoryText(index) : "";
   if (notes.trim() && !isMemorySeed(notes)) {
-    const into = join(target, "MEMORY.md"), kept = readMemoryText(into);
+    const into = join(target, "MEMORY.md"), kept = existsSync(into) ? readMemoryText(into) : "";
     writeFileAtomic(into, isMemorySeed(kept) ? notes : joined(kept, notes), { mode: 0o600 });
     rmSync(index, { force: true });
-    ensureWorkspace(from, language);
+    if (seedMemory) ensureWorkspace(from, language);
     moved = true;
   }
   for (const file of filesUnder(join(source, "memory"))) {
@@ -61,7 +61,9 @@ export async function moveMemoryLayer(from: string, to: string, language?: strin
     rmSync(journal, { force: true });
     moved ||= rows.length > 0;
   }
-  syncMemoryIndex(from);
-  syncMemoryIndex(to);
+  if (seedMemory) {
+    syncMemoryIndex(from);
+    syncMemoryIndex(to);
+  }
   return moved;
 }

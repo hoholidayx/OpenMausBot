@@ -171,12 +171,12 @@ export function RoutinesPage({ bot, derived }: PageContext) {
  * the hash it was read at, so a note the bot added meanwhile is never lost: a conflict re-reads and asks again. */
 export function MemoryPage({ bot }: PageContext) {
   const memory = useMemoryDoc(bot);
-  const teamSaved = useTeamMemoryEntries(bot.id, memory.mine && bot.memoryEnabled !== false && !bot.defaultBot?.person, memory.docs);
+  const teamSaved = useTeamMemoryEntries(bot.id, memory.mine && memory.memoryOn && !bot.defaultBot?.person, memory.docs);
   const [draft, setDraft] = useState("");
   const [asText, setAsText] = useState<{ botId: string; doc: MemoryDoc } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const memoryOn = bot.memoryEnabled !== false;
+  const { memoryOn } = memory;
   const notes = memory.docs ? panelMemoryNotes(memory.docs) : null;
   const index = memory.docs?.find((doc) => doc.path === MEMORY_INDEX) ?? null;
   useEffect(() => setAsText(null), [bot.id, memoryOn]);
@@ -238,7 +238,7 @@ export function MemoryPage({ bot }: PageContext) {
     <>
       <Card>
         {!memoryOn ? (
-          <NoteRow>{t("botPanel.library.memoryOff", { name: bot.name })}</NoteRow>
+          <NoteRow>{memory.legacyMemory ? t("botPanel.library.memoryOff", { name: bot.name }) : t("memory.disabledByServer")}</NoteRow>
         ) : memory.error ? (
           <NoteRow tone="warn">{t("botPanel.library.memoryError")}</NoteRow>
         ) : notes === null ? (

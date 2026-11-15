@@ -7020,6 +7020,7 @@
   "skills.loading": "正在加载…",
   "skills.empty": "还没有安装任何技能。",
   "memory.title": "记忆",
+  "memory.disabledByServer": "此服务器已关闭旧版记忆。已有文件可供查看。",
   "memory.enable": "允许这个机器人使用记忆",
   "memory.enableHelp": "关闭后会停止记忆提示、回忆、原生记忆工具、维护和自动轮次日志。已有文件仍可查看。",
   "memory.notesHelp": "这个机器人在任务之间保留的笔记。它们是这台电脑某个文件夹里的纯 markdown 文件，可用任意编辑器打开，也可以用 Obsidian。",

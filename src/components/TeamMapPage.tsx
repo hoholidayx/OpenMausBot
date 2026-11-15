@@ -12,6 +12,7 @@ import {
   type TeamMapSnapshot,
 } from "@/lib/team-map";
 import { cn } from "@/lib/cn";
+import { legacyMemoryEnabled } from "@/lib/feature-flags";
 import { useShowThreads } from "@/lib/thread-preferences";
 import { useCaptionChrome } from "@/components/DesktopCapabilities";
 import { placeOffered } from "@/lib/place";
@@ -398,7 +399,7 @@ export function TeamMapPage() {
         onTeamComputer={() => setComputersOpen(true)}
         onComputerDrop={(id, section) => { if (!remoteClient) { setComputersOpen(true); setComputerDrop({ id, section }); } }}
         onInstructions={(section, label) => setContextEditor({ section, label })}
-        onMemory={(section, label) => setMemoryEditor({ section, label })}
+        onMemory={legacyMemoryEnabled(state.config) ? (section, label) => setMemoryEditor({ section, label }) : undefined}
         onEditTeam={(section, rename) => setTeamEditor({ section, rename })}
         onDeleteTeam={setDeletingTeam}
         isEmpty={(key) => ![...state.bots, ...state.groups].some((record) => record.section?.trim() === key)} />

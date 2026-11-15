@@ -50,6 +50,7 @@ type Person = { email: string; role: TeamRole; key: string; name: string; left: 
 type Where = { bot: BotRecord; group?: GroupRecord };
 
 export interface TeamMessagesDeps {
+  includeNotes?: boolean;
   team: CloudTeam | null;
   dataDir: string;
   store: Pick<Store, "bot" | "bots" | "botByThread" | "groupByThread" | "taskByThread" | "tasks" | "createTask" | "appendMessage" | "patchTask" | "patchGroup"
@@ -103,7 +104,7 @@ export function createTeamMessages(deps: TeamMessagesDeps) {
 
   const { representative, ...wiring } = deps.inbox;
   const inbox = createPersonInbox({
-    notes: (botId) => loadMemory(botId)?.text ?? "", ...wiring, ...(deps.confined ? { confined: deps.confined } : {}), team, dataDir: deps.dataDir, store, starters: deps.starters, audienceOf: deps.audienceOf, personKeyOf: keyOf,
+    notes: (botId) => deps.includeNotes === false ? "" : loadMemory(botId)?.text ?? "", ...wiring, ...(deps.confined ? { confined: deps.confined } : {}), team, dataDir: deps.dataDir, store, starters: deps.starters, audienceOf: deps.audienceOf, personKeyOf: keyOf,
     send: deps.notify, now, person: (key) => byKey(key),
     sees: (key, threadId) => { const one = byKey(key); return one ? deps.sees(one).thread(threadId) : false; },
     ...(representative ? { representative: createRepresentative({ now, timeZone: () => currentTimeZone(), ...representative }) } : {}),

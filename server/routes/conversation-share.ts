@@ -14,6 +14,7 @@ import { NO_SUCH_CONVERSATION } from "../host/team-private.ts";
 import type { ConversationShare, ConversationShares } from "../host/conversation-shares.ts";
 import type { TeamMemorySaves } from "../host/team-memory-saves.ts";
 import type { Notification } from "../../shared/notification.ts";
+import { LEGACY_MEMORY_DISABLED } from "../legacy-memory.ts";
 import { personKey } from "../person-key.ts";
 import type { RequestAuth } from "../request-auth.ts";
 import { serverLine, type ServerLineKey } from "../server-lines.ts";
@@ -31,6 +32,7 @@ const saveBody = z.object({ threadId: z.string().regex(/^[\w-]{1,128}$/), messag
 
 export interface ConversationShareDeps {
   team: CloudTeam | null;
+  legacyMemory?: boolean;
   store(): Pick<Store, "bot" | "taskByThread" | "messagesFor" | "onChange">;
   shares: ConversationShares;
   saves: TeamMemorySaves;
@@ -139,11 +141,13 @@ export function createConversationSharing(deps: ConversationShareDeps): { routes
       return json(res, 200, { entries });
     }
     if (method === "DELETE" && entryId) {
+      if (deps.legacyMemory === false) return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
       const removed = deps.saves.remove(bot.id, entryId, me);
       if (removed === "not-yours") return json(res, 403, userError("serverError.teamMemory.notYours"));
       return json(res, 200, { ok: true, removed: removed === "removed" });
     }
     if (method !== "POST" || entryId) return PASS;
+    if (deps.legacyMemory === false) return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
     const parsed = saveBody.safeParse(await readBody(req));
     if (!parsed.success) return json(res, 400, { error: "threadId, messageId and text are required" });
     const { threadId, messageId } = parsed.data;

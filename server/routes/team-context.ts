@@ -1,6 +1,7 @@
 // Both routes take the section as a query parameter, required even for General ("").
 import { z } from "zod";
 
+import { LEGACY_MEMORY_DISABLED } from "../legacy-memory.ts";
 import { SECTION_CONTEXT_MAX_BYTES, readSectionContext, sectionContextKey, sectionContextLabel, writeSectionContext } from "../section-context.ts";
 import { sectionKey, type Store } from "../store.ts";
 import { TEAM_MEMORY_KINDS, TeamMemory, TeamMemoryConflict, type TeamMemoryKind } from "../team-memory.ts";
@@ -8,6 +9,7 @@ import { userError, userErrorFields } from "../user-errors.ts";
 import { PASS, type RouteHandler } from "./table.ts";
 
 export interface TeamContextRouteDeps {
+  legacyMemory?: boolean;
   store: Pick<Store, "sections" | "bots" | "groups">;
   teamMemory: Pick<TeamMemory, "list" | "propose" | "resolve" | "update" | "remove" | "promptSelection">;
 }
@@ -25,6 +27,7 @@ export function createTeamContextRoutes(deps: TeamContextRouteDeps): RouteHandle
       if (method === "GET") {
         return json(res, 200, { section, label: sectionContextLabel(section), entries: teamMemory.list(section), loadedIds: teamMemory.promptSelection(section).loadedIds });
       }
+      if (deps.legacyMemory === false) return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
       const body = await readBody(req);
       if (!body || typeof body !== "object" || !(TEAM_MEMORY_KINDS as readonly string[]).includes(String(body.kind))) {
         return json(res, 400, { error: `kind must be one of ${TEAM_MEMORY_KINDS.join(", ")}` });
@@ -45,6 +48,7 @@ export function createTeamContextRoutes(deps: TeamContextRouteDeps): RouteHandle
     }
     m = path.match(/^\/api\/team-memory\/([\w-]+)$/);
     if (m && (method === "PATCH" || method === "DELETE")) {
+      if (deps.legacyMemory === false) return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
       if (!url.searchParams.has("section")) return json(res, 400, { error: "section is required" });
       const section = sectionContextKey(url.searchParams.get("section") ?? "");
       const body = method === "DELETE" ? { expectedRevision: url.searchParams.get("revision") } : await readBody(req);
