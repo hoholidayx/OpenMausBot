@@ -20,6 +20,8 @@ try {
 }
 try {
   execFileSync("git", ["config", "core.hooksPath", "scripts/git-hooks"], { cwd: root, stdio: "ignore" });
-  console.log("git hooks: core.hooksPath -> scripts/git-hooks (pre-push checks the changed files in seconds; OMB_SKIP_HOOKS=1 or --no-verify to skip)");
+  console.log(
+    "git hooks: core.hooksPath -> scripts/git-hooks (checks staged changes before commit and changed files before push; OMB_SKIP_HOOKS=1 or --no-verify to skip)",
+  );
 } catch {
 }
