@@ -2,6 +2,7 @@ import { listBotPresets, ORG_PRESET_REMOVE_MESSAGE, PRESET_UNAVAILABLE_MESSAGE, 
 import { PASS, type RouteHandler } from "./table.ts";
 
 export interface BotPresetRouteDeps {
+  legacyMemory?: boolean;
   presets: Pick<PresetStore, "list" | "resolve" | "removeFilePreset">;
   orgStatuses(): ReadonlyMap<string, OrgInstallStatus>;
 }
@@ -9,7 +10,8 @@ export interface BotPresetRouteDeps {
 export function createBotPresetRoutes(deps: BotPresetRouteDeps): RouteHandler {
   return async ({ res, path, method, json }) => {
     if (path === "/api/bot-presets" && method === "GET") {
-      return json(res, 200, { presets: listBotPresets(deps.presets, deps.orgStatuses()) });
+      const presets = listBotPresets(deps.presets, deps.orgStatuses());
+      return json(res, 200, { presets: deps.legacyMemory === false ? presets.map((preset) => ({ ...preset, notes: [] })) : presets });
     }
     const m = path.match(/^\/api\/bot-presets\/([\w-]+)$/);
     if (!m || method !== "DELETE") return PASS;

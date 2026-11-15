@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fixture = vi.hoisted(() => ({ effects: [] as EffectCallback[], dispatch: vi.fn(), api: vi.fn(), create: vi.fn(), setDraft: vi.fn(), ready: false, hook: 0, admin: false,
-  profile: {} as Record<string, unknown>, track: vi.fn(), advanced: true, appSettingsOpen: false, openBot: vi.fn(), close: vi.fn(), teamName: null as string | null }));
+  profile: {} as Record<string, unknown>, track: vi.fn(), advanced: true, legacyMemory: true, appSettingsOpen: false, openBot: vi.fn(), close: vi.fn(), teamName: null as string | null }));
 vi.mock("@/state/thread-navigation", async importOriginal => ({
   ...await importOriginal<typeof import("@/state/thread-navigation")>(), openBot: fixture.openBot,
 }));
@@ -29,7 +29,9 @@ vi.mock("@/lib/create-configured-bot", async importOriginal => ({
 }));
 vi.mock("@/state/store", async importOriginal => {
   const store = await importOriginal<typeof import("@/state/store")>();
-  return { ...store, api: fixture.api, BotEditorStore: () => null, useStore: () => ({ state: { ...store.initialState, appSettingsOpen: fixture.appSettingsOpen, ...(fixture.teamName ? { config: { team: { id: "acme", name: fixture.teamName } } } : {}) }, dispatch: fixture.dispatch }) };
+  return { ...store, api: fixture.api, BotEditorStore: () => null, useStore: () => ({ state: { ...store.initialState, appSettingsOpen: fixture.appSettingsOpen, config: {
+    features: { legacyMemory: fixture.legacyMemory }, ...(fixture.teamName ? { team: { id: "acme", name: fixture.teamName } } : {}),
+  } }, dispatch: fixture.dispatch }) };
 });
 import { NewBotDialog } from "./NewBotDialog";
 import { setTeamChats } from "@/state/team-chats";
@@ -69,6 +71,7 @@ function render(defaultsMode = false, onCreated?: () => void | Promise<void>) {
 }
 beforeEach(() => {
   fixture.advanced = true;
+  fixture.legacyMemory = true;
   fixture.effects = []; fixture.dispatch.mockReset(); fixture.api.mockReset();
   fixture.ready = false; fixture.admin = false; fixture.create.mockReset(); fixture.setDraft.mockReset(); fixture.profile = {};
   fixture.track.mockReset();
@@ -81,6 +84,12 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); setTeamChats(null); setTeamPeople(null); });
 
 describe("bot draft dialog", () => {
+  it("omits the memory editor in bot creation and defaults when the server disables it", () => {
+    fixture.legacyMemory = false;
+    expect(render().html).not.toContain(">Memory<");
+    expect(render(true).html).not.toContain(">Memory<");
+  });
+
   it("preserves upstream audience selection for browser admins before creation", () => {
     fixture.admin = true;
     vi.stubGlobal("window", {});

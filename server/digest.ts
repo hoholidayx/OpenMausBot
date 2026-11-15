@@ -2,6 +2,7 @@
 // preview, "none" when the turn showed no tool activity.
 import type { MemoryJournalEntry } from "./memory-journal.ts";
 import type { Message } from "./store.ts";
+import { isLegacyMemoryTool } from "./legacy-memory.ts";
 
 import type { DigestFiles, DigestTool, HookCoverage, TurnDigest } from "../shared/digest.ts";
 import { redactSecretsInText } from "../shared/redact.ts";
@@ -102,11 +103,12 @@ function firstSentence(reply: string): string {
   return sentence.slice(0, REPLY_CHARS);
 }
 
-export function renderDigest(d: TurnDigest): string {
+export function renderDigest(d: TurnDigest, includeLegacyMemory = true): string {
   const parts: string[] = ["[digest]"];
-  if (d.tools.length) {
+  const tools = includeLegacyMemory ? d.tools : d.tools.filter((tool) => !isLegacyMemoryTool(tool.name));
+  if (tools.length) {
     // Every entry ends at "×N" or "(N failed)": the phones split the tools part on exactly that.
-    parts.push(`tools: ${digestTools(d)}${d.hookCoverage === "preview" ? " (from tool previews)" : ""}`);
+    parts.push(`tools: ${digestTools({ tools, toolsDropped: d.toolsDropped })}${d.hookCoverage === "preview" ? " (from tool previews)" : ""}`);
   } else if (d.hookCoverage === "none") {
     parts.push("no tool activity observed in this turn");
   } else {
@@ -120,8 +122,8 @@ export function renderDigest(d: TurnDigest): string {
     if (d.files.truncated) files.push(`+${d.files.truncated} more paths`);
     parts.push(files.length ? `files: ${files.join("; ")}` : "files: none changed");
   }
-  if (d.memory.length) parts.push(`memory: ${d.memory.map((m) => `${m.kind} ${m.path}`).join(", ")}`);
-  if (d.memoryDropped) parts.push(`+${d.memoryDropped} more memory changes`);
+  if (includeLegacyMemory && d.memory.length) parts.push(`memory: ${d.memory.map((m) => `${m.kind} ${m.path}`).join(", ")}`);
+  if (includeLegacyMemory && d.memoryDropped) parts.push(`+${d.memoryDropped} more memory changes`);
   if (d.reply) parts.push(`reply: ${d.reply}`);
   return fitBytes(parts.join(" · "), RENDER_BYTES);
 }
@@ -132,8 +134,8 @@ export function digestTools(d: Pick<TurnDigest, "tools" | "toolsDropped">): stri
 }
 
 /** Never multi-line, so it sits in a transcript replay or a room window like any speaker line. */
-export function digestPromptLine(d: TurnDigest, botName: string): string {
-  const body = renderDigest(d).replace(/^\[digest\]\s*/, "").replace(/\s+/g, " ").trim();
+export function digestPromptLine(d: TurnDigest, botName: string, includeLegacyMemory = true): string {
+  const body = renderDigest(d, includeLegacyMemory).replace(/^\[digest\]\s*/, "").replace(/\s+/g, " ").trim();
   return `[What ${botName} did in an earlier turn: ${body}]`;
 }
 

@@ -13,7 +13,7 @@ vi.mock("./bot-settings/useBotSettingsDerived", () => ({ useBotSettingsDerived: 
 const fixture = vi.hoisted(() => ({ dispatch: vi.fn(), onOpen: undefined as undefined | ((page: string) => void) }));
 vi.mock("@/state/store", async (importOriginal) => {
   const store = await importOriginal<typeof import("@/state/store")>();
-  const state = { ...store.initialState, botSettingsSection: "library", botSettingsExpandAccordion: true };
+  const state = { ...store.initialState, botSettingsSection: "library", botSettingsExpandAccordion: true, config: { features: { legacyMemory: true } } };
   return { ...store, useStore: () => ({ state, dispatch: fixture.dispatch, flushBotPatches: vi.fn() }) };
 });
 vi.mock("./bot-panel/LibraryTab", async (importOriginal) => {

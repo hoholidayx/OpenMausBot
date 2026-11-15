@@ -69,7 +69,7 @@ export function LibraryTab({ bot, onOpen }: { bot: Bot; onOpen: (page: SimplePag
     : notes === 1 ? t("botPanel.memory.note") : t("botPanel.memory.notes", { count: notes });
   const keeps = (
     <Card anchor="keeps">
-      <NavRow data-panel-page="memory" icon={Brain} title={t("botPanel.memoryRow")} value={memoryValue} onClick={() => onOpen("memory")} />
+      {memory.legacyMemory && <NavRow data-panel-page="memory" icon={Brain} title={t("botPanel.memoryRow")} value={memoryValue} onClick={() => onOpen("memory")} />}
       <NavRow
         data-panel-page="skills"
         icon={Zap}

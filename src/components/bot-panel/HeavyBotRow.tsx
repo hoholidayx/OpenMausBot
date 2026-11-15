@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 import { Gauge } from "lucide-react";
 
+import { legacyMemoryEnabled } from "@/lib/feature-flags";
 import { t } from "@/lib/i18n";
 import { tidyMemoryNow } from "@/lib/memory";
 import { api, useStore, type Bot } from "@/state/store";
 import { buttonCls, Card, RowIcon, rowCls, RowText } from "./rows";
 
 export function HeavyBotRow({ bot }: { bot: Bot }) {
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
   const [heavy, setHeavy] = useState(false);
   const [tidying, setTidying] = useState(false);
   const [checked, setChecked] = useState(0);
-  const upkeep = bot.memoryEnabled !== false && bot.memoryUpkeep !== false;
+  const upkeep = legacyMemoryEnabled(state.config) && bot.memoryEnabled !== false && bot.memoryUpkeep !== false;
   useEffect(() => {
     if (!upkeep) return;
     let live = true;

@@ -38,6 +38,7 @@ import { userErrorFields } from "../user-errors.ts";
 import { PASS, type RouteHandler } from "./table.ts";
 
 export interface TeamRouteDeps {
+  legacyMemory?: boolean;
   store: Store;
   cfg: Pick<AppConfig, "mcpServers">;
   /** The exporting person's name, as a package's author: the server's profile's, or on a Team Cloud the person's own. */
@@ -81,11 +82,12 @@ export function createTeamRoutes(deps: TeamRouteDeps): RouteHandler {
     const orgLibrary = deps.orgLibrary();
     if (method === "POST" && path === "/api/teams/export") {
       const body = await readBody(req, 8 * 1024 * 1024);
+      const includeMemory = deps.legacyMemory !== false && body.includeMemory === true;
       const botShown = deps.botShown?.(auth), exportable = botShown ? store.bots.filter((bot) => botShown(bot.id)) : store.bots;
       const profileName = deps.authorName(auth);
       if (body.format === "package" && body.version === 2 && body.kind === "library") {
         const optional = (value: unknown) => (typeof value === "string" ? value : undefined);
-        const built = defaultsPresetFor(body, body.includeMemory === true);
+        const built = defaultsPresetFor(body, includeMemory);
         try {
           const exported = createLibraryPackageExport({
             name: optional(body.name),
@@ -124,7 +126,7 @@ export function createTeamRoutes(deps: TeamRouteDeps): RouteHandler {
         const avatars = body.avatars && typeof body.avatars === "object" && !Array.isArray(body.avatars)
           ? body.avatars as Record<string, unknown>
           : undefined;
-        const defaults = body.includeDefaultsPreset === true ? defaultsPresetFor(body, body.includeMemory === true) : null;
+        const defaults = body.includeDefaultsPreset === true ? defaultsPresetFor(body, includeMemory) : null;
         try {
           const exported = createTeamPackageExport({
             team,
@@ -141,7 +143,7 @@ export function createTeamRoutes(deps: TeamRouteDeps): RouteHandler {
             published: readPublishedTeam(team),
             skillsByBot: skills.skillsByBot,
             skillSelection: skills.all ? "all" : "chosen",
-            memoryByBot: body.includeMemory === true ? new Map(teamBots.map((bot) => [bot.id, starterNotes(bot.id)])) : undefined,
+            memoryByBot: includeMemory ? new Map(teamBots.map((bot) => [bot.id, starterNotes(bot.id)])) : undefined,
             avatars,
             mcpServers: cfg.mcpServers ?? {},
             skipped: [...skills.skipped, ...(defaults?.skipped ?? [])],

@@ -7,7 +7,7 @@ import type { Bot } from "@/state/store";
 
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
-  return { ...original, useStore: () => ({ state: { ...original.initialState, config: {} }, dispatch: vi.fn() }) };
+  return { ...original, useStore: () => ({ state: { ...original.initialState, config: { features: { legacyMemory: true } } }, dispatch: vi.fn() }) };
 });
 
 const { MemoryPage } = await import("./pages");

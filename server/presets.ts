@@ -342,7 +342,7 @@ export interface PresetApplyDeps {
     setEnabled(botId: string, name: string, enabled: boolean): SkillListing | { error: string };
     installOrg(botId: string, source: string, skillMd: string, stamp: SkillPackageStamp): SkillListing | { error: string };
   };
-  memory: {
+  memory?: {
     writeIndex(botId: string, text: string): void;
     writeTopic(botId: string, name: string, text: string): void;
   };
@@ -391,10 +391,12 @@ export function applyPresetToBot(botId: string, resolved: ResolvedPreset, deps: 
     }
     skills.push(name);
   }
+  const memory = deps.memory;
+  if (!memory) return { skills, notes: 0 };
   let notes = 0;
   for (const [path, value] of Object.entries(preset.seed?.memory ?? {})) {
-    if (path === "MEMORY.md") deps.memory.writeIndex(botId, value);
-    else deps.memory.writeTopic(botId, path.slice("memory/".length), value);
+    if (path === "MEMORY.md") memory.writeIndex(botId, value);
+    else memory.writeTopic(botId, path.slice("memory/".length), value);
     notes += 1;
   }
   return { skills, notes };

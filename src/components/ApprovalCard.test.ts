@@ -739,7 +739,7 @@ describe("ApprovalCard for a change that applied on its own", () => {
     const memory = render(applied({ tool: "propose_team_memory", subtitle: "Person: Ada Lovelace — Runs the payroll review.",
       teamMemoryRequest: { section: "", entryId: "e", kind: "person", revision: "v1" } }));
     expect(memory).toContain("Scout saved to department memory: Person: Ada Lovelace");
-    expect(memory).toContain(">Undo<");
+    expect(memory).not.toContain(">Undo<");
     expect(memory).not.toContain("Remember");
   });
 

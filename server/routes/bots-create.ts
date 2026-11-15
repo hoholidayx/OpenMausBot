@@ -26,6 +26,7 @@ export type ModelSelectionCheck = { ok: true; selection: ModelSelection } | ({ o
 export interface BotCreateRouteDeps {
   store: Store;
   cfg: AppConfig;
+  legacyMemory?: boolean;
   presetStore: Pick<PresetStore, "resolve">;
   orgInstallStatuses(): ReadonlyMap<string, OrgInstallStatus>;
   /** A hosted (company) workspace: Full access comes only from its policy. */
@@ -214,7 +215,7 @@ export function createBotCreateRoutes(deps: BotCreateRouteDeps): RouteHandler {
         });
         const presetSkills = new Set(preset?.preset.skills ?? []);
         const presetNotes = new Set(Object.keys(preset?.preset.seed?.memory ?? {}));
-        for (const [file, text] of Object.entries(template.memory)) {
+        for (const [file, text] of Object.entries(deps.legacyMemory === false ? {} : template.memory)) {
           if (presetNotes.has(file)) continue;
           journalMemoryWrite(bot.id, file, text, { actor: "person", via: "api" });
         }
@@ -222,7 +223,7 @@ export function createBotCreateRoutes(deps: BotCreateRouteDeps): RouteHandler {
           applyPresetToBot(bot.id, preset, {
             store,
             skills: { install: installSkill, setEnabled: setSkillEnabled, installOrg: installOrgSkill },
-            memory: { writeIndex: writeMemoryFile, writeTopic: writeMemoryTopic },
+            ...(deps.legacyMemory !== false ? { memory: { writeIndex: writeMemoryFile, writeTopic: writeMemoryTopic } } : {}),
           });
         }
         for (const skill of template.skills) {

@@ -4,6 +4,7 @@
 import { botAvatarUrlSchema } from "../../shared/bot-avatar.ts";
 import type { CloudTeam } from "../cloud-team.ts";
 import type { MemberProfile, MemberProfilePatch } from "../host/cloud-team-host.ts";
+import { LEGACY_MEMORY_DISABLED } from "../legacy-memory.ts";
 import { ABOUT_ME_MAX, PERSON_NAME_MAX, type SeedField } from "../people-about.ts";
 import { personKey } from "../person-key.ts";
 import type { RequestAuth } from "../request-auth.ts";
@@ -13,6 +14,7 @@ import { PASS, type RouteHandler } from "./table.ts";
 
 export interface MeRouteDeps {
   team: CloudTeam | null;
+  legacyMemory?: boolean;
   session(auth: RequestAuth): SessionRecord | null;
   /** The person's own welcome to the team (team-welcome.ts): who invited them, whether they saw it, its steps they finished. */
   welcome: Pick<TeamWelcomeStore, "read" | "save">;
@@ -55,6 +57,7 @@ export function createMeRoutes(deps: MeRouteDeps): RouteHandler {
       patch[key] = given[key];
     }
     if (!Object.keys(patch).length) return json(res, 400, { error: "send { name, avatarUrl, aboutMe }: what to change about you" });
+    if (patch.aboutMe !== undefined && deps.legacyMemory === false) return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
     if (given.fillEmpty !== undefined && given.fillEmpty !== true) return json(res, 400, { error: "fillEmpty is true or absent" });
     if (given.fillEmpty === true && patch.aboutMe !== undefined) return json(res, 400, { error: "Only your name and picture fill in from your computer" });
     if (patch.aboutMe !== undefined && patch.aboutMe.length > ABOUT_ME_MAX * 2) return json(res, 400, { error: `About you is at most ${ABOUT_ME_MAX} characters` });

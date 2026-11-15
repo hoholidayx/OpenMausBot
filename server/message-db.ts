@@ -768,12 +768,13 @@ const SNIPPET_TOKENS = 48;
 export function readMessageText(
   threadId: string,
   messageId: string,
+  includeDigests = true,
 ): { threadId: string; messageId: string; at: number; role: string; text: string; from?: string; peer?: string } | null {
   const row = db()
     .prepare(
       "SELECT at, role, text, json_extract(json, '$.from.name') AS from_name, " +
         "json_extract(json, '$.peerAsk.name') AS peer_name FROM messages " +
-        "WHERE thread_id = ? AND id = ? AND kind IN ('text', 'digest') AND text IS NOT NULL",
+        `WHERE thread_id = ? AND id = ? AND ${includeDigests ? "kind IN ('text', 'digest')" : "kind = 'text'"} AND text IS NOT NULL`,
     )
     .get(threadId, messageId) as
     | { at: number; role: string; text: string; from_name: string | null; peer_name: string | null }
@@ -810,7 +811,7 @@ function rangeClause(range: RecallRange | undefined, column: string): { sql: str
   return { sql: parts.map((part) => ` AND ${part}`).join(""), params };
 }
 
-export function recallMessages(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange, mode: SearchMode = "all"): RecallHit[] {
+export function recallMessages(query: string, threadIds: readonly string[], limit = 12, range?: RecallRange, mode: SearchMode = "all", includeDigests = true): RecallHit[] {
   const match = ftsQuery(query, mode);
   if (!match || !threadIds.length) return [];
   const placeholders = threadIds.map(() => "?").join(", ");
@@ -821,7 +822,7 @@ export function recallMessages(query: string, threadIds: readonly string[], limi
         `json_extract(m.json, '$.peerAsk.name') AS peer_name, substr(m.text, 1, ${PEER_NOTE_HEAD_CHARS}) AS head, ` +
         `snippet(messages_fts, 0, '[', ']', '…', ${SNIPPET_TOKENS}) AS snippet ` +
         "FROM messages_fts JOIN messages m ON m.rowid = messages_fts.rowid " +
-        `WHERE messages_fts MATCH ? AND m.kind IN ('text', 'digest') AND m.thread_id IN (${placeholders})${window.sql} ` +
+        `WHERE messages_fts MATCH ? AND ${includeDigests ? "m.kind IN ('text', 'digest')" : "m.kind = 'text'"} AND m.thread_id IN (${placeholders})${window.sql} ` +
         "ORDER BY (m.kind = 'digest'), bm25(messages_fts), m.at DESC LIMIT ?",
     )
     .all(match, ...threadIds, ...window.params, limit) as Array<{

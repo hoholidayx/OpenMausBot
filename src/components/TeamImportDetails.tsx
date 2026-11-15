@@ -1,10 +1,13 @@
 // The template preview body: what a team, package or backup brings and what stays behind. Shared by Templates and
 // the organization shelf.
 import { BookOpen, CalendarClock, Check, Crown, MessageSquare, NotebookPen, Plug, Users } from "lucide-react";
+import { useContext } from "react";
 
 import { cn } from "@/lib/cn";
+import { legacyMemoryEnabled } from "@/lib/feature-flags";
 import { t } from "@/lib/i18n";
 import type { PendingTeamImport } from "@/lib/team-import";
+import { StoreContext } from "@/state/store";
 
 export const TEAM_GLYPHS = [
   "bg-purple-500/15 text-purple-300",
@@ -18,6 +21,7 @@ export function TeamImportDetails({ pending, importedNames, org = false }: {
   importedNames: string[];
   org?: boolean;
 }) {
+  const showMemory = legacyMemoryEnabled(useContext(StoreContext)?.state.config);
   return (
     <>
       {pending.description && (
@@ -41,7 +45,7 @@ export function TeamImportDetails({ pending, importedNames, org = false }: {
           {!pending.library && <span className="flex items-center gap-1.5 rounded-full bg-raised px-3 py-1.5"><CalendarClock size={13} />{pending.version === 2 ? t("teamImport.routinesPaused", { count: pending.routines }) : t("templates.pausedRoutines", { count: pending.routines })}</span>}
           {pending.kind === "package" && pending.version !== 2 && <span className="flex items-center gap-1.5 rounded-full bg-raised px-3 py-1.5"><Plug size={13} />{t("templates.connections", { count: pending.apps.length })}</span>}
           {Boolean(pending.connections?.length) && <span className="flex items-center gap-1.5 rounded-full bg-raised px-3 py-1.5"><Plug size={13} />{t("teamImport.connections", { count: pending.connections?.length ?? 0 })}</span>}
-          {Boolean(pending.notes) && <span className="flex items-center gap-1.5 rounded-full bg-raised px-3 py-1.5"><NotebookPen size={13} />{t("teamImport.notes", { count: pending.notes ?? 0 })}</span>}
+          {showMemory && Boolean(pending.notes) && <span className="flex items-center gap-1.5 rounded-full bg-raised px-3 py-1.5"><NotebookPen size={13} />{t("teamImport.notes", { count: pending.notes ?? 0 })}</span>}
           {Boolean(pending.presets?.length) && <span className="flex items-center gap-1.5 rounded-full bg-raised px-3 py-1.5"><Users size={13} />{t("teamImport.presets", { count: pending.presets?.length ?? 0 })}</span>}
         </div>
       )}

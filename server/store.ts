@@ -76,7 +76,7 @@ export function isProjectEmoji(value: unknown): value is string {
 
 export interface TaskRecord extends Omit<WireTask, TaskWireDerivedKeys> {
   resumeCursors: Record<string, unknown>;
-  legacyMemoryDisabled?: true;
+  legacyMemoryDisabled?: true | 2;
   lastInstanceId?: string;
   handedMessages?: Record<string, HandedState>;
   appliedCompactionId?: string;

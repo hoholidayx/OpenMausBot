@@ -8,7 +8,9 @@ import type { Bot } from "@/state/store";
 const fixture = vi.hoisted(() => ({ team: true }));
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
-  return { ...original, useStore: () => ({ state: { ...original.initialState, config: fixture.team ? { team: { id: "t", name: "Acme" } } : {} }, dispatch: vi.fn() }) };
+  return { ...original, useStore: () => ({ state: { ...original.initialState, config: {
+    features: { legacyMemory: true }, ...(fixture.team ? { team: { id: "t", name: "Acme" } } : {}),
+  } }, dispatch: vi.fn() }) };
 });
 
 const { MemoryPage } = await import("./pages");

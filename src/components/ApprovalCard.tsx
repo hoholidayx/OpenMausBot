@@ -1,7 +1,7 @@
 import { useContext, useState, type ReactNode } from "react";
 import { Check, Clock3, ShieldCheck, Undo2, X } from "lucide-react";
 import { api, ApiError, StoreContext, type Bot, type Message, type OptionCardData } from "@/state/store";
-import { shareLearnedSkillsMode } from "@/lib/feature-flags";
+import { legacyMemoryEnabled, shareLearnedSkillsMode } from "@/lib/feature-flags";
 import { cn } from "@/lib/cn";
 import { activeLocale, t, tFromServer } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
@@ -244,7 +244,8 @@ function AppliedChangeLine({
   // Kept until the card's own patch arrives, so the Share button cannot come back in between.
   const [sharedNow, setSharedNow] = useState<{ requestId: string; shared: SkillShareRecord }>();
   const config = useContext(StoreContext)?.state.config ?? null;
-  const reviewsTeamMemory = useOwnerOrAdmin() !== false;
+  const ownerOrAdmin = useOwnerOrAdmin();
+  const reviewsTeamMemory = legacyMemoryEnabled(config) && ownerOrAdmin !== false;
   const canUndo = summary.canUndo && (!card.teamMemoryRequest || reviewsTeamMemory);
   const undone = card.undone === true;
   const cancels = summary.cancels === true;

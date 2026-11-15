@@ -1,12 +1,14 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
 import cloudHomeDark from "@/assets/whats-new/cloud-home-dark.webp";
 import cloudHomeLight from "@/assets/whats-new/cloud-home-light.webp";
 import { cn } from "@/lib/cn";
 import { useColorScheme } from "@/lib/color-scheme";
+import { legacyMemoryEnabled } from "@/lib/feature-flags";
 import { t } from "@/lib/i18n";
 import { newCloudUrl, startTeamUrl, type WhatsNewAction, type WhatsNewSlide, type WhatsNewView } from "@/lib/whats-new";
 import type { LocaleKey } from "@/locales";
+import { StoreContext } from "@/state/store";
 import { CLOSE, PRIMARY, QUIET, SHEET } from "../cloud-buy/parts";
 import { LinkButton, NotNowButton } from "../NoticeCard";
 import { TeamPicture } from "./TeamPicture";
@@ -48,6 +50,7 @@ function Picture({ slide, active }: { slide: WhatsNewSlide; active: boolean }) {
 export function WhatsNewPopup({ view, report, onBuy, onDone }: {
   view: WhatsNewView; report: (action: WhatsNewAction, slide: WhatsNewSlide) => void; onBuy: (slide: WhatsNewSlide) => void; onDone: () => void;
 }) {
+  const showMemory = legacyMemoryEnabled(useContext(StoreContext)?.state.config);
   const [at, setAt] = useState(0);
   const slide = view.slides[at] ?? view.slides[0]!, count = view.slides.length;
   const [seen] = useState(() => new Set<WhatsNewSlide>());
@@ -114,7 +117,7 @@ export function WhatsNewPopup({ view, report, onBuy, onDone }: {
               <h2 id={titleId(of)} tabIndex={-1} className="mt-1 text-[19px] font-semibold leading-6 tracking-[-0.012em] text-ink outline-none! [text-wrap:balance]">{t(WORDS[of].title)}</h2>
               <p className="mt-2 text-[14px] leading-5 text-ink-secondary [text-wrap:pretty]">{t(WORDS[of].body)}</p>
               {of === "team" && <ul className="mt-3 flex flex-col gap-1.5 text-[13px] leading-[18px] text-ink">
-                {TEAM_POINTS.map(point => <li key={point} className="flex items-start gap-2"><Check size={14} strokeWidth={2} className="mt-0.5 shrink-0 text-ink-tertiary" aria-hidden="true" />{t(point)}</li>)}
+                {TEAM_POINTS.filter((point) => showMemory || point !== "whatsNew.team.memory").map(point => <li key={point} className="flex items-start gap-2"><Check size={14} strokeWidth={2} className="mt-0.5 shrink-0 text-ink-tertiary" aria-hidden="true" />{t(point)}</li>)}
               </ul>}
               <div className="mt-5 flex flex-wrap items-start gap-2">{actions(of)}</div>
               {view.plans[of] && <p className="mt-2.5 text-[12px] leading-4 text-ink-tertiary">{view.plans[of]!.terms}</p>}

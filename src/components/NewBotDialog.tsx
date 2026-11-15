@@ -7,6 +7,7 @@ import { BOT_ROLES, roleProfilePatch } from "@/lib/bot-roles";
 import { readyBot, readyBotTemplate } from "@/lib/ready-bots";
 import { chosenPreset, presetDraftPatch, presetGroups, presetPictureFile, presetSummaryLines, type BotPreset } from "@/lib/bot-presets";
 import { cn } from "@/lib/cn";
+import { legacyMemoryEnabled } from "@/lib/feature-flags";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
@@ -58,7 +59,7 @@ function NewBotEditor({ defaultsMode = false, onClose, onCreated, readyBotId }: 
   const parent = useStore();
   const [, render] = useState(0);
   const [draft, setDraft] = useState(() => new BotCreationDraft(EMPTY_BOT_DEFAULTS, () => render(value => value + 1)));
-  const [active, setActive] = useState<Section>("Identity");
+  const [selected, setActive] = useState<Section>("Identity");
   const [ready, setReady] = useState(false);
   const [localSaving, setSaving] = useState(false);
   const saving = localSaving || parent.state.botCreationPending;
@@ -73,7 +74,12 @@ function NewBotEditor({ defaultsMode = false, onClose, onCreated, readyBotId }: 
   const [chosenOwner, setChosenOwner] = useState<string | null>(null);
   const ownerOrAdmin = useOwnerOrAdmin();
   const showThreads = useShowThreads();
-  const sections = useAdvancedMode() ? SECTIONS : SECTIONS.filter((section) => section !== "Model");
+  const advanced = useAdvancedMode();
+  const showMemory = legacyMemoryEnabled(parent.state.config);
+  const sections = SECTIONS
+    .filter((section) => advanced || section !== "Model")
+    .filter((section) => showMemory || section !== "Memory");
+  const active = sections.includes(selected) ? selected : "Identity";
   const [everyone, setEveryone] = useState(false);
   const choosesVisibility = !team && !defaultsMode && typeof window !== "undefined" && !window.ogb && ownerOrAdmin === true;
   const dialog = useRef<HTMLDivElement>(null);

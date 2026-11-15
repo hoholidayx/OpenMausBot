@@ -33,7 +33,7 @@ import {
 import { localizedRelativeTime } from "@/lib/relative-time";
 import { shortPath } from "@/lib/short-path";
 import { activeLocale, t } from "@/lib/i18n";
-import { legacyMemoryEnabled, roomMemoryCaptureEnabled } from "@/lib/feature-flags";
+import { roomMemoryCaptureEnabled } from "@/lib/feature-flags";
 import { api, ApiError, useStore, type Bot, type ConfigStatus } from "@/state/store";
 import { Switch } from "../SettingsPrimitives";
 import { useDesktopCapabilities } from "../DesktopCapabilities";
@@ -124,7 +124,6 @@ export function MemorySection({ bot, active = true, onToggle }: { bot: Bot; acti
   const [lendingReviewStale, setLendingReviewStale] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const { state, dispatch } = useStore();
-  const legacyMemory = legacyMemoryEnabled(state.config);
   const learnFromRooms = roomMemoryCaptureEnabled(state.config);
   const [roomsSaving, setRoomsSaving] = useState(false);
   const [roomsError, setRoomsError] = useState("");
@@ -298,12 +297,12 @@ export function MemorySection({ bot, active = true, onToggle }: { bot: Bot; acti
       <div className="rounded-xl bg-card p-4">
         <div className="text-[15px] font-medium text-ink">{t("memory.title")}</div>
         <label className="mt-3 flex items-center gap-2 text-[13px] text-ink">
-          <input type="checkbox" checked={legacyMemory && bot.memoryEnabled !== false} disabled={!legacyMemory || bot.busy} onChange={(event) => onToggle(event.target.checked)} />
+          <input type="checkbox" checked={bot.memoryEnabled !== false} disabled={bot.busy} onChange={(event) => onToggle(event.target.checked)} />
           {t("memory.enable")}
         </label>
         <p className="mt-1 text-[13px] text-ink-secondary">
-          {legacyMemory ? t("memory.enableHelp") : t("memory.disabledByServer")}
-          {legacyMemory && bot.busy ? ` ${t("memory.busyHelp")}` : ""}
+          {t("memory.enableHelp")}
+          {bot.busy ? ` ${t("memory.busyHelp")}` : ""}
         </p>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-secondary">
           {t("memory.notesHelp")}
@@ -345,9 +344,9 @@ export function MemorySection({ bot, active = true, onToggle }: { bot: Bot; acti
         />
       )}
 
-      {legacyMemory && overview && <MemoryGauge index={overview.index} />}
+      {overview && <MemoryGauge index={overview.index} />}
 
-      {legacyMemory && bot.memoryEnabled !== false && <MemoryUpkeepCard
+      {bot.memoryEnabled !== false && <MemoryUpkeepCard
         enabled={bot.memoryUpkeep !== false}
         status={upkeep}
         tidying={tidying}
@@ -377,7 +376,7 @@ export function MemorySection({ bot, active = true, onToggle }: { bot: Bot; acti
           <textarea
             className={cn(inputCls, "mt-2 min-h-[200px] resize-y font-mono text-[13px] leading-relaxed")}
             value={editing.text}
-            readOnly={!legacyMemory || editing.readOnly}
+            readOnly={editing.readOnly}
             placeholder={
               editing.path === MEMORY_INDEX
                 ? t("memory.indexPlaceholder")
@@ -386,7 +385,7 @@ export function MemorySection({ bot, active = true, onToggle }: { bot: Bot; acti
             aria-label={editing.path === MEMORY_INDEX ? t("memory.botMemory") : t("memory.fileLabel", { path: editing.path })}
             onChange={(e) => setEditing({ ...editing, text: e.target.value, dirty: true })}
           />
-          {legacyMemory && (editing.readOnly ? (
+          {editing.readOnly ? (
             <p className="mt-2 text-[12px] text-ink-secondary">{t("memory.logsReadOnly")}</p>
           ) : (
             <div className="mt-2 flex items-center gap-3">
@@ -399,7 +398,7 @@ export function MemorySection({ bot, active = true, onToggle }: { bot: Bot; acti
                 </button>
               )}
             </div>
-          ))}
+          )}
           {savedDraft !== null && (
             <div className="mt-3">
               <div className="mb-1 text-[12px] text-ink-secondary">{t("memory.unsavedDraft")}</div>
@@ -422,9 +421,9 @@ export function MemorySection({ bot, active = true, onToggle }: { bot: Bot; acti
             files={overview.topics}
             selected={editing?.path}
             onOpen={(file) => void open(file.path)}
-            onDelete={legacyMemory ? (file) => void remove(file) : undefined}
+            onDelete={(file) => void remove(file)}
           />
-          {legacyMemory && <div className="mt-3 flex items-center gap-2">
+          <div className="mt-3 flex items-center gap-2">
             <input
               className={cn(inputCls, "py-1.5 text-[13px]")}
               value={newTopic}
@@ -438,7 +437,7 @@ export function MemorySection({ bot, active = true, onToggle }: { bot: Bot; acti
             <button type="button" className={buttonCls} disabled={!newTopic.trim()} onClick={() => void createTopic()}>
               {t("memory.newTopic")}
             </button>
-          </div>}
+          </div>
           {overview.logs.length > 0 && (
             <div className="mt-4">
               <MemoryFileRows
@@ -447,7 +446,7 @@ export function MemorySection({ bot, active = true, onToggle }: { bot: Bot; acti
                 files={overview.logs}
                 selected={editing?.path}
                 onOpen={(file) => void open(file.path)}
-                onDelete={legacyMemory ? (file) => void remove(file) : undefined}
+                onDelete={(file) => void remove(file)}
               />
             </div>
           )}
@@ -460,7 +459,7 @@ export function MemorySection({ bot, active = true, onToggle }: { bot: Bot; acti
           {t("memory.changesHelp")}
         </p>
         <div className="mt-3">
-          <MemoryJournalList rows={journal} botName={bot.name} reverting={reverting} onRevert={legacyMemory ? (row) => void revert(row) : undefined} />
+          <MemoryJournalList rows={journal} botName={bot.name} reverting={reverting} onRevert={(row) => void revert(row)} />
         </div>
       </div>
 
@@ -619,7 +618,7 @@ export function MemoryFileRows({
   files: MemoryFileInfo[];
   selected?: string;
   onOpen: (file: MemoryFileInfo) => void;
-  onDelete?: (file: MemoryFileInfo) => void;
+  onDelete: (file: MemoryFileInfo) => void;
 }) {
   return (
     <div>
@@ -644,7 +643,7 @@ export function MemoryFileRows({
                   {formatBytes(file.bytes)} · {localizedRelativeTime(file.modifiedAt, activeLocale())}
                 </span>
               </button>
-              {onDelete && <button
+              <button
                 type="button"
                 onClick={() => onDelete(file)}
                 aria-label={t("memory.deleteFile", { name: file.name })}
@@ -652,7 +651,7 @@ export function MemoryFileRows({
                 className="shrink-0 rounded-md p-1 text-ink-secondary hover:bg-control hover:text-danger"
               >
                 <Trash2 size={14} />
-              </button>}
+              </button>
             </div>
           ))}
         </div>
@@ -671,7 +670,7 @@ export function MemoryJournalList({
   rows: MemoryJournalRow[] | null;
   botName: string;
   reverting: string | null;
-  onRevert?: (row: MemoryJournalRow) => void;
+  onRevert: (row: MemoryJournalRow) => void;
   now?: number;
 }) {
   if (!rows) return <div className="text-[13px] text-ink-secondary">{t("memory.loading")}</div>;
@@ -695,7 +694,7 @@ export function MemoryJournalList({
                   </>
                 )}
               </div>
-              {onRevert && (row.canRevert ? (
+              {row.canRevert ? (
                 <button
                   type="button"
                   disabled={reverting !== null}
@@ -709,7 +708,7 @@ export function MemoryJournalList({
                 <span className="shrink-0 text-[12px] text-ink-secondary" title={row.revertUnavailableReason}>
                   {t("memory.cantUndo")}
                 </span>
-              ))}
+              )}
             </div>
             {row.diff && (
               <details className="mt-1">

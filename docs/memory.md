@@ -10,11 +10,12 @@ from `GET /api/config` for the effective state.
 With legacy memory off:
 
 - New turns omit bot and team notes, About me text, the recent-work brief and
-  automatic recall. Agent memory tools and agent cross-conversation search
-  are unavailable.
+  automatic recall. Agents can use `session_search` to search and read messages
+  in conversations they can access.
 - Capture, tidy-up, dreams, daily logs and their change journal writes stop.
-  Existing notes and journals can be reviewed. Editing or publishing notes
-  through the old memory APIs requires legacy memory to be enabled.
+  The app hides legacy memory settings and leaves saved notes on disk.
+- Bot defaults, presets and shared team packages omit legacy notes when
+  creating bots or publishing packages.
 - Workspace moves and changes to the ownership of a personal bot can still
   relocate previously saved notes and journals.
 - The current conversation, compaction, standing instructions, department

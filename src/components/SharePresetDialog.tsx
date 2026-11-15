@@ -2,9 +2,10 @@ import { Check, Loader2, ShieldCheck, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { legacyMemoryEnabled } from "@/lib/feature-flags";
 import { t, tFromServer } from "@/lib/i18n";
 import { describePart, describeSkip, preparePictures, saveShareFile, type ShareSkip } from "@/lib/team-share";
-import { api } from "@/state/store";
+import { api, useStore } from "@/state/store";
 import type { NewBotDefaults } from "../../shared/new-bot-defaults";
 import type { PackageDocument, PackageSummary } from "../../shared/package-format";
 
@@ -43,14 +44,14 @@ export function presetShareBody(choices: PresetShareChoices): Record<string, unk
   };
 }
 
-export function SharePresetContents({ preview, localSkips }: { preview: PresetShareResponse; localSkips: string[] }) {
+export function SharePresetContents({ preview, localSkips, showMemory = true }: { preview: PresetShareResponse; localSkips: string[]; showMemory?: boolean }) {
   const preset = preview.document.package.presets?.[0];
   const notes = Object.keys(preset?.seed?.memory ?? {}).length;
   const rows: Array<[string, string]> = [
     [t("teamShare.part.skills"), preset?.skills?.length ? `${preset.skills.length} · ${preset.skills.join(", ")}` : "0"],
-    [t("teamShare.part.notes"), notes ? String(notes) : t("teamShare.none")],
     [t("teamShare.part.pictures"), preset?.bot.appearance?.avatar ? t("teamShare.yes") : t("teamShare.none")],
   ];
+  if (showMemory) rows.splice(1, 0, [t("teamShare.part.notes"), notes ? String(notes) : t("teamShare.none")]);
   const skipped = [...localSkips, ...preview.skipped.map((skip) => describeSkip(skip, preview.document))];
   return (
     <div>
@@ -88,6 +89,8 @@ export function SharePresetContents({ preview, localSkips }: { preview: PresetSh
 }
 
 export function SharePresetDialog({ onClose }: { onClose: () => void }) {
+  const { state } = useStore();
+  const showMemory = legacyMemoryEnabled(state.config);
   const dialogRef = useRef<HTMLDivElement>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -119,7 +122,7 @@ export function SharePresetDialog({ onClose }: { onClose: () => void }) {
   }, []);
 
   const choices = (dryRun: boolean): PresetShareChoices => ({
-    name, description, release, notes, includeNotes, dryRun,
+    name, description, release, notes, includeNotes: showMemory && includeNotes, dryRun,
     ...(includePicture && picture?.dataUrl ? { picture: picture.dataUrl } : {}),
   });
 
@@ -142,7 +145,7 @@ export function SharePresetDialog({ onClose }: { onClose: () => void }) {
     }, 250);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [picture, includeNotes, includePicture]);
+  }, [picture, showMemory, includeNotes, includePicture]);
 
   const save = async () => {
     if (saving) return;
@@ -196,22 +199,22 @@ export function SharePresetDialog({ onClose }: { onClose: () => void }) {
             <>
               <p className="flex items-center gap-2 text-[14px] font-medium text-ink"><Check size={16} className="text-success" />{t("teamShare.saved", { filename: saved.filename })}</p>
               <p className="mt-1 text-[13px] leading-relaxed text-ink-secondary">{t("presetShare.savedHint")}</p>
-              <div className="mt-4"><SharePresetContents preview={saved} localSkips={localSkips} /></div>
+              <div className="mt-4"><SharePresetContents preview={saved} localSkips={localSkips} showMemory={showMemory} /></div>
             </>
           ) : (
             <>
               {preview
-                ? <SharePresetContents preview={preview} localSkips={localSkips} />
+                ? <SharePresetContents preview={preview} localSkips={localSkips} showMemory={showMemory} />
                 : !error && <div className="flex items-center gap-2 py-6 text-[13px] text-ink-secondary"><Loader2 size={15} className="animate-spin" />{t("presetShare.preparing")}</div>}
               <fieldset className="mt-4 space-y-2 text-[13px]" disabled={saving}>
                 <label className="flex items-center gap-2">
                   <input type="checkbox" className="size-4 accent-accent" checked={includePicture} onChange={(event) => setIncludePicture(event.target.checked)} />
                   {t("presetShare.includePicture")}
                 </label>
-                <label className="flex items-center gap-2">
+                {showMemory && <label className="flex items-center gap-2">
                   <input type="checkbox" className="size-4 accent-accent" checked={includeNotes} onChange={(event) => setIncludeNotes(event.target.checked)} />
                   {t("presetShare.includeNotes")}
-                </label>
+                </label>}
               </fieldset>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <label className="block text-[13px] text-ink-secondary">{t("presetShare.name")}

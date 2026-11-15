@@ -55,6 +55,7 @@ process.env.FAKE_CLAUDE_EXIT_AFTER_TURN = "1";`,
       );
       const base = `/api/bots/${bot.id}`;
       await call(owner, "PUT", "/api/config", { features: settings });
+      await call(owner, "PUT", "/api/config", { newBotDefaults: { memory: { "MEMORY.md": note } } });
       await call(owner, "PUT", `/api/section-context?section=${section}`, { text: rules });
       await call(
         owner,
@@ -107,47 +108,75 @@ process.env.FAKE_CLAUDE_EXIT_AFTER_TURN = "1";`,
         .poll(async () => (await call(member, "GET", `${base}/memory/mine`)).logs.length)
         .toBeGreaterThan(0);
       const before = await call(member, "GET", `${base}/memory/mine`);
+      await call(member, "POST", `${base}/compact`, { threadId }, 202);
+      await expect.poll(async () => (await transcript()).messages.some((row: { kind: string }) => row.kind === "compaction")).toBe(true);
 
       await team.relaunch({ OMB_LEGACY_MEMORY: undefined });
       const off = await turn("Remind me about the indigo kelp pilot schedule.");
       for (const text of [shared, note, privateNote, profile])
         expect(off.systemPrompt).not.toContain(text);
       expect(off.systemPrompt).toContain(rules);
+      expect(off.systemPrompt).toContain("Earlier conversations and rooms you can access are searchable with session_search");
+      expect(off.systemPrompt).not.toContain("saved notes are searchable");
       expect(JSON.stringify(off.prompt)).toContain(previousRequest);
       expect(JSON.stringify(off.prompt)).not.toContain(topic);
+      expect(JSON.stringify(off.prompt)).not.toContain("Earlier conversation summary");
       expect(off.argv).not.toContain("--resume");
-      const blockedTools = ["memory_update", "memory_log", "propose_team_memory", "session_search"];
-      const toolNames = availableTools(
+      const blockedTools = ["memory_update", "memory_log", "propose_team_memory"];
+      const tools = availableTools(
         catalogProfileFromEnv(off.mcpConfig.mcpServers.agents.env),
-      ).map((tool) => tool.name);
+      );
+      const toolNames = tools.map((tool) => tool.name);
       expect(toolNames).toContain("coordinate_bots");
       for (const name of blockedTools) expect(toolNames).not.toContain(name);
+      expect(tools.find((tool) => tool.name === "session_search")?.inputSchema.properties).not.toHaveProperty("scope");
 
-      const token = await team.capability(bot.id, threadId);
-      const catalog = await fetch(`${team.base}${OWN_MCP_HTTP_PATH}agents`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json",
-          [AGENTS_ENV_HEADER]: Buffer.from(JSON.stringify({ OMB_LEGACY_MEMORY_ENABLED: "1" })).toString("base64url"),
-        },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-      });
-      expect(catalog.status).toBe(200);
-      const { result } = await catalog.json() as { result: { tools: Array<{ name: string }> } };
-      const httpToolNames = result.tools.map((tool) => tool.name);
+      const { task: lookup } = await call(member, "POST", `${base}/tasks`, { title: "Look up earlier work" }, 201);
+      const token = await team.capability(bot.id, lookup.threadId);
+      const agentTool = async <Result>(method: string, params?: object): Promise<Result> => {
+        const response = await fetch(`${team.base}${OWN_MCP_HTTP_PATH}agents`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+            [AGENTS_ENV_HEADER]: Buffer.from(JSON.stringify({ OMB_LEGACY_MEMORY_ENABLED: "1", OMB_BOT_ID: bot.id, OMB_THREAD_ID: lookup.threadId })).toString("base64url"),
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        });
+        expect(response.status).toBe(200);
+        return (await response.json() as { result: Result }).result;
+      };
+      const { tools: httpTools } = await agentTool<{ tools: Array<{ name: string; inputSchema: { properties: object } }> }>("tools/list");
+      const httpToolNames = httpTools.map((tool) => tool.name);
       expect(httpToolNames).toContain("coordinate_bots");
       for (const name of blockedTools) expect(httpToolNames).not.toContain(name);
+      expect(httpTools.find((tool) => tool.name === "session_search")!.inputSchema.properties).not.toHaveProperty("scope");
+      type ToolResponse = { isError: boolean; content: Array<{ text: string }> };
+      const found = await agentTool<ToolResponse>("tools/call", { name: "session_search", arguments: { query: "first release chat" } });
+      expect(found).toMatchObject({ isError: false });
+      const earlier = (await transcript()).messages.find((row: { text?: string }) => row.text === previousRequest);
+      expect(found.content[0].text).toContain(earlier.id);
+      const full = await agentTool<ToolResponse>("tools/call", { name: "session_search", arguments: { thread_id: threadId, message_id: earlier.id } });
+      expect(full).toMatchObject({ isError: false });
+      expect(full.content[0].text).toContain(previousRequest);
+
+      for (const scope of ["memory", "team"]) {
+        const params = new URLSearchParams({ fromBotId: bot.id, q: "indigo kelp", scope });
+        const response = await fetch(`${team.base}/api/internal/session-search?${params}`, { headers: { authorization: `Bearer ${token}` } });
+        expect(response.status, scope).toBe(403);
+      }
+      const params = new URLSearchParams({ fromBotId: bot.id, q: "indigo kelp" });
+      const search = await fetch(`${team.base}/api/internal/session-search?${params}`, { headers: { authorization: `Bearer ${token}` } });
+      expect(search.status).toBe(200);
+      expect(await search.json()).toMatchObject({ memoryHits: [], teamHits: [] });
 
       for (const path of [
         "memory",
         "memory/log",
         "team-memory",
-        "session-search",
-        "session-read",
       ]) {
         const response = await fetch(`${team.base}/api/internal/${path}`, {
-          method: path.startsWith("session-") ? "GET" : "POST",
+          method: "POST",
           headers: { authorization: `Bearer ${token}` },
         });
         expect(response.status, path).toBe(403);
@@ -168,6 +197,8 @@ process.env.FAKE_CLAUDE_EXIT_AFTER_TURN = "1";`,
         409,
       );
       await call(member, "POST", `${base}/memory/team`, {}, 409);
+      await call(member, "PUT", "/api/me", { aboutMe: "Should not save." }, 409);
+      expect((await call(member, "GET", "/api/me")).aboutMe).toBe(profile);
       await call(owner, "POST", `${base}/memory/tidy`, undefined, 409);
       expect((await call(owner, "GET", "/api/config")).features).toMatchObject({
         legacyMemory: false,
@@ -183,6 +214,9 @@ process.env.FAKE_CLAUDE_EXIT_AFTER_TURN = "1";`,
         privateNote,
       );
       expect((await call(member, "GET", `${base}/memory/mine`)).logs).toEqual(before.logs);
+      expect((await call(owner, "GET", "/api/bot-defaults")).defaults.memory).toEqual({});
+      const { bot: created } = await call(owner, "POST", "/api/bots", { name: "No starter memory" }, 201);
+      expect((await call(owner, "GET", `/api/bots/${created.id}/memory/file?path=MEMORY.md`)).exists).toBe(false);
     } finally {
       await fixture.close();
     }

@@ -36,7 +36,7 @@ export interface CatalogProfile {
 }
 
 const BOT_MEMORY_TOOLS = new Set(["memory_update", "memory_log"]);
-const LEGACY_MEMORY_TOOLS = new Set([...BOT_MEMORY_TOOLS, "propose_team_memory", "session_search"]);
+const LEGACY_MEMORY_TOOLS = new Set([...BOT_MEMORY_TOOLS, "propose_team_memory"]);
 
 export function memoryToolAvailable(profile: CatalogProfile, name: string): boolean {
   if (profile.legacyMemoryEnabled === false && LEGACY_MEMORY_TOOLS.has(name)) return false;

@@ -2,6 +2,7 @@ import { Check, Loader2, ShieldCheck, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { legacyMemoryEnabled } from "@/lib/feature-flags";
 import { t, tFromServer } from "@/lib/i18n";
 import {
   describePart,
@@ -23,10 +24,11 @@ import {
 import { api, useStore } from "@/state/store";
 import type { NewBotDefaults } from "../../shared/new-bot-defaults";
 
-export function ShareTeamContents({ preview, includeMemory, localSkips }: {
+export function ShareTeamContents({ preview, includeMemory, localSkips, showMemory = true }: {
   preview: ShareResponse;
   includeMemory: boolean;
   localSkips: string[];
+  showMemory?: boolean;
 }) {
   const pkg = preview.document.package;
   const counts = preview.summary.counts;
@@ -43,9 +45,9 @@ export function ShareTeamContents({ preview, includeMemory, localSkips }: {
     [t("teamShare.part.leader"), leader ?? t("teamShare.none")],
     [t("teamShare.part.connections"), String(counts.connections)],
     [t("teamShare.part.pictures"), String(pictures)],
-    [t("teamShare.part.notes"), includeMemory ? String(notes) : t("teamShare.none")],
     ...(counts.presets ? [[t("teamShare.part.presets"), `${counts.presets} · ${preview.summary.presetNames.join(", ")}`] as [string, string]] : []),
   ];
+  if (showMemory) rows.push([t("teamShare.part.notes"), includeMemory ? String(notes) : t("teamShare.none")]);
   const skipped = [...localSkips, ...preview.skipped.map((skip) => describeSkip(skip, preview.document))];
   return (
     <div>
@@ -117,6 +119,7 @@ export function ShareSkillChoices({ available, ticked, counted, onToggle }: {
 
 export function ShareTeamDialog({ team, onClose }: { team: string; onClose: () => void }) {
   const { state } = useStore();
+  const showMemory = legacyMemoryEnabled(state.config);
   const dialogRef = useRef<HTMLDivElement>(null);
   const teamBots = useMemo(
     () => state.bots.filter((bot) => !bot.hidden && (bot.section?.trim() ?? "") === team),
@@ -175,11 +178,11 @@ export function ShareTeamDialog({ team, onClose }: { team: string; onClose: () =
     release,
     notes,
     skills: requestedSkills(skillChoice, available),
-    includeMemory,
+    includeMemory: showMemory && includeMemory,
     ...(includePictures && pictures ? { avatars: pictures.avatars } : {}),
     ...(includePreset ? { includeDefaultsPreset: true, ...(includePictures && presetPicture?.dataUrl ? { presetAvatar: presetPicture.dataUrl } : {}) } : {}),
     dryRun,
-  }), [team, name, tagline, summary, release, notes, skillChoice, available, includeMemory, includePictures, pictures, includePreset, presetPicture]);
+  }), [team, name, tagline, summary, release, notes, skillChoice, available, showMemory, includeMemory, includePictures, pictures, includePreset, presetPicture]);
 
   useEffect(() => {
     if (!pictures) return;
@@ -200,7 +203,7 @@ export function ShareTeamDialog({ team, onClose }: { team: string; onClose: () =
     }, 250);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pictures, skillChoice, includeMemory, includePictures, includePreset, presetPicture]);
+  }, [pictures, skillChoice, showMemory, includeMemory, includePictures, includePreset, presetPicture]);
 
   const save = async () => {
     if (saving) return;
@@ -261,13 +264,13 @@ export function ShareTeamDialog({ team, onClose }: { team: string; onClose: () =
             <p className="flex items-center gap-2 text-[14px] font-medium text-ink"><Check size={16} className="text-success" />{t("teamShare.saved", { filename: saved.filename })}</p>
             <p className="mt-1 text-[13px] leading-relaxed text-ink-secondary">{t("teamShare.savedHint")}</p>
             <div className="mt-4">
-              <ShareTeamContents preview={saved} includeMemory={includeMemory} localSkips={includePictures ? pictures?.skipped ?? [] : []} />
+              <ShareTeamContents preview={saved} includeMemory={includeMemory} showMemory={showMemory} localSkips={includePictures ? pictures?.skipped ?? [] : []} />
             </div>
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-2">
             {preview
-              ? <ShareTeamContents preview={preview} includeMemory={includeMemory} localSkips={includePictures ? pictures?.skipped ?? [] : []} />
+              ? <ShareTeamContents preview={preview} includeMemory={includeMemory} showMemory={showMemory} localSkips={includePictures ? pictures?.skipped ?? [] : []} />
               : !error && <div className="flex items-center gap-2 py-6 text-[13px] text-ink-secondary"><Loader2 size={15} className="animate-spin" />{t("teamShare.preparing")}</div>}
 
             <fieldset className="mt-4 space-y-2 text-[13px]" disabled={saving}>
@@ -275,11 +278,13 @@ export function ShareTeamDialog({ team, onClose }: { team: string; onClose: () =
                 <input type="checkbox" className="size-4 accent-accent" checked={includePictures} onChange={(event) => setIncludePictures(event.target.checked)} />
                 {t("teamShare.includePictures")}
               </label>
-              <label className="flex items-center gap-2">
-                <input type="checkbox" className="size-4 accent-accent" checked={includeMemory} onChange={(event) => setIncludeMemory(event.target.checked)} />
-                {t("teamShare.includeNotes")}
-              </label>
-              <p className="pl-6 text-[12px] leading-relaxed text-ink-secondary">{notesLine(includeMemory)}</p>
+              {showMemory && <>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" className="size-4 accent-accent" checked={includeMemory} onChange={(event) => setIncludeMemory(event.target.checked)} />
+                  {t("teamShare.includeNotes")}
+                </label>
+                <p className="pl-6 text-[12px] leading-relaxed text-ink-secondary">{notesLine(includeMemory)}</p>
+              </>}
               <ShareSkillChoices available={available ?? []} ticked={ticked} counted={available !== null} onToggle={toggleSkill} />
               <label className="flex items-center gap-2 pt-1">
                 <input type="checkbox" className="size-4 accent-accent" checked={includePreset} onChange={(event) => setIncludePreset(event.target.checked)} />

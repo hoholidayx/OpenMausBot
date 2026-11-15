@@ -192,6 +192,20 @@ describe("renderDigest", () => {
 });
 
 describe("digestPromptLine", () => {
+  it("keeps project activity and replies when the legacy memory details are excluded", () => {
+    const line = digestPromptLine({
+      ...base,
+      tools: [{ name: "Edit", count: 1, failed: 0 }, { name: "mcp__agents__memory_update", count: 1, failed: 0 }],
+      files: { changed: ["src/retry.ts"], added: [], deleted: [] },
+      memory: [{ path: "memory/old-topic.md", kind: "created" }],
+      memoryDropped: 2,
+      reply: "Updated the retry limit.",
+    }, "Dev", false);
+    expect(line).toContain("src/retry.ts");
+    expect(line).toContain("Updated the retry limit.");
+    expect(line).not.toMatch(/memory_update|old-topic|memory changes/);
+  });
+
   it("is one bracketed line attributed to the bot, for context rebuilds", () => {
     const line = digestPromptLine({ ...base, tools: [{ name: "Bash", count: 2, failed: 0 }], memory: [], reply: "Done." }, "Dev");
     expect(line.startsWith("[What Dev did in an earlier turn:")).toBe(true);

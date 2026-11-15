@@ -89,9 +89,8 @@ export function roomMemoryCaptureEnabled(config: FeatureFlagConfig | null | unde
   return config?.features?.roomMemoryCapture === true;
 }
 
-/** Older servers omit this flag and keep built-in memory enabled. */
 export function legacyMemoryEnabled(config: FeatureFlagConfig | null | undefined): boolean {
-  return config?.features?.legacyMemory !== false;
+  return config?.features?.legacyMemory === true;
 }
 
 export function savedStepsEnabled(config: FeatureFlagConfig | null | undefined): boolean {

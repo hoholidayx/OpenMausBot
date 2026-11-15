@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Settings, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
+import { legacyMemoryEnabled } from "@/lib/feature-flags";
 import { t } from "@/lib/i18n";
-import type { Bot, BotSettingsSection } from "@/state/store";
+import { useStore, type Bot, type BotSettingsSection } from "@/state/store";
 import { ChatShareMenu } from "@/components/ChatMoreMenu";
 import { useCaptionChrome } from "../DesktopCapabilities";
 import type { useBotSettingsDerived } from "../bot-settings/useBotSettingsDerived";
@@ -17,8 +18,9 @@ import { linkTarget, usePanelLink, type PanelLink } from "./panel-link";
 import { PanelHero } from "./PanelHero";
 import { PageHeader, roundButtonCls } from "./rows";
 
-function initialTarget(section: BotSettingsSection | null, link: PanelLink | null): PanelTarget {
-  return section ? linkTarget(section, link) : { tab: "details" };
+function panelTarget(section: BotSettingsSection | null, link: PanelLink | null, showMemory: boolean): PanelTarget {
+  const target = section ? linkTarget(section, link) : { tab: "details" as const };
+  return target.page === "memory" && !showMemory ? { tab: "library" } : target;
 }
 
 export function BotPanel({ bot, derived, linkedSection, onClose }: {
@@ -28,18 +30,19 @@ export function BotPanel({ bot, derived, linkedSection, onClose }: {
   onClose: () => void;
 }) {
   const { dragProps } = useCaptionChrome();
+  const { state } = useStore();
+  const showMemory = legacyMemoryEnabled(state.config);
   const link = usePanelLink();
-  const [tab, setTab] = useState<PanelTab>(() => initialTarget(linkedSection, link).tab);
-  const [stack, setStack] = useState<SimplePageId[]>(() => {
-    const page = initialTarget(linkedSection, link).page;
-    return page ? [page] : [];
-  });
-  const [anchor, setAnchor] = useState<string | null>(() => initialTarget(linkedSection, link).anchor ?? null);
+  const target = panelTarget(linkedSection, link, showMemory);
+  const [tab, setTab] = useState<PanelTab>(target.tab);
+  const [stack, setStack] = useState<SimplePageId[]>(target.page ? [target.page] : []);
+  const [anchor, setAnchor] = useState<string | null>(target.anchor ?? null);
   const [editorOpen, setEditorOpen] = useState(false);
-  const [editingInstructions, setEditingInstructions] = useState(() => Boolean(initialTarget(linkedSection, link).editInstructions));
+  const [editingInstructions, setEditingInstructions] = useState(Boolean(target.editInstructions));
   const bodyRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
-  const page = stack.at(-1) ?? null;
+  const visibleStack = showMemory ? stack : stack.filter((entry) => entry !== "memory");
+  const page = visibleStack.at(-1) ?? null;
 
   const scrollTop = () => bodyRef.current?.scrollTo({ top: 0 });
   const go = (target: PanelTarget) => {
@@ -52,7 +55,7 @@ export function BotPanel({ bot, derived, linkedSection, onClose }: {
   };
   const openTab = (next: PanelTab) => go({ tab: next });
   const openPage = (next: SimplePageId) => {
-    setStack((current) => [...current, next]);
+    setStack([...visibleStack, next]);
     setEditorOpen(false);
     scrollTop();
   };
@@ -62,14 +65,14 @@ export function BotPanel({ bot, derived, linkedSection, onClose }: {
     editorRef.current?.querySelector<HTMLElement>("[data-panel-avatar]")?.focus();
   };
   const back = () => {
-    setStack((current) => current.slice(0, -1));
+    setStack(visibleStack.slice(0, -1));
     scrollTop();
   };
 
   // A new link re-runs this even when it names the section already linked, so a repeated link lands there again.
   useEffect(() => {
-    if (linkedSection) go(linkTarget(linkedSection, link));
-  }, [linkedSection, link]);
+    if (linkedSection) go(panelTarget(linkedSection, link, showMemory));
+  }, [linkedSection, link, showMemory]);
 
   useEffect(() => {
     if (!anchor) return;
@@ -86,13 +89,13 @@ export function BotPanel({ bot, derived, linkedSection, onClose }: {
     const ownDialog = inDialog && !inDialog.contains(event.currentTarget) && inDialog !== editorRef.current && !editorRef.current?.contains(inDialog);
     if (ownDialog) return;
     if (editorOpen) closeEditor();
-    else if (stack.length > 0) back();
+    else if (visibleStack.length > 0) back();
     else return;
     event.preventDefault();
     event.stopPropagation();
   };
 
-  const backLabel = stack.length > 1 ? t(PAGES[stack[stack.length - 2]!].title, { name: bot.name }) : t(TAB_LABEL[tab]);
+  const backLabel = visibleStack.length > 1 ? t(PAGES[visibleStack[visibleStack.length - 2]!].title, { name: bot.name }) : t(TAB_LABEL[tab]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>

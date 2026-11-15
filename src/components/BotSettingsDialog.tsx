@@ -23,6 +23,7 @@ import { HistorySection } from "./bot-settings/HistorySection";
 import { UsageSection } from "./bot-settings/UsageSection";
 import { VisibilitySection } from "./bot-settings/VisibilitySection";
 import { t } from "@/lib/i18n";
+import { legacyMemoryEnabled } from "@/lib/feature-flags";
 import { useAdvancedMode } from "@/lib/interface-mode";
 import { BotPanel } from "./bot-panel/PanelShell";
 import { LibraryTab } from "./bot-panel/LibraryTab";
@@ -54,6 +55,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const ownerOrAdmin = useOwnerOrAdmin();
   const teamName = useTeamName();
   const sections = BOT_SECTIONS
+    .filter((entry) => entry.id !== "memory" || legacyMemoryEnabled(state.config))
     .filter((entry) => entry.id !== "slack" || slackUrl !== null)
     .filter((entry) => entry.id !== "visibility" || (!window.ogb && ownerOrAdmin === true && !teamName));
   // Connected apps load only once the person searches; their names find the Access section.

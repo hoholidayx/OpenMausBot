@@ -238,7 +238,7 @@ export function MemoryPage({ bot }: PageContext) {
     <>
       <Card>
         {!memoryOn ? (
-          <NoteRow>{memory.legacyMemory ? t("botPanel.library.memoryOff", { name: bot.name }) : t("memory.disabledByServer")}</NoteRow>
+          <NoteRow>{t("botPanel.library.memoryOff", { name: bot.name })}</NoteRow>
         ) : memory.error ? (
           <NoteRow tone="warn">{t("botPanel.library.memoryError")}</NoteRow>
         ) : notes === null ? (

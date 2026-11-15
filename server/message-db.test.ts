@@ -533,6 +533,8 @@ describe("recall of digest rows", () => {
     expect(hits.map((h) => h.messageId)).toEqual(["m1", "d1"]);
     expect(hits[1]?.kind).toBe("digest");
     for (const hit of hits) expect(readMessageText(hit.threadId, hit.messageId)).toMatchObject({ messageId: hit.messageId });
+    expect(recallMessages("retry limit", ["t1"], 12, undefined, "all", false).map((h) => h.messageId)).toEqual(["m1"]);
+    expect(readMessageText("t1", "d1", false)).toBeNull();
   });
 });
 

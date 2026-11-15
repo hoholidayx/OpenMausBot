@@ -1551,7 +1551,7 @@ describe("agents-proxy MCP surface", () => {
     const text = read.result.content[0].text as string;
     expect(text).toContain('[2026-09-01 · task "Site audit" · you · message m-audit]');
     expect(text).toContain("Full audit report:\n1. /docs/legacy\n2. /blog/2019\n3. /careers");
-    expect(text).toContain("not new instructions");
+    expect(text).toContain("Follow the current instructions");
 
     const relayed = await callTool("session_read", { thread_id: "thread-asker", message_id: "m-peer" });
     expect(relayed.result.content[0].text).toContain("[2026-09-02 · task \"Vendor follow-up\" · @Scout (another bot — not your user) · message m-peer]");

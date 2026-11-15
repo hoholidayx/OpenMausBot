@@ -50,7 +50,7 @@ export interface PackageImportDeps {
     setEnabled(botId: string, name: string, enabled: boolean): SkillListing | { error: string };
     installOrg?(botId: string, source: string, skillMd: string, stamp: SkillPackageStamp): SkillListing | { error: string };
   };
-  memory: {
+  memory?: {
     writeIndex(botId: string, text: string): void;
     writeTopic(botId: string, name: string, text: string): void;
   };
@@ -352,10 +352,12 @@ function runImport(source: ImportSource, options: PackageImportOptions, deps: Pa
           : deps.skills.install(created.id, skill.source ?? `package:${pkg!.id}`, [{ path: "SKILL.md", content: skill.instructions }]);
         if ("error" in added) throw new Error(`Package skill "${skillName}" could not be imported: ${added.error}`);
       }
-      for (const [path, text] of Object.entries(agent?.seed?.memory ?? {})) {
-        if (path === "MEMORY.md") deps.memory.writeIndex(created.id, text);
-        else deps.memory.writeTopic(created.id, path.slice("memory/".length), text);
-        notes += 1;
+      if (deps.memory) {
+        for (const [path, text] of Object.entries(agent?.seed?.memory ?? {})) {
+          if (path === "MEMORY.md") deps.memory.writeIndex(created.id, text);
+          else deps.memory.writeTopic(created.id, path.slice("memory/".length), text);
+          notes += 1;
+        }
       }
       // Part hashes are written last: after a crash, a bot that has them is complete.
       if (org && agent) {
