@@ -420,6 +420,13 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     expect(JSON.parse(await nextLine()).result).toEqual(catalog);
   });
 
+  it("keeps each listed tool's _meta through a tool selection, so a deferred tool stays deferred", async () => {
+    const read = { name: "read", inputSchema: { type: "object" }, _meta: { "anthropic/alwaysLoad": false } };
+    start({ tools: [read, { name: "write", inputSchema: { type: "object" } }] }, selected, LISTING_UPSTREAM);
+    send({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    expect(JSON.parse(await nextLine()).result).toEqual({ tools: [read] });
+  });
+
   describe("shaping an oversized result", () => {
     const products = Array.from({ length: 300 }, (_, i) => ({ id: `p${i}`, name: `Bar ${i}`, price: 100 + i, blurb: "x".repeat(300) }));
     const full = JSON.stringify({ nextOffset: "1", products });
@@ -473,6 +480,25 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       expect((await query({ result: "r9", query: "@" }, 1)).result).toMatchObject({ isError: true });
       expect((await query({ query: "@" }, 2)).result).toMatchObject({ isError: true });
       expect(existsSync(join(scratch, "reply.json.calls"))).toBe(false);
+    });
+
+    it("bounds wide query metadata on the wire and keeps the held result queryable", async () => {
+      const key = `items_${"x".repeat(10_000)}`;
+      const rows = Array.from({ length: 20 }, (_, id) => ({ id, text: "y".repeat(100) }));
+      start({ text: JSON.stringify({ [key]: rows }) }, { OMB_GATE_BUDGET: "512" }, SCOPED_UPSTREAM);
+      const shaped = (await call("read")).result.content[0].text;
+      expect(shaped.length).toBeLessThanOrEqual(512);
+      expect(shaped).toContain('"r1"');
+
+      const whole = (await query({ result: "r1", query: "@" }, 2)).result;
+      expect(whole.content[0].text.length).toBeLessThanOrEqual(512);
+      expect(whole.content[0].text).toContain("Narrow the query");
+      const invalid = (await query({ result: "r1", query: "[?" }, 3)).result;
+      expect(invalid.isError).toBe(true);
+      expect(invalid.content[0].text.length).toBeLessThanOrEqual(512);
+      const selected = (await query({ result: "r1", query: `${JSON.stringify(key)}[-1].id` }, 4)).result;
+      expect(selected.content[0].text).toBe("19");
+      expect(readFileSync(join(scratch, "reply.json.calls"), "utf8")).toBe("read\n");
     });
 
     it("keeps query_result listed and callable under a tool selection that never names it", async () => {
