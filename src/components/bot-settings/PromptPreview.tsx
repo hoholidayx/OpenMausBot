@@ -48,7 +48,7 @@ export function PromptPreview({
           {data.sections.map((section) => (
             <details key={section.id} className="rounded-lg border border-hairline/40 bg-inset px-3 py-2">
               <summary className="flex cursor-pointer items-center justify-between gap-3 text-[13px] text-ink">
-                <span>{section.label}</span>
+                <span>{section.id === "model-system-prefix" ? t("settings.modelSystemPrefix.title") : section.label}</span>
                 <span className="shrink-0 tabular-nums text-ink-secondary">{t("botOverview.bytes", { count: section.bytes.toLocaleString(intlLocale()) })}</span>
               </summary>
               <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-ink">

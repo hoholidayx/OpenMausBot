@@ -14,6 +14,8 @@ import { forgetKey, keyRejected } from "../key-rejections.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { recordEvents } from "../testing/events.ts";
 import { toolBudgetOf } from "../tool-budgets.ts";
+import { createModelSystemPrefixes } from "../model-system-prefixes.ts";
+import { buildSystemPrompt } from "../system-prompt.ts";
 import { isOpenAIChatModel, OpenAICompatDriver } from "./openai-compat.ts";
 import { createModelRoutes, isOpenAIAddress, responsesRequest, routeRefusal } from "./openai-responses.ts";
 
@@ -230,6 +232,21 @@ describe("the Responses request", () => {
 });
 
 describe("a model that refuses tools over Chat Completions, at OpenAI's address", () => {
+  it("puts a configured model prefix first in Responses instructions", async () => {
+    const f = await fixture((call, response) => {
+      if (call.path.endsWith("/chat/completions")) reject(response, 400, refusalOf(MODEL));
+      else answer(response);
+    });
+    const prefixes = createModelSystemPrefixes(join(f.directory, "prefixes.json"));
+    prefixes.save(f.instance.instanceId, MODEL, "Model's first instruction.");
+    const prompt = prefixes.apply(buildSystemPrompt("Bot identity.", "", []), f.instance, MODEL);
+    expect((await f.turn({ system: prompt.text, systemStable: prompt.stable, systemVolatile: prompt.volatile })).end)
+      .toMatchObject({ ok: true });
+    expect(f.paths()).toEqual(["/v1/chat/completions", "/v1/responses"]);
+    expect(f.calls[1]!.body.instructions).toBe(prompt.stable);
+    expect(f.calls[1]!.body.instructions).toMatch(/^Model's first instruction\.\n\nBot identity\./);
+  });
+
   it("moves to Responses in the same turn and stays there", async () => {
     const f = await fixture((call, response) => {
       if (call.path.endsWith("/chat/completions")) reject(response, 400, refusalOf(MODEL));

@@ -20,6 +20,7 @@ import { Select } from "./Select";
 import { SettingsFoldRow, SettingsGroup, SettingsMark, SettingsRows, StatusDot } from "./SettingsPrimitives";
 import { OllamaModels, ollamaShortStatus } from "./OllamaStatusLine";
 import { InstanceProviderMark } from "./ProviderIcons";
+import { ModelSystemPrefixSettings, useModelSystemPrefixConnections } from "./ModelSystemPrefixSettings";
 
 interface ProbeResult {
   ok: boolean;
@@ -372,7 +373,7 @@ function AntigravityAddAccount({ source }: { source: InstanceInfo }) {
   </>;
 }
 
-function EngineRow({ instance, bare = false }: { instance: InstanceInfo; bare?: boolean }) {
+function EngineRow({ instance, bare = false, children }: { instance: InstanceInfo; bare?: boolean; children?: ReactNode }) {
   const policyNote = instance.policy && <p className="mb-2 text-[12px] leading-relaxed text-ink-secondary">
     <span className="font-medium text-ink">{t("policy.managedBy", { organization: instance.policy.organizationName })}</span> · {instance.policy.reason}
   </p>;
@@ -412,6 +413,7 @@ function EngineRow({ instance, bare = false }: { instance: InstanceInfo; bare?: 
           {instance.instanceId.startsWith("antigravity-") && <AntigravityAccountAction instance={instance} action="remove" />}
         </div>
       )}
+      {children}
       <EngineAdvanced instance={instance} />
     </EngineCard>
   );
@@ -525,6 +527,7 @@ export function HiddenEngines() {
 
 export function EnginesSettings({ simple = false, more }: { simple?: boolean; more?: { id: string; open: boolean; onToggle: () => void } }) {
   const { state } = useStore();
+  const editableModelSystemPrefixes = useModelSystemPrefixConnections(state.instances);
   // Leaving Settings ends the "now uses the copy OpenMausBot installed" lines.
   useEffect(() => forgetAppCopySwitches, []);
   const listed = state.instances.filter((i) => i.readOnly || i.cli !== undefined || i.cliDefault !== undefined || i.snapshot.state === "unavailable" || isApiKeyEngine(i) || i.claudeEndpoint !== undefined || i.claudeBedrock !== undefined || i.codexEndpoint !== undefined);
@@ -550,7 +553,9 @@ export function EnginesSettings({ simple = false, more }: { simple?: boolean; mo
     return group
       ? <AccountsCard group={group} accounts={groups.get(group)!} bare={bare}
         advanced={<>{group === "claude" ? <><ClaudeEndpoints /><ClaudeBedrockEndpoints /></> : <CodexEndpoints />}<EngineAdvanced instance={instance} /></>} />
-      : <EngineRow instance={instance} bare={bare} />;
+      : <EngineRow instance={instance} bare={bare}>
+        {editableModelSystemPrefixes.includes(instance.instanceId) && <ModelSystemPrefixSettings key={instance.instanceId} instance={instance} />}
+      </EngineRow>;
   };
 
   if (simple && more) return <>
