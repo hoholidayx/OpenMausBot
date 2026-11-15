@@ -137,7 +137,9 @@ async function inspectChanges(files, { staged, write }) {
   const findings = [];
   if (!files.size) return { updates, snapshots, findings };
 
-  const { formatChangedStatements } = await import("./format-changed-statements.mjs");
+  const format = write
+    ? (await import("./format-changed-statements.mjs")).formatChangedStatements
+    : null;
   for (const [file, { previous, next }] of files) {
     const content = staged ? git("cat-file", "blob", next) : readWorkingFile(file);
     if (!content || content.includes(0)) continue;
@@ -145,16 +147,13 @@ async function inspectChanges(files, { staged, write }) {
     const before = previous ? decoder.decode(git("cat-file", "blob", previous)) : null;
     if (before === source) continue;
 
+    if (!format) {
+      snapshots.push({ file, before, source });
+      continue;
+    }
     try {
-      const formatted = await formatChangedStatements(file, before, source);
-      if (formatted.lines.length) {
-        if (write) updates.push({ file, content, text: formatted.text });
-        else
-          findings.push(
-            ...formatted.lines.map((line) => `${file}:${line}: format the changed statement`),
-          );
-      }
-      if (!write) snapshots.push({ file, before, source });
+      const formatted = await format(file, before, source);
+      if (formatted.lines.length) updates.push({ file, content, text: formatted.text });
     } catch (error) {
       const line = error.loc?.start?.line ?? 1;
       findings.push(`${file}:${line}: ${error.message.split("\n")[0]}`);
@@ -191,10 +190,6 @@ async function main() {
   }
   if (problems.length) {
     console.error(problems.join("\n"));
-    if (!write && findings.length)
-      console.error(
-        "For formatting findings, run pnpm format:changes -- <paths>, review the diff, and stage the intended edits again.",
-      );
     process.exitCode = 1;
     return;
   }

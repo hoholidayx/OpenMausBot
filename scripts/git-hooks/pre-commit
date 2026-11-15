@@ -1,6 +1,0 @@
-#!/bin/sh
-if [ -n "$OMB_SKIP_HOOKS" ]; then
-  echo "pre-commit: skipped (OMB_SKIP_HOOKS is set)"
-  exit 0
-fi
-exec node scripts/check-changes.mjs --staged

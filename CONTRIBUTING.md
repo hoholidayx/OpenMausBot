@@ -382,21 +382,16 @@ For eligible owner runs on Boat, the static job also runs the selected Linux
 test lanes; their logs appear in groups named for each lane. Fork PRs use
 GitHub-hosted jobs. See [Linux on Boat](docs/ci.md#linux-on-boat).
 
-`pnpm install` enables the repository's Git hooks. The `pre-commit` hook checks
-the staged snapshot for whitespace, JavaScript and TypeScript formatting, and
-new or increased complexity and nesting. During a merge, rebase, cherry-pick,
-revert or unresolved conflict, the check and formatter defer. Review conflict
-resolutions separately; committed changes are not checked afterward.
-Run `pnpm check:changes` to check your
-working tree. Run `pnpm format:changes -- <paths>` to format changed statements,
-then review the diff and stage the intended edits.
+`pnpm check:changes` runs an optional whitespace, complexity and nesting
+check. Use `--staged` to check the staged snapshot. To explicitly format
+changed statements, run `pnpm format:changes -- <paths>`.
 Use `corepack pnpm` if your default pnpm differs from the version in `package.json`.
 
-The `pre-push` hook checks the files a push changes, in seconds: lint, the locale
-check when a catalog changed, and the size and vocabulary guards when a source
+`pnpm install` enables the `pre-push` hook. It checks the files a push changes
+for lint, locale changes, and the size and vocabulary guards when a source
 they read changed. Typecheck and the suite stay in CI. A checkout without
 dependencies lets the push go. Git's `--no-verify` skips the hook once and
-`OMB_SKIP_HOOKS=1` skips both Git hooks for a session.
+`OMB_SKIP_HOOKS=1` skips the hook for a session.
 
 Provider fakes under `server/testing/fake-*.ts` must stay dependency-free: they run as bare subprocesses and at least one is copied out of the repo by a test, so a relative import from the repo dies at link time. `server/testing/fakes-self-contained.test.ts` enforces it.
 

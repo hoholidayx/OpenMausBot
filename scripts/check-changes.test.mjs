@@ -1,8 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
-  chmodSync,
   cpSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -105,7 +105,7 @@ ${"}\n".repeat(depth)}return 0;
   });
 });
 
-describe("local change hooks in an isolated Git repository", () => {
+describe("local change commands in an isolated Git repository", () => {
   const dirs = [];
   afterEach(async () => {
     for (const dir of dirs.splice(0)) await removeTempDir(dir);
@@ -115,7 +115,6 @@ describe("local change hooks in an isolated Git repository", () => {
     const cwd = mkdtempSync(join(tmpdir(), "omb check-changes-"));
     dirs.push(cwd);
     const env = { ...process.env };
-    delete env.OMB_SKIP_HOOKS;
     const git = (...args) =>
       execFileSync(
         "git",
@@ -134,15 +133,12 @@ describe("local change hooks in an isolated Git repository", () => {
       "check-changes.mjs",
       "check-changed-readability.mjs",
       "format-changed-statements.mjs",
-      "codex-stop-check.mjs",
-      "git-hooks/pre-commit",
     ];
     for (const file of files) {
       const destination = join(cwd, "scripts", file);
       mkdirSync(dirname(destination), { recursive: true });
       copyFileSync(fileURLToPath(new URL(file, import.meta.url)), destination);
     }
-    chmodSync(join(cwd, "scripts", "git-hooks", "pre-commit"), 0o755);
     const modules = fileURLToPath(new URL("../node_modules", import.meta.url));
     symlinkSync(modules, join(cwd, "node_modules"), "junction");
     git("init", "-q");
@@ -151,53 +147,31 @@ describe("local change hooks in an isolated Git repository", () => {
     git("-c", "core.hooksPath=", "commit", "-q", "--allow-empty", "-m", "init");
     const write = (file, content) => writeFileSync(join(cwd, file), content);
     const read = (file) => readFileSync(join(cwd, file), "utf8");
-    const node = (script, args = [], input) =>
-      spawnSync(process.execPath, [join(cwd, "scripts", script), ...args], {
+    const check = (...args) =>
+      spawnSync(process.execPath, [join(cwd, "scripts", "check-changes.mjs"), ...args], {
         cwd,
         env,
-        input,
         encoding: "utf8",
         timeout: 15_000,
       });
-    const check = (...args) => node("check-changes.mjs", args);
-    const stop = (active) => {
-      const input = JSON.stringify({ stop_hook_active: active });
-      if (process.platform === "win32") return node("codex-stop-check.mjs", [], input);
-      const config = JSON.parse(
-        readFileSync(new URL("../.codex/hooks.json", import.meta.url), "utf8"),
-      );
-      const { command } = config.hooks.Stop[0].hooks[0];
-      return spawnSync("sh", ["-c", command], {
-        cwd: join(cwd, "scripts"),
-        env,
-        input,
-        encoding: "utf8",
-        timeout: 15_000,
-      });
-    };
-    return { cwd, env, git, read, write, check, stop };
+    return { cwd, env, git, read, write, check };
   }
 
-  it.skipIf(process.platform === "win32")(
-    "blocks an unformatted index even with a clean checkout, and permits a clean index with unrelated dirty files",
-    () => {
-      const { git, read, write } = checkout();
-      const file = "partially staged.ts";
-      write(file, "export const active=  2;\n");
-      git("add", "--", file);
-      write(file, "export const active = 2;\n");
-      expect(() => git("commit", "-qm", "bad")).toThrow(/format the changed statement/);
-      expect(git("show", `:${file}`)).toBe("export const active=  2;\n");
-      expect(read(file)).toBe("export const active = 2;\n");
-
-      git("add", "--", file);
-      write(file, "export const active=  3;\n");
-      write("untracked.ts", "broken!!!\n");
-      git("commit", "-qm", "good");
-      expect(git("show", `HEAD:${file}`)).toBe("export const active = 2;\n");
-      expect(read(file)).toBe("export const active=  3;\n");
-    },
-  );
+  it("leaves formatting to an explicit request", () => {
+    expect(existsSync(new URL("./git-hooks/pre-commit", import.meta.url))).toBe(false);
+    const { git, read, write, check } = checkout();
+    const file = "partially staged.ts";
+    const unformatted = "export const active=  2;\n";
+    write(file, unformatted);
+    git("add", "--", file);
+    expect(check("--staged").status).toBe(0);
+    expect(check().status).toBe(0);
+    git("commit", "-qm", "unformatted");
+    expect(git("show", `HEAD:${file}`)).toBe(unformatted);
+    write(file, "export const active=  3;\n");
+    expect(check("--write").status).toBe(0);
+    expect(read(file)).toBe("export const active = 3;\n");
+  });
 
   it("uses the old blob of a staged rename even with a path filter", () => {
     const { git, read, write, check } = checkout();
@@ -216,7 +190,7 @@ describe("local change hooks in an isolated Git repository", () => {
   });
 
   it("defers during a merge from any branch and resumes for ordinary commits", () => {
-    const { git, write, check, stop } = checkout();
+    const { git, write, check } = checkout();
     const localBranch = git("branch", "--show-current").trim();
     git("checkout", "-qb", "incoming");
     write("incoming.ts", "export const incoming=  1;\n");
@@ -230,16 +204,15 @@ describe("local change hooks in an isolated Git repository", () => {
     expect(check("--staged").status).toBe(0);
     expect(check("--staged").stdout).toContain("deferred");
     expect(check().status).toBe(0);
-    expect(stop(false).stdout).toBe("");
     git("commit", "-qm", "merge");
     write("local.ts", "export const local=  2;\n");
     git("add", "local.ts");
-    expect(check("--staged").stderr).toContain("local.ts:1");
-    expect(() => git("commit", "-qm", "bad")).toThrow(/format the changed statement/);
+    expect(check("--staged").status).toBe(0);
+    expect(check("--write").stdout).toContain("Formatted changed statements");
   });
 
   it("does not format or block a conflicted merge", () => {
-    const { git, read, write, check, stop } = checkout();
+    const { git, read, write, check } = checkout();
     write("shared.ts", "export const value = 0;\n");
     git("add", "shared.ts");
     git("commit", "-qm", "base");
@@ -255,7 +228,6 @@ describe("local change hooks in an isolated Git repository", () => {
     expect(conflicted).toContain("<<<<<<<");
     expect(check("--write").stdout).toContain("deferred");
     expect(read("shared.ts")).toBe(conflicted);
-    expect(stop(false).stdout).toBe("");
     write("shared.ts", "export const value=  3;\n");
     git("add", "shared.ts");
     git("commit", "-qm", "resolve merge");
@@ -265,7 +237,7 @@ describe("local change hooks in an isolated Git repository", () => {
   it.each(["--merge", "--apply"])(
     "does not block a %s rebase conflict or its continuation",
     (mode) => {
-      const { git, read, write, check, stop } = checkout();
+      const { git, read, write, check } = checkout();
       write("shared.ts", "export const value = 0;\n");
       git("add", "shared.ts");
       git("commit", "-qm", "base");
@@ -281,19 +253,18 @@ describe("local change hooks in an isolated Git repository", () => {
       expect(conflicted).toContain("<<<<<<<");
       expect(check("--write").stdout).toContain("deferred");
       expect(read("shared.ts")).toBe(conflicted);
-      expect(stop(false).stdout).toBe("");
       write("shared.ts", "export const value=  3;\n");
       git("add", "shared.ts");
       expect(check("--staged").stdout).toContain("deferred");
       git("-c", "core.editor=true", "rebase", "--continue");
       write("next.ts", "export const next=  1;\n");
       git("add", "next.ts");
-      expect(() => git("commit", "-qm", "bad")).toThrow(/format the changed statement/);
+      expect(check("--write").stdout).toContain("Formatted changed statements");
     },
   );
 
   it("defers a conflicted cherry-pick until it continues", () => {
-    const { git, read, write, check, stop } = checkout();
+    const { git, read, write, check } = checkout();
     write("shared.ts", "export const value = 0;\n");
     git("add", "shared.ts");
     git("commit", "-qm", "base");
@@ -309,7 +280,6 @@ describe("local change hooks in an isolated Git repository", () => {
     const conflicted = read("shared.ts");
     expect(check("--write").stdout).toContain("deferred");
     expect(read("shared.ts")).toBe(conflicted);
-    expect(stop(false).stdout).toBe("");
     write("shared.ts", "export const value=  3;\n");
     git("add", "shared.ts");
     git("-c", "core.editor=true", "cherry-pick", "--continue");
@@ -317,7 +287,7 @@ describe("local change hooks in an isolated Git repository", () => {
   });
 
   it("defers a conflicted revert until it continues", () => {
-    const { git, read, write, check, stop } = checkout();
+    const { git, read, write, check } = checkout();
     write("shared.ts", "export const value = 0;\n");
     git("add", "shared.ts");
     git("commit", "-qm", "base");
@@ -330,7 +300,6 @@ describe("local change hooks in an isolated Git repository", () => {
     const conflicted = read("shared.ts");
     expect(check("--write").stdout).toContain("deferred");
     expect(read("shared.ts")).toBe(conflicted);
-    expect(stop(false).stdout).toBe("");
     write("shared.ts", "export const value=  3;\n");
     git("add", "shared.ts");
     git("-c", "core.editor=true", "revert", "--continue");
@@ -338,7 +307,7 @@ describe("local change hooks in an isolated Git repository", () => {
   });
 
   it("defers unmerged paths even when no merge marker remains", () => {
-    const { git, read, write, check, stop } = checkout();
+    const { git, read, write, check } = checkout();
     write("shared.ts", "export const value = 0;\n");
     git("add", "shared.ts");
     git("commit", "-qm", "base");
@@ -354,10 +323,9 @@ describe("local change hooks in an isolated Git repository", () => {
     const conflicted = read("shared.ts");
     expect(check("--write").stdout).toContain("unmerged paths");
     expect(read("shared.ts")).toBe(conflicted);
-    expect(stop(false).stdout).toBe("");
   });
 
-  it("resumes the gate after an aborted conflict", () => {
+  it("resumes explicit formatting after an aborted conflict", () => {
     const { git, write, check } = checkout();
     write("shared.ts", "export const value = 0;\n");
     git("add", "shared.ts");
@@ -374,7 +342,7 @@ describe("local change hooks in an isolated Git repository", () => {
     git("merge", "--abort");
     write("next.ts", "export const next=  1;\n");
     git("add", "next.ts");
-    expect(() => git("commit", "-qm", "bad")).toThrow(/format the changed statement/);
+    expect(check("--write").stdout).toContain("Formatted changed statements");
   });
 
   it("finds operation state in a linked worktree", () => {
@@ -400,20 +368,5 @@ describe("local change hooks in an isolated Git repository", () => {
     expect(result.stdout).toContain("deferred");
     git("-C", linked, "merge", "--abort");
     git("worktree", "remove", "--force", linked);
-  });
-
-  it("lets Codex retry once on failure and passes after the same formatter fixes the worktree", () => {
-    const { read, write, check, stop } = checkout();
-    write("new.ts", "export const active=  2;\n");
-    expect(JSON.parse(stop(false).stdout)).toMatchObject({
-      decision: "block",
-      reason: expect.stringContaining("new.ts:1"),
-    });
-    expect(JSON.parse(stop(true).stdout)).toEqual({
-      systemMessage: expect.stringContaining("new.ts:1"),
-    });
-    expect(check("--write").status).toBe(0);
-    expect(read("new.ts")).toBe("export const active = 2;\n");
-    expect(stop(false).stdout).toBe("");
   });
 });

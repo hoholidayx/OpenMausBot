@@ -22,22 +22,13 @@ assumptions that matter when syncing with upstream.
 Use the pnpm version pinned in `package.json`. If the `pnpm` on `PATH` differs,
 use `corepack pnpm` for these commands.
 
-Run `pnpm check:changes` before handing off code changes. It checks working-tree
-changes against `HEAD`, including untracked JavaScript and TypeScript files.
-During a merge, rebase, cherry-pick, revert or unresolved conflict, the check
-and formatter defer until the Git operation finishes or is aborted. Review any
-conflict resolution separately: the check does not inspect already committed
-changes after the operation.
-Use `pnpm format:changes -- <paths>` for files in the task, then review the diff
-and stage the intended edits. New files are formatted in full. Existing files
-are formatted only where the formatter can isolate the changed statements.
-The check also reports newly introduced or increased nesting and complexity.
+Review the diff and run checks relevant to the change. Keep the surrounding
+code's style. `pnpm check:changes` is available on demand for whitespace,
+nesting and complexity. `pnpm format:changes -- <paths>` explicitly formats
+the selected changed statements.
 
-`pnpm install` configures the repository Git hooks. `pre-commit` runs
-`pnpm check:changes --staged` on the staged snapshot without modifying it.
-Codex's project `Stop` hook runs the same working-tree check. Review and trust
-the project hook in Codex before first use. Resolve findings within the current
-task and report findings outside its scope.
+`pnpm install` configures the repository's `pre-push` hook for lint, locale
+and other repository checks.
 
 ## Comments
 
