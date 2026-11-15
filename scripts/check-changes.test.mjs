@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   copyFileSync,
   mkdirSync,
   mkdtempSync,
@@ -174,7 +175,7 @@ describe("local change hooks in an isolated Git repository", () => {
         timeout: 15_000,
       });
     };
-    return { git, read, write, check, stop };
+    return { cwd, env, git, read, write, check, stop };
   }
 
   it.skipIf(process.platform === "win32")(
@@ -214,28 +215,191 @@ describe("local change hooks in an isolated Git repository", () => {
     expect(git("show", ":new.ts")).toBe(`${inherited}\nexport const active = 1;\n`);
   });
 
-  it("checks local changes against upstream during an official merge", () => {
-    const { git, write, check } = checkout();
+  it("defers during a merge from any branch and resumes for ordinary commits", () => {
+    const { git, write, check, stop } = checkout();
     const localBranch = git("branch", "--show-current").trim();
-    git("checkout", "-qb", "official");
-    write("upstream.ts", "export const upstream=  1;\n");
-    git("add", "upstream.ts");
-    git("-c", "core.hooksPath=", "commit", "-qm", "official style");
-    const official = git("rev-parse", "HEAD").trim();
-    git("update-ref", "refs/remotes/upstream/main", official);
+    git("checkout", "-qb", "incoming");
+    write("incoming.ts", "export const incoming=  1;\n");
+    git("add", "incoming.ts");
+    git("-c", "core.hooksPath=", "commit", "-qm", "incoming style");
     git("checkout", "-q", localBranch);
     write("local.ts", "export const local = 1;\n");
     git("add", "local.ts");
     git("commit", "-qm", "local change");
-    git("merge", "--no-ff", "--no-commit", "official");
+    git("merge", "--no-ff", "--no-commit", "incoming");
     expect(check("--staged").status).toBe(0);
+    expect(check("--staged").stdout).toContain("deferred");
     expect(check().status).toBe(0);
-    git("update-ref", "-d", "refs/remotes/upstream/main");
-    expect(check("--staged").stderr).toContain("upstream.ts:1");
-    git("update-ref", "refs/remotes/upstream/main", official);
+    expect(stop(false).stdout).toBe("");
+    git("commit", "-qm", "merge");
     write("local.ts", "export const local=  2;\n");
     git("add", "local.ts");
     expect(check("--staged").stderr).toContain("local.ts:1");
+    expect(() => git("commit", "-qm", "bad")).toThrow(/format the changed statement/);
+  });
+
+  it("does not format or block a conflicted merge", () => {
+    const { git, read, write, check, stop } = checkout();
+    write("shared.ts", "export const value = 0;\n");
+    git("add", "shared.ts");
+    git("commit", "-qm", "base");
+    const localBranch = git("branch", "--show-current").trim();
+    git("checkout", "-qb", "incoming");
+    write("shared.ts", "export const value = 1;\n");
+    git("commit", "-qam", "incoming");
+    git("checkout", "-q", localBranch);
+    write("shared.ts", "export const value = 2;\n");
+    git("commit", "-qam", "local");
+    expect(() => git("merge", "incoming")).toThrow();
+    const conflicted = read("shared.ts");
+    expect(conflicted).toContain("<<<<<<<");
+    expect(check("--write").stdout).toContain("deferred");
+    expect(read("shared.ts")).toBe(conflicted);
+    expect(stop(false).stdout).toBe("");
+    write("shared.ts", "export const value=  3;\n");
+    git("add", "shared.ts");
+    git("commit", "-qm", "resolve merge");
+    expect(git("status", "--porcelain")).toBe("");
+  });
+
+  it.each(["--merge", "--apply"])(
+    "does not block a %s rebase conflict or its continuation",
+    (mode) => {
+      const { git, read, write, check, stop } = checkout();
+      write("shared.ts", "export const value = 0;\n");
+      git("add", "shared.ts");
+      git("commit", "-qm", "base");
+      const localBranch = git("branch", "--show-current").trim();
+      git("checkout", "-qb", "incoming");
+      write("shared.ts", "export const value = 1;\n");
+      git("commit", "-qam", "incoming");
+      git("checkout", "-q", localBranch);
+      write("shared.ts", "export const value = 2;\n");
+      git("commit", "-qam", "local");
+      expect(() => git("rebase", mode, "incoming")).toThrow();
+      const conflicted = read("shared.ts");
+      expect(conflicted).toContain("<<<<<<<");
+      expect(check("--write").stdout).toContain("deferred");
+      expect(read("shared.ts")).toBe(conflicted);
+      expect(stop(false).stdout).toBe("");
+      write("shared.ts", "export const value=  3;\n");
+      git("add", "shared.ts");
+      expect(check("--staged").stdout).toContain("deferred");
+      git("-c", "core.editor=true", "rebase", "--continue");
+      write("next.ts", "export const next=  1;\n");
+      git("add", "next.ts");
+      expect(() => git("commit", "-qm", "bad")).toThrow(/format the changed statement/);
+    },
+  );
+
+  it("defers a conflicted cherry-pick until it continues", () => {
+    const { git, read, write, check, stop } = checkout();
+    write("shared.ts", "export const value = 0;\n");
+    git("add", "shared.ts");
+    git("commit", "-qm", "base");
+    const localBranch = git("branch", "--show-current").trim();
+    git("checkout", "-qb", "incoming");
+    write("shared.ts", "export const value = 1;\n");
+    git("commit", "-qam", "incoming");
+    const incoming = git("rev-parse", "HEAD").trim();
+    git("checkout", "-q", localBranch);
+    write("shared.ts", "export const value = 2;\n");
+    git("commit", "-qam", "local");
+    expect(() => git("cherry-pick", incoming)).toThrow();
+    const conflicted = read("shared.ts");
+    expect(check("--write").stdout).toContain("deferred");
+    expect(read("shared.ts")).toBe(conflicted);
+    expect(stop(false).stdout).toBe("");
+    write("shared.ts", "export const value=  3;\n");
+    git("add", "shared.ts");
+    git("-c", "core.editor=true", "cherry-pick", "--continue");
+    expect(git("status", "--porcelain")).toBe("");
+  });
+
+  it("defers a conflicted revert until it continues", () => {
+    const { git, read, write, check, stop } = checkout();
+    write("shared.ts", "export const value = 0;\n");
+    git("add", "shared.ts");
+    git("commit", "-qm", "base");
+    write("shared.ts", "export const value = 1;\n");
+    git("commit", "-qam", "first change");
+    const first = git("rev-parse", "HEAD").trim();
+    write("shared.ts", "export const value = 2;\n");
+    git("commit", "-qam", "second change");
+    expect(() => git("revert", "--no-edit", first)).toThrow();
+    const conflicted = read("shared.ts");
+    expect(check("--write").stdout).toContain("deferred");
+    expect(read("shared.ts")).toBe(conflicted);
+    expect(stop(false).stdout).toBe("");
+    write("shared.ts", "export const value=  3;\n");
+    git("add", "shared.ts");
+    git("-c", "core.editor=true", "revert", "--continue");
+    expect(git("status", "--porcelain")).toBe("");
+  });
+
+  it("defers unmerged paths even when no merge marker remains", () => {
+    const { git, read, write, check, stop } = checkout();
+    write("shared.ts", "export const value = 0;\n");
+    git("add", "shared.ts");
+    git("commit", "-qm", "base");
+    const localBranch = git("branch", "--show-current").trim();
+    git("checkout", "-qb", "incoming");
+    write("shared.ts", "export const value = 1;\n");
+    git("commit", "-qam", "incoming");
+    git("checkout", "-q", localBranch);
+    write("shared.ts", "export const value = 2;\n");
+    git("commit", "-qam", "local");
+    expect(() => git("merge", "incoming")).toThrow();
+    git("merge", "--quit");
+    const conflicted = read("shared.ts");
+    expect(check("--write").stdout).toContain("unmerged paths");
+    expect(read("shared.ts")).toBe(conflicted);
+    expect(stop(false).stdout).toBe("");
+  });
+
+  it("resumes the gate after an aborted conflict", () => {
+    const { git, write, check } = checkout();
+    write("shared.ts", "export const value = 0;\n");
+    git("add", "shared.ts");
+    git("commit", "-qm", "base");
+    const localBranch = git("branch", "--show-current").trim();
+    git("checkout", "-qb", "incoming");
+    write("shared.ts", "export const value = 1;\n");
+    git("commit", "-qam", "incoming");
+    git("checkout", "-q", localBranch);
+    write("shared.ts", "export const value = 2;\n");
+    git("commit", "-qam", "local");
+    expect(() => git("merge", "incoming")).toThrow();
+    expect(check().stdout).toContain("deferred");
+    git("merge", "--abort");
+    write("next.ts", "export const next=  1;\n");
+    git("add", "next.ts");
+    expect(() => git("commit", "-qm", "bad")).toThrow(/format the changed statement/);
+  });
+
+  it("finds operation state in a linked worktree", () => {
+    const { cwd, env, git, write } = checkout();
+    git("checkout", "-qb", "incoming");
+    write("incoming.ts", "export const incoming=  1;\n");
+    git("add", "incoming.ts");
+    git("-c", "core.hooksPath=", "commit", "-qm", "incoming");
+    const incoming = git("rev-parse", "HEAD").trim();
+    git("checkout", "-q", "--detach", "HEAD^");
+    const linked = join(cwd, "linked");
+    git("worktree", "add", "--detach", linked, "HEAD");
+    cpSync(join(cwd, "scripts"), join(linked, "scripts"), { recursive: true });
+    symlinkSync(join(cwd, "node_modules"), join(linked, "node_modules"), "junction");
+    git("-C", linked, "merge", "--no-ff", "--no-commit", incoming);
+    const result = spawnSync(process.execPath, [join(linked, "scripts", "check-changes.mjs")], {
+      cwd: linked,
+      env,
+      encoding: "utf8",
+      timeout: 15_000,
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("deferred");
+    git("-C", linked, "merge", "--abort");
+    git("worktree", "remove", "--force", linked);
   });
 
   it("lets Codex retry once on failure and passes after the same formatter fixes the worktree", () => {

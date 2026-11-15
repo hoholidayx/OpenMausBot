@@ -384,7 +384,10 @@ GitHub-hosted jobs. See [Linux on Boat](docs/ci.md#linux-on-boat).
 
 `pnpm install` enables the repository's Git hooks. The `pre-commit` hook checks
 the staged snapshot for whitespace, JavaScript and TypeScript formatting, and
-new or increased complexity and nesting. Run `pnpm check:changes` to check your
+new or increased complexity and nesting. During a merge, rebase, cherry-pick,
+revert or unresolved conflict, the check and formatter defer. Review conflict
+resolutions separately; committed changes are not checked afterward.
+Run `pnpm check:changes` to check your
 working tree. Run `pnpm format:changes -- <paths>` to format changed statements,
 then review the diff and stage the intended edits.
 Use `corepack pnpm` if your default pnpm differs from the version in `package.json`.

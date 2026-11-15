@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdtempSync,
   readFileSync,
@@ -8,7 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -29,13 +30,25 @@ function revision(name) {
 }
 
 function diffArgs(staged) {
-  const merge = revision("MERGE_HEAD");
-  if (merge && merge === revision("refs/remotes/upstream/main")) {
-    return staged ? ["--cached", merge] : [merge];
-  }
   if (staged) return ["--cached"];
   const head = revision("HEAD");
   return head ? [head] : ["--cached"];
+}
+
+function pendingGitOperation() {
+  const markers = [
+    "MERGE_HEAD",
+    "rebase-merge",
+    "rebase-apply",
+    "CHERRY_PICK_HEAD",
+    "REVERT_HEAD",
+    "sequencer",
+  ];
+  for (const marker of markers) {
+    const path = git("rev-parse", "--git-path", marker).toString("utf8").trimEnd();
+    if (existsSync(resolve(root, path))) return marker;
+  }
+  return git("ls-files", "--unmerged", "-z").length ? "unmerged paths" : null;
 }
 
 function readChanges(revision, staged, paths) {
@@ -157,6 +170,14 @@ async function main() {
   });
   const { staged, write } = values;
   if (staged && write) throw new Error("--staged is available for check:changes only.");
+
+  const operation = pendingGitOperation();
+  if (operation) {
+    console.log(
+      `Local change checks deferred during ${operation}; finish or abort it before checking.`,
+    );
+    return;
+  }
 
   const revision = diffArgs(staged);
   const files = readChanges(revision, staged, paths);

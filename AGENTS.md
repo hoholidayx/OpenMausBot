@@ -24,8 +24,10 @@ use `corepack pnpm` for these commands.
 
 Run `pnpm check:changes` before handing off code changes. It checks working-tree
 changes against `HEAD`, including untracked JavaScript and TypeScript files.
-While merging the official `upstream/main`, it checks the merge result against
-that upstream commit so inherited upstream code is not treated as a local edit.
+During a merge, rebase, cherry-pick, revert or unresolved conflict, the check
+and formatter defer until the Git operation finishes or is aborted. Review any
+conflict resolution separately: the check does not inspect already committed
+changes after the operation.
 Use `pnpm format:changes -- <paths>` for files in the task, then review the diff
 and stage the intended edits. New files are formatted in full. Existing files
 are formatted only where the formatter can isolate the changed statements.
