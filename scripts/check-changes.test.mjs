@@ -214,6 +214,30 @@ describe("local change hooks in an isolated Git repository", () => {
     expect(git("show", ":new.ts")).toBe(`${inherited}\nexport const active = 1;\n`);
   });
 
+  it("checks local changes against upstream during an official merge", () => {
+    const { git, write, check } = checkout();
+    const localBranch = git("branch", "--show-current").trim();
+    git("checkout", "-qb", "official");
+    write("upstream.ts", "export const upstream=  1;\n");
+    git("add", "upstream.ts");
+    git("-c", "core.hooksPath=", "commit", "-qm", "official style");
+    const official = git("rev-parse", "HEAD").trim();
+    git("update-ref", "refs/remotes/upstream/main", official);
+    git("checkout", "-q", localBranch);
+    write("local.ts", "export const local = 1;\n");
+    git("add", "local.ts");
+    git("commit", "-qm", "local change");
+    git("merge", "--no-ff", "--no-commit", "official");
+    expect(check("--staged").status).toBe(0);
+    expect(check().status).toBe(0);
+    git("update-ref", "-d", "refs/remotes/upstream/main");
+    expect(check("--staged").stderr).toContain("upstream.ts:1");
+    git("update-ref", "refs/remotes/upstream/main", official);
+    write("local.ts", "export const local=  2;\n");
+    git("add", "local.ts");
+    expect(check("--staged").stderr).toContain("local.ts:1");
+  });
+
   it("lets Codex retry once on failure and passes after the same formatter fixes the worktree", () => {
     const { read, write, check, stop } = checkout();
     write("new.ts", "export const active=  2;\n");

@@ -20,13 +20,22 @@ const nullFields = (buffer) => buffer.toString("utf8").split("\0").slice(0, -1);
 const regular = (mode) => mode === "100644" || mode === "100755";
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
+function revision(name) {
+  const result = spawnSync("git", ["rev-parse", "--verify", "--quiet", name], gitOptions);
+  if (result.error) throw result.error;
+  if (result.status === 0) return result.stdout.toString().trim();
+  if (result.status === 1) return null;
+  throw new Error(result.stderr.toString().trim() || `Could not resolve Git ${name}`);
+}
+
 function diffArgs(staged) {
+  const merge = revision("MERGE_HEAD");
+  if (merge && merge === revision("refs/remotes/upstream/main")) {
+    return staged ? ["--cached", merge] : [merge];
+  }
   if (staged) return ["--cached"];
-  const head = spawnSync("git", ["rev-parse", "--verify", "--quiet", "HEAD"], gitOptions);
-  if (head.error) throw head.error;
-  if (head.status === 0) return [head.stdout.toString().trim()];
-  if (head.status === 1) return ["--cached"];
-  throw new Error(head.stderr.toString().trim() || "Could not resolve Git HEAD");
+  const head = revision("HEAD");
+  return head ? [head] : ["--cached"];
 }
 
 function readChanges(revision, staged, paths) {
