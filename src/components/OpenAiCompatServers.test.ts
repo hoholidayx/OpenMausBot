@@ -19,6 +19,9 @@ vi.mock("react", async (original) => {
 });
 vi.mock("@/state/store", async (original) => ({ ...await original<typeof import("@/state/store")>(), api: fixture.api }));
 vi.mock("@/lib/analytics", () => ({ track: fixture.track }));
+vi.mock("./ModelSystemPrefixSettings", async (original) => ({
+  ...await original<typeof import("./ModelSystemPrefixSettings")>(), useModelSystemPrefixConnections: () => [],
+}));
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 

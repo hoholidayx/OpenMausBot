@@ -6,6 +6,7 @@ import { addedServers } from "@/lib/openai-compat-endpoints";
 import { cn } from "@/lib/cn";
 import { KEY_FIELD } from "./keys/KeyRow";
 import { Select } from "./Select";
+import { ModelSystemPrefixSettings, useModelSystemPrefixConnections } from "./ModelSystemPrefixSettings";
 
 export function modelIds(text: string): string[] {
   return [...new Set(text.split(/[,，、\s]+/).map((id) => id.trim()).filter(Boolean))];
@@ -81,10 +82,12 @@ export function BuiltInReplyWait() {
 
 export function OtherOpenAiCompatServers() {
   const { state } = useStore();
-  return <AddedServers servers={addedServers(state.instances)} />;
+  const servers = addedServers(state.instances);
+  const editablePrefixes = useModelSystemPrefixConnections(servers);
+  return <AddedServers servers={servers} editablePrefixes={editablePrefixes} />;
 }
 
-function AddedServers({ servers }: { servers: ReturnType<typeof addedServers> }) {
+function AddedServers({ servers, editablePrefixes }: { servers: ReturnType<typeof addedServers>; editablePrefixes: readonly string[] }) {
   const { dispatch, refreshInstances } = useStore();
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -140,9 +143,9 @@ function AddedServers({ servers }: { servers: ReturnType<typeof addedServers> })
         const urlChanged = newUrl !== (server.url ?? "");
         const needsKey = urlChanged && !editKey.trim() && !server.placeholderKey && originChanged(server.url, newUrl);
         return (
-        <div key={server.instanceId} className="py-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0 flex-1">
+        <div key={server.instanceId} role="group" aria-label={server.displayName} className="py-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="min-w-0 grow basis-40">
               <div className="truncate text-[13px] leading-5 text-ink">{server.displayName}</div>
               {server.url && <div className="truncate text-[12px] leading-4 text-ink-secondary">{server.url}</div>}
             </div>
@@ -234,6 +237,7 @@ function AddedServers({ servers }: { servers: ReturnType<typeof addedServers> })
               {unreadable === server.instanceId && <p role="status" className="text-[12px] leading-4 text-ink-secondary">{t("apiInstances.modelsUnreadable")}</p>}
             </div>
           )}
+          {editablePrefixes.includes(server.instanceId) && <ModelSystemPrefixSettings instance={server} />}
         </div>
         );
       })}

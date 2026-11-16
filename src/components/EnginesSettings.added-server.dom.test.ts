@@ -15,12 +15,15 @@ vi.mock("@/state/store", async (original) => ({
   }),
   api: async (path: string, init?: { method?: string }) => {
     fixture.calls.push({ path, method: init?.method });
+    if (path === "/api/model-system-prefixes") return { instances: ["openai-compat-b"] };
+    if (path === "/api/model-system-prefixes?instanceId=openai-compat-b&model=beam-free") return { text: "Existing OpenCode2Api prefix." };
     if (init?.method !== "DELETE") return {};
     const instanceId = decodeURIComponent(path.split("/").pop()!);
     return { instances: fixture.state.instances.filter((instance) => instance.instanceId !== instanceId) };
   },
 }));
 import { EnginesSettings } from "./EnginesSettings";
+import { OtherOpenAiCompatServers } from "./OpenAiCompatServers";
 
 function lmStudio(instanceId: string): InstanceInfo {
   return {
@@ -42,7 +45,7 @@ afterEach(async () => { await act(async () => root.unmount()); container.remove(
 const render = async () => {
   await act(async () => { root.render(createElement(EnginesSettings, { simple: true, more: { id: "more", open: true, onToggle: () => {} } })); });
 };
-const buttons = (within: ParentNode, label: string) => [...within.querySelectorAll("button")].filter((item) => item.textContent === label);
+const buttons = (within: ParentNode, label: string) => [...within.querySelectorAll("button")].filter((item) => item.textContent?.trim() === label);
 const click = async (target: Element | undefined) => { expect(target).toBeTruthy(); await act(async () => { (target as HTMLElement).click(); }); };
 const row = (instanceId: string) => container.querySelector(`[data-simple-engine="${instanceId}"]`)!;
 const fold = (instanceId: string) => container.querySelector(`[data-provider-fold="${instanceId}"]`)!;
@@ -66,5 +69,22 @@ describe("Settings → AI → an added server's Manage", () => {
     await click(row("openai-compat-b").querySelector("button")!);
     expect(buttons(fold("openai-compat-b"), "Remove")[0]!.disabled).toBe(true);
     expect(fold("openai-compat-b").textContent).toContain("1 bot(s) use this account");
+  });
+
+  it("shows an added connection's prefix in both management views", async () => {
+    fixture.state.instances[1] = {
+      ...fixture.state.instances[1]!, displayName: "OpenCode2Api", models: { default: "beam-free", options: [] },
+    };
+    await render();
+    await click(row("openai-compat-b").querySelector("button")!);
+    await click(buttons(fold("openai-compat-b"), "Model system prefix")[0]);
+    expect(fold("openai-compat-b").querySelector("textarea")?.value).toBe("Existing OpenCode2Api prefix.");
+
+    await act(async () => { root.render(createElement(OtherOpenAiCompatServers)); });
+    const editors = buttons(container, "Model system prefix");
+    expect(editors).toHaveLength(1);
+    expect(editors[0]!.closest('[role="group"]')?.getAttribute("aria-label")).toBe("OpenCode2Api");
+    await click(editors[0]);
+    expect(container.querySelector("textarea")?.value).toBe("Existing OpenCode2Api prefix.");
   });
 });
