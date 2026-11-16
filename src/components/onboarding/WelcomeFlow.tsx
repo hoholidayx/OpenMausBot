@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { setEmailGateDone, track } from "@/lib/analytics";
+import { setEmailGateDone } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { chiefStepFits, myDefaultBot, setChiefStepOpen, useViewerEmail } from "@/lib/default-bot";
-import { beatsFor, completionPatch, firstRunPatch, markWelcomeFinished, resumeBeat, showWelcome, type BeatId } from "@/lib/onboarding";
+import { beatsFor, completionPatch, firstRunPatch, markWelcomeFinished, resumeBeat, type BeatId } from "@/lib/onboarding";
 import { clearWelcomeDraft, readWelcomeDraft, saveWelcomeDraft } from "@/lib/welcome-draft";
 import { api, useStore } from "@/state/store";
 import { ChiefIntro } from "./ChiefIntro";
@@ -74,22 +74,18 @@ export function WelcomeFlow({
   record.current = state.config?.onboarding;
 
   useEffect(() => {
-    track("onboarding_step", { step: beat, replay });
     if (keepsDraft && !finishing.current) saveWelcomeDraft({ beat });
   }, [beat, replay, keepsDraft]);
 
-  // A Cloud sheet opened over the welcome never switches the window away from it (CloudAddDialog).
-  useEffect(() => (embedded ? undefined : showWelcome()), [embedded]);
   useEffect(() => {
     if (!replay && !embedded && !hosted) void nameFromComputer(state.config, (config) => dispatch({ type: "configStatus", config }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const finish = useCallback(
-    async (reason: "completed" | "skipped", botId: string | null) => {
+    async (_reason: "completed" | "skipped", botId: string | null) => {
       if (finishing.current) return;
       finishing.current = true;
-      track("onboarding_completed", { reason, at: beat, replay });
       setEmailGateDone("submitted");
       if (!replay && !embedded) markWelcomeFinished();
       if (keepsDraft) clearWelcomeDraft();

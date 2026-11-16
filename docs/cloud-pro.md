@@ -2003,18 +2003,9 @@ without them works as before; a malformed one is dropped, never the machine):
   `keep` what keeps the Cloud on the Cloud page: `portal` (turn renewal back
   on; for `ending`, renewal is off), `checkout` (subscribe again once ended),
   or `none` (nothing: renewing, or, for `ending`, cancelled outright).
-  `switchTo: {tier, amount}` is the plan this trial can switch to from its
-  Plan page and that plan's price before tax in US cents, sent only while a
-  switch is the way down (`{tier: "starter", amount: 1500}` for a Pro or Max
-  trial), so the way down reads the same on every page of the app. `tier` is
-  one the app knows by name (`starter`, `personal`, `pro`, `max`) and `amount`
-  a whole, positive number of cents; anything else drops `switchTo`.
-  `personalAmount` is Personal's price in US cents, the only way down an older
-  Admin names: with no `switchTo`, the app reads it as `switchTo: {tier:
-  "personal", amount}`. An Admin that still sells Personal sends both. With
-  neither, the trial says nothing about switching. An unknown state is no
-  trial; a malformed date or amount is left out. It is display only: the
-  entitlement still decides everything.
+  The client reads dates and charges for existing subscriptions. An unknown
+  trial state is ignored, and malformed dates and amounts are omitted. The
+  entitlement controls access.
 - `cloud.credit: {grantedUsd, remainingUsd, state}`: the trial's Claude
   credit (`active` or `used_up`), shown in Settings here and on the Cloud.
 - `clouds[]` (top level): every Cloud the person can open. The app reads the
@@ -2029,24 +2020,14 @@ without them works as before; a malformed one is dropped, never the machine):
   and the quiet updater never reach a Cloud the Admin says is asleep, and go on
   at the next session read that says it is awake (`electron/cloud-account.mjs`
   `powerOf`).
-- `offer` (top level, beside `cloud`): what this account may buy now, only
-  while it can (no plan, no Cloud, no payment being linked). See
-  [Add a Cloud](#add-a-cloud) for its fields.
 
 #### The free trial's notice
 
 `lib/cloud-plan.ts` `cloudTrialView` is the one place that words a trial, for
 the notice and for Settings (here and on My Cloud), with the same facts as the
-Cloud page. Each state has one message and at most one next step, which opens
-the Cloud page (`openDashboard`): **Manage subscription** (active, with the
-date, the price after it and how to cancel; in its last two days, while the
-Admin names a cheaper plan to switch to, also how to step down to it, with
-its price, and nothing about switching when it names none), **Subscribe to keep it** (ending with renewal off, `keep`
-`portal`, or ended: when My Cloud stops and when its files are deleted),
-**Check payment status** (late), or nothing to do (processing; a trial
-cancelled outright, `ending` with any other `keep`, which offers nothing to
-buy until it has ended, because a new checkout would stop the running
-Cloud).
+Cloud page. The notice shows upcoming charges, payment status and file
+retention dates for existing trials. An active trial offers **Manage
+subscription**, and a late payment offers **Check payment status**.
 
 Main decides when a notice is due and remembers it was shown
 (`electron/cloud-trial-notice.mjs`, a small file in the app's data folder
@@ -2098,111 +2079,7 @@ so. Deploy the Admin before the app release that uses it.
 `cancel-plan-preview.html` (dev only, `pnpm dev`) shows the real cards with a
 fake bridge: `?view=settings|cloud&plan=trial|paid|team&cancelled=1&admin=old&skin=midnight|daylight&lang=de`.
 
-#### One card at a time: the notice queue
-
-`components/AppNotices.tsx` is the one place for the What's new popup and the
-cards at the bottom left. `lib/notices.ts` keeps them in one ordered list,
-`NOTICES`, and the queue asks it in that order. **One notice a launch:** the
-first one due shows, and it takes the launch (`launchNotice`, kept for the
-window's session, so a reload is the same launch). After it, only the
-product-updates question may follow in that launch; every other notice waits for
-a later launch, in the list's order. A new notice is one entry in `NOTICES` and
-its fact in AppNotices. So What's new and Boat's credit offer never share a
-launch: What's new comes first, and the Boat card waits for a later one.
-
-1. **What's new** (`whats-new/WhatsNewPopup`, campaign id `whats-new-2026-11`):
-   one centered popup with slides, **Next** and **Back**, its dots and the arrow
-   keys, once per person: a close is kept in the workspace record, in the page's
-   storage and in this desktop's own record (`electron/desktop-prefs.mjs`), so
-   every port the app's page is served on agrees. A new campaign id shows it
-   once more. Only on this computer's page of the installed app (never My
-   Cloud's or a saved server's page, a remote client's window, a branded build
-   or a desktop signed in with an organization), never during setup (the welcome,
-   the tour), a call, another dialog, busy work or an update being offered,
-   never in the launch whose welcome finished or before a new install's first
-   reply, and after MausBot's first-launch card. `lib/whats-new.ts` decides the
-   slides from the account the app already holds (its plan, its trial, its
-   teams and its Clouds list):
-   - **No Cloud plan** (signed out, or signed in with none): **Meet the new
-     MausBot Cloud**, the Cloud website's Home pictured in the skin's light or
-     dark, then **Team**.
-   - **A Cloud plan of one's own**, in no team: the Team slide only.
-   - **In a team** (any role, a Team or Business plan, or a team's Cloud in the
-     Clouds list), a payment being linked or needing attention, a checkout or
-     another Cloud being bought, or a sign-in that can't be checked: nothing
-     (the last ones on a later launch).
-
-   A slide shows only while the Admin's offer sells its plan, with that plan's
-   price from the offer (the Team plan's free trial when it has one). Every
-   button carries the slide's tag on the Cloud's funnel (`app_whats_new_pro`,
-   `app_whats_new_team`): **Get Pro** opens the Add a Cloud dialog with
-   `source: app_whats_new_pro`, which its checkout sends; **See the new Cloud**
-   opens `https://cloud.openmausbot.com/cloud?src=app_whats_new_pro` (the plans,
-   for someone without one); **Start a Team** opens
-   `https://cloud.openmausbot.com/pro/buy?plan=team&src=app_whats_new_team`, the
-   website's Get Team with this slide's tag (the staging Admin's site for an app
-   on staging), and for someone with a plan of their own, whom that page would
-   only tell to write in, the Add a Cloud dialog with `source:
-   app_whats_new_team`, which lists the Team plan. A browser that won't open
-   keeps the popup up and says so. Every
-   button, Not now, its X, Escape (while focus is inside) and a click outside
-   end it for good; until then it comes back on a later launch. It takes focus
-   at the slide's title, keeps Tab inside, and gives focus back when it closes
-   unless focus has moved on. `whats_new` ([docs/analytics.md](analytics.md))
-   counts each slide seen and each step.
-2. **The card after the update** (`CloudTrialIntro`, id `cloud-trial-intro-v1`):
-   MausBot Cloud's free trial for someone signed out or with no plan who
-   has used the app before this launch, only while the Admin offers a trial
-   (it waits for one), and never on a desktop whose first-run welcome
-   showed its MausBot Cloud step. Its numbers are the Admin's: the trial's
-   days, the lowest monthly price, the Claude credit and money-back. At most
-   once a calendar day, on at most three days (one for someone who closed the
-   earlier Pro card), kept in browser storage and the workspace's hint record;
-   any button, its X or Escape end it for good. **Start free trial** opens the
-   Add a Cloud dialog, **Show me how** lights the server menu (below), **Sign
-   in to your Cloud plan** (signed out) only hides it for now. Never on a
-   branded build or a desktop signed in with an organization.
-3. **The free trial's notice** (above), on this computer's page and on My
-   Cloud's own page (its only entry there, after its engine sign-in and setup
-   checklist).
-4. **This computer's My Cloud card** (`CloudNotice`): a ready My Cloud for
-   someone with a plan, or **Sign in again** where the sign-in ended (Not now
-   kept per card).
-5. **Star us on GitHub**, asked once.
-
-None of them shows over setup (the welcome flow, the tour, and on My Cloud its
-engine sign-in and its setup checklist until that is done or hidden), a dialog,
-Settings, the Add a Cloud dialog or its tip, busy work, or an update being
-offered; no card in the corner takes focus, and each is announced once to a
-screen reader.
-
-How the app holds the answer (`electron/cloud-account.mjs`): it asks every
-minute (every 15 seconds while the Cloud is set up or a payment is linked),
-and an answer counts for 15 minutes, never past the plan's own `expiresAt` or
-the device token's. A failed check keeps the last verified answer, so the plan,
-the Cloud card and Connect never blink; after two failures in a row the
-snapshot says `checking`. Only a longer outage makes it `unavailable`, and even
-then the plan last verified is named (`lastPlan`, display only, kept beside the
-encrypted credential as `planHint`; it activates nothing). When the device
-token reaches its `expiresAt`, or the Admin itself answers `401`/`403` with
-its JSON `{error: "invalid_token"}`, the app asks the person to **Sign in
-again** (one step, the plan unaffected) instead of offering a plan. A `401` or
-`403` page from anything in between (Cloudflare's bot check, a proxy), or any
-other refusal, is a failed check like a dropped connection: it never ends the
-sign-in. Nobody signed in with a paid plan, in payment trouble, with a payment
-being linked, or whose state is unknown is offered a plan anywhere in the app.
-What's new offers no plan to any of them; it waits while the sign-in is still
-restoring or connecting.
-
-In the Server menu, **My Cloud** goes through the same connection as
-**Open My Cloud** (no pairing code to type); when it cannot, the app
-opens **Settings → MausBot Cloud**, which says the next step. In the desktop app a
-`/pair#code=` link connects without a second click; a browser still asks. On a
-Cloud home the pairing page says where its connection starts (the environment
-descriptor's `capabilities.cloudHome`).
-
-On the person's own Cloud, open in the app's window, **Settings → MausBot Cloud**
-shows the plan read only (`cloud-plan:*`: its name and whether it is active,
+Settings on the Cloud shows the plan read only (`cloud-plan:*`: its name and whether it is active,
 **Manage in your browser** and **Switch to this computer**). It is listed only
 on an OMB Cloud home (`config.cloudHome`), never on another server open in the
 window. Main answers it for the Cloud this account verified, or last verified
@@ -2235,183 +2112,13 @@ sleeps: true}`; `cloud.state` stays `ready`. Without `cloud.power`, nothing belo
 - **Opening My Cloud while it sleeps** asks the Admin to wake it first (`POST /api/cloud/desktop/wake`), shows "Waking
   your Cloud…" after 1.5 s, and gives its sign-in check 30 s instead of 5 (a stopped machine takes about 20 s), so a slow
   wake never causes a needless new pairing.
-- **Copy:** the menu and the server switcher say "Sleeps when idle" instead of "Always on" for such a Cloud; the buy sheet
-  shows the line for a plan whose allowances say `sleeps`.
+- **Copy:** the menu and the server switcher say "Sleeps when idle" instead of "Always on" for such a Cloud.
 - **App events:** the connected-apps broker asks the Admin to wake a Cloud when it queues an event for one that isn't
   polling (`cloudflare/composio-broker`, off until `CLOUD_ADMIN_URL` and `CLOUD_GRANT_SECRET` are set).
 
-### Usage meter: how close the plan is to its limits, and Upgrade
+### Resource limits
 
-The session's `cloud.usage` (additive; the Admin's `server/cloud-usage.ts`) says, for an active plan whose Cloud is
-ready: the plan (`tier`), when the monthly allowances start over (`resetsAt`, the first of next month UTC; `trialEndsAt`
-during a free trial), each included allowance as `{kind, used, max, usedUp?}` (`computerHours` in hours, `voice` in
-characters, `decisions`, `x` in calls, `research` in dollars, `storage` in GB of the most the disk grows to), and the bigger
-plans the app can move to itself (`upgrades: [{tier, amount}]`, US cents a month; empty on Max, a team's plan, or while
-the Admin's `OMB_CLOUD_APP_UPGRADES` is off). `electron/cloud-home.mjs` `parseCloudUsage` drops anything malformed (an
-unknown kind, an allowance of nothing, a plan it doesn't know); it is display only and never grants or limits anything.
-Main keeps it on the account's state, and `cloudPlanSnapshot` hands it to this computer's page and the person's own Cloud
-page alike (`ogb.cloudPlan`), so the meter reads the same on both (`src/components/CloudUsageMeter.tsx`,
-`src/lib/usage-meter.ts`).
-
-- **The sidebar card**, above the person's name (not in the icon rail), only while an allowance is at 80% or more: the
-  one or two fullest, used of included with a bar (amber from 80%, red at 100%), when they start over, **Upgrade to
-  <next plan>**, and **See all usage** (Settings → General). **Hide for now** keeps it hidden on this computer for this
-  month at this level: it comes back when one reaches 100%, and next month. Never shown in a browser, without a paid plan,
-  or on a Team Cloud unless the plan whose usage it is is that team's (only the person who pays for a team sees its usage;
-  its members never do).
-- **Settings → General → MausBot Cloud usage**, while there is a paid plan: every allowance with its meter, when they
-  start over, and Upgrade to the next plan (the others as links), "You're on the top plan" on Max, or "To change your
-  team's plan, write to us" on a team's plan.
-- **Upgrade, one tap and a confirm.** Upgrade asks main for a preview (`ogb.cloudPlan.upgradePreview(plan, source)`,
-  only from a click, only for a plan the verified session lists), which asks the Admin
-  (`POST /api/cloud/desktop/upgrade/preview`): Dodo's own numbers for this change, nothing changed. The confirm says them
-  in plain words: "Max is $99 a month and starts right away. Today you pay $23.40, the difference for the rest of this
-  billing month. From Nov 18 it's $99 a month, plus any tax." (a free trial: nothing today, the new price at its first
-  payment). The preview's confirmation stays in main, never in a page. Only the confirm's own **Upgrade to Max**
-  (`ogb.cloudPlan.upgrade(plan, source)`, which needs a click) sends `POST /api/cloud/desktop/upgrade` with it; without a
-  preview of that very plan, still good (ten minutes), main sends nothing. The Admin changes the plan in Dodo (the prorated
-  difference now, the billing date kept; `on_payment_failure: prevent_change`), refuses if Dodo would now charge more than
-  the confirm said, and reads the plan back, so the session (read again at once) shows the new plan and allowances. Plain
-  lines for what happened: on the new plan; still going through; the card was declined, nothing changed; the price
-  changed, nothing charged; couldn't, nothing charged. Where the Admin can't change plans from the app (off, or an older
-  Admin), Upgrade opens the Cloud page instead. Funnel source `app_usage` (the card) or `app_settings`.
-
-### Room card: short on memory or disk, and the plan that fixes it
-
-The session's `cloud.room` (additive, only beside `cloud.usage`; the Admin's `server/cloud-room.ts`, behind its
-`OMB_CLOUD_ROOM_OFFERS`) says this Cloud is short on room, from its health report's `room` and disk: `cause` is
-`{kind: "memory", waits, waitMinutes, stopped}` (the last day) or `{kind: "disk", usedGb, capGb}`, then either `plan`
-(the next plan up that fixes it: `tier`, `amount` in US cents a month, `memoryMb`/`fromMemoryMb`, `diskGb`/`fromDiskGb`)
-or `tip: true` on the top plan, and `id`. `electron/cloud-home.mjs` `parseCloudRoom` drops anything malformed; it is display
-only.
-
-- **Where:** the card sits where the usage meter's card is (the sidebar's foot and the phone bar, `src/components/CloudRoomCard.tsx`,
-  `src/lib/room-card.ts`), never while any bot is working (never mid-turn), never beside the usage meter's card, and on a
-  Team Cloud only for the team's own plan (its payer).
-- **What it says:** the cause ("3 tasks waited 6 minutes for memory today."), what the plan gives and costs ("Pro has twice
-  the memory. $49 a month. Today you pay only for the rest of this month."), **Upgrade** and **Not now**; on the top plan
-  a tip ("run fewer bots at once and close browsers you're not using") and **Got it**.
-- **Upgrade** is the usual one: the preview, then the person's confirm, with source `app_room`. After it the card offers
-  **Restart now** (`ogb.cloudPlan.restartNow()`, `POST /api/cloud/desktop/resize-now`, "Takes about a minute, and stops anything
-  running now"); otherwise the Cloud gets its new size the next time it's not busy.
-- **Not now** (`ogb.cloudPlan.roomNotNow(id)`, `POST /api/cloud/desktop/room`) hides it here at once and the Admin offers
-  nothing for two weeks. A new offer comes at most once a week. Both channels act only on the session's own Cloud, only from
-  a click.
-
-## Add a Cloud
-
-The one way to buy MausBot Cloud in the app, the same for every way in:
-What's new, the card after the update, **Show me how**, **Add a
-Cloud…** in the server menu (the sidebar's and the menu bar's Server menu),
-Settings (the Cloud card in General, and MausBot Cloud), and the routine
-screen's note.
-
-- **The menu item.** Main adds **Add a Cloud…** under the saved servers only
-  for the installed app on this computer (never a dev build, companion mode or
-  a branded build, read once from the local `/api/brand`), and decides on a
-  click with nothing from the page: someone with a Cloud (paying or in a
-  trial) gets a native "You already have My Cloud" box (**Email me when it's
-  ready** registers interest once per account, `POST /api/cloud/desktop/interest`);
-  anyone else gets the dialog on this computer's page, which the window
-  switches to first. My Cloud's line in both menus (`electron/cloud-account.mjs`
-  `cloudMenuSublabel`) says **Free trial until <date>** while a trial's end is
-  ahead, **Always on** while it is paid for (a first charge processing
-  included), **Stopped** when it isn't (a trial that ended, a payment problem,
-  a subscription that ended), and nothing while this computer can't say
-  (signed out, its sign-in ended).
-- **Show me how.** One spotlight on the sidebar's server menu
-  (`data-tour="server-switcher"`); the menu opened from it counts as reached
-  from the tip, and the tip ends when the menu closes, or on Skip or Escape.
-  With the menu off screen, the dialog opens instead with a line saying where
-  the menu is.
-- **The dialog** (`components/CloudAddDialog.tsx`, one state→view function,
-  `lib/cloud-plan` `cloudAddView`) covers the buying journey only: the offer
-  (the night card: MausBot Cloud's name and one line over a linocut night sky
-  where the three bots ride a cloud while this computer's laptop sleeps, with
-  Compare plans in the card; then one card
-  per plan the Admin sells, side by side on a wide sheet and stacked in a
-  narrow window, from `lib/cloud-plan` `planCards`: its name, "Most popular"
-  as a quiet tag on the Admin's recommended plan only, the price per month,
-  its promise, and only what sets the plans apart (`cardRows`): the month's
-  cloud desktop hours, storage and what it grows to, voice, and sleeping
-  when the plans differ there; then its own button (Start free trial, or
-  Get {plan} without a trial; the recommended plan's is the one primary
-  pill) with its terms in one line under it. **Compare plans** opens the
-  rest of every card's rows, in the website's words (with the app's "cloud
-  desktop" for the website's "cloud computer"), every number from the
-  Admin's `allowances`: always on (or sleeping), cloud desktops as many as
-  the bots need (how many at once only as small print), CPUs and memory
-  (swap as small print), and daily backups' days. The card of the plan the
-  account already has says **Your plan** instead of a button (`current`,
-  from the verified entitlement's tier); a plan no longer on sale, such as a
-  Personal subscriber's, shows only for that subscriber when the screen is
-  given it (`own`). Under the cards, when every plan has the same trial, the
-  trial's timeline with the reminder line only while the Admin sends one,
-  and the Claude credit; money-back; what every plan includes, once; prices
-  plus tax. No launch or struck-through
-  price: the Admin's `regularAmount` is not read), the sign-in (its last step
-  names the checkout only when the sign-in is on the way to one), the next
-  step in the browser (the checkout open there, or, signed in on the way to
-  one, the Admin's page after approval, which leads to it), the payment
-  received, My Cloud starting, and My Cloud ready (**Open My Cloud**; never
-  for someone who already had My Cloud before this sign-in). When a step
-  ended without going on (the sign-in code expired or the sign-in ended, a
-  checkout already being prepared), the offer says why. A screen reader
-  hears each card's button with its plan's name, and each new step takes
-  focus at its heading. A payment problem, an ended sign-in or a Cloud that can't
-  be reached go to Settings → MausBot Cloud instead.
-- **Checkout runs in the default browser, never the app.** Signed in, main
-  asks the Admin for this account's checkout (`POST /api/cloud/desktop/checkout`
-  with the plan and where it was opened) and opens the address only when it is
-  Dodo Payments' own checkout page (`https://checkout.dodopayments.com`, no
-  credentials, no fragment; its test origin only for a fixture Admin). An
-  Admin before that route gets its Cloud page's
-  `/cloud?checkout=start&plan=<plan>&src=<source>` instead. Signed out, the
-  browser signs in first: main opens the Admin's own verified sign-in link
-  with `&next=checkout&plan=<plan>&src=<source>` added (older Admins ignore it).
-  The app follows its own session, never the return page: every 15 seconds
-  for 30 minutes after it opened a checkout, and at once when the window comes
-  back or `openmausbot://cloud` arrives (which then opens the dialog).
-- **Ready.** When My Cloud is ready after a checkout this app opened and the
-  window is elsewhere, one system notification says so.
-
-### What the app reads (contract v1, additive)
-
-- **Desktop session** `GET /api/cloud/desktop/session`, beside `cloud`:
-  `offer: {plans, recommended?, trialDays?, creditUsd?, reminderDays?, refundDays?, checkout?}`,
-  only while this account can buy. `plans[]` are the catalog entries on sale
-  (`{tier, label, price: {currency: "USD", amount, interval: "month"}, allowances?, trialDays?}`;
-  a `personal` entry, which an older Admin may still list, is left out here, so it is never listed, marked Most popular or
-  checked out, a `recommended: "personal"` falls back to Pro (else the first plan left), and a `checkout` of it is not
-  watched; Personal subscribers keep their plan and see it named Personal;
-  `allowances` may carry `cpuKind`, `swapMb` and `snapshotDays`, each said only when present and valid):
-  a plan's own `trialDays` is its trial; with none on any plan, a top-level
-  `trialDays` is every plan's. `creditUsd` and `reminderDays` (days before the
-  end that the reminder email goes out, sent only while it does) count only
-  with a trial; `refundDays` only while this person can still have a
-  money-back refund; `checkout: {plan, openUntil}` a checkout of theirs still
-  open. A malformed offer is no offer; an Admin without `offer` gets the
-  public plans with no trial (this account's own trial isn't known).
-- **Public config** `GET /api/public/config` (signed out, no sign-in or
-  cookie, at most every 10 minutes): `plans` as above, `trial: {days, holdDays,
-  creditUsd?, reminderDays?}` and `refundDays`.
-- **Device checkout** `POST /api/cloud/desktop/checkout`
-  `{plan, source}` → `{cloudContractVersion: 1, url}`; `409` reads the session
-  again, `429` says to use the open checkout or wait, anything else says
-  nothing was charged; `404`/`405`/`501` is an Admin before the route.
-  `source` is one of `app_card`, `app_howto`, `app_menu`, `app_settings`,
-  `app_routines`, `app_pages`, `app_whats_new_pro`, `app_whats_new_team`,
-  `app_onboarding` (main refuses any other, and any plan the offer doesn't
-  sell).
-- **Interest** `POST /api/cloud/desktop/interest` `{kind: "another_cloud"}` → `{ok: true}`.
-- Every signed-in request carries this app's version in `x-openmausbot-version`.
-
-Nothing in the app is a price: with the Admin's trial switch off, no card is
-shown, and the dialog offers today's plans at the Admin's prices, charged
-today. Analytics (the app's existing, optional PostHog) register `app_version`
-and `surface` (`local` or `server`) on every event, and count the card, its
-actions, the tip, the dialog's views and checkouts opened, with no content.
-[docs/analytics.md](analytics.md) lists every event and property.
+Settings and the sidebar show the allowance meters and their reset date. A workspace short on disk space or memory can show a dismissible warning with steps to free resources.
 
 ## This computer's bots move to your Cloud
 

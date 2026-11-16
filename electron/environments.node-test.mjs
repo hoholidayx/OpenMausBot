@@ -113,21 +113,12 @@ test("native workspace choices use saved IDs and connect opens settings without 
   assert.equal(state.activeId, "cloud");
 });
 
-test("Add a Cloud… sits just under the saved servers only where main offers it, and My Cloud's line can say Always on", () => {
+test("the workspace menu lists saved servers and their status without a purchase item", () => {
   const state = { environments: [{ id: "cloud", name: "My Cloud", origin: "https://omb-u-1.fly.dev" }, { id: "office", name: "Office", origin: "https://office.example" }], activeId: "local" };
-  const calls = [];
-  const base = { onSwitch: (id) => calls.push(["switch", id]), onConnect: () => calls.push(["settings"]), onForget: () => {} };
-  const plain = env.workspaceMenuTemplate(state, base);
-  assert.equal(plain.some(item => item.id === "workspace-add-cloud"), false);
-  assert.deepEqual(plain.filter(item => item.sublabel).map(item => item.sublabel), ["omb-u-1.fly.dev", "office.example"]);
-  const items = env.workspaceMenuTemplate(state, { ...base, onAddCloud: () => calls.push(["add-cloud"]), sublabels: { cloud: "Free trial until 15 Oct" } });
-  assert.deepEqual(items.map(item => item.id ?? item.type), ["workspace-local", "workspace-cloud", "workspace-office", "workspace-add-cloud", "separator", "workspace-connect"]);
-  const add = items.find(item => item.id === "workspace-add-cloud");
-  assert.deepEqual([add.label, add.sublabel, add.type], ["Add a Cloud…", "Keeps your bots running 24/7", undefined]);
-  add.click();
+  const items = env.workspaceMenuTemplate(state, { onSwitch() {}, onConnect() {}, onForget() {}, sublabels: { cloud: "Free trial until 15 Oct" } });
+  assert.deepEqual(items.map(item => item.id ?? item.type), ["workspace-local", "workspace-cloud", "workspace-office", "separator", "workspace-connect"]);
   assert.deepEqual(items.find(item => item.id === "workspace-cloud").sublabel, "Free trial until 15 Oct");
   assert.deepEqual(items.find(item => item.id === "workspace-office").sublabel, "office.example");
-  assert.deepEqual(calls, [["add-cloud"]]);
 });
 
 test("with My Cloud, the switcher says first which side has which bots, and under My Cloud what is not on it yet, with Send", async () => {
@@ -370,7 +361,7 @@ test("once My Cloud is home the switcher lists whole places only: My Cloud first
   const state = { environments: [{ id: "o", kind: "remote", name: "Office", origin: "https://office.example.test" }, { id: "c", kind: "remote", name: "My Cloud", origin: home },
     { id: "l", kind: "local", name: "Lab", dataDir: "/lab" }], activeId: "c" };
   const switched = [], forgot = [];
-  const items = env.workspaceMenuTemplate(state, { onSwitch: (id) => switched.push(id), onConnect() {}, onForget: (id) => forgot.push(id), onAddCloud() {}, places: "x", copyToCloud: { label: "Send" }, homeOrigin: home });
+  const items = env.workspaceMenuTemplate(state, { onSwitch: (id) => switched.push(id), onConnect() {}, onForget: (id) => forgot.push(id), places: "x", copyToCloud: { label: "Send" }, homeOrigin: home });
   assert.deepEqual(items.map((item) => [item.label, item.checked]), [["My Cloud", true], ["Office", false]]);
   items[1].click();
   assert.deepEqual(switched, ["o"]);

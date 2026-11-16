@@ -566,7 +566,7 @@ export function SidebarProfileMenu({ iconOnly = false, rail = false, circle = fa
   const accounts = useAccounts();
   const openSource = desktop && !window.ogb?.cloudAccount && !window.ogb?.cloudPlan;
   const planLine = !desktop ? undefined : cloudUsage ? t("sidebar.menu.plan.used", { plan: summary.plan ?? cloudPlanLabel(planSnapshot?.tier), percent: cloudUsage.value.replace(/\D+/g, "") })
-    : summary.signedIn === false || summary.plan === t("settings.account.free") ? t("sidebar.menu.plan.free") : summary.plan ?? undefined;
+    : summary.signedIn === false || summary.plan === t("settings.account.free") ? undefined : summary.plan ?? undefined;
 
   const items = profileMenuItems({
     phone: remote ? null : phoneDevicesItem(phoneState, place.name, () => openSettings("phone")),

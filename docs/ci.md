@@ -1,9 +1,6 @@
 # CI job selection
 
-Every PR still runs the workflow, its `static` job and the `CI` gate: locale
-validation, lint, the announcements file's check
-(`scripts/check-announcements.mjs`, which installs download from main within
-the hour, so it fails on any invalid edit), the CI-selection tests, the
+Every PR still runs the workflow, its `static` job and the `CI` gate: locale validation, lint, the CI-selection tests,
 verification-documentation checks and the source guards always run. Selection never skips the entire
 workflow. The source guards are the tests that only read the source (the
 vocabulary and locale checks, the size and route ratchets, and the like): they
@@ -24,7 +21,6 @@ too) into areas, and runs only the jobs some area can affect:
 | Windows computer control | the `electron/` modules that start computer control and lend a PC's screen: `cua`, `cua-failure`, `cua-connection`, `capabilities`, `screen-status`, `shared-cua-connection`, `shared-computer-access`, `lent-screen-tools`, `lent-screen-failures`, `paced-typing` | the same as server, and Windows CUA |
 | desktop | the rest of `electron/`, `build/`, `electron-builder.yml`, `index.html` | the same as server |
 | control plane | `cloudflare/control-plane/` | the control-plane job |
-| announcements | `announcements/`: the cards file, its JSON Schema and pictures | nothing beyond `static`, which validates them |
 | everything | anything else: `.github/` workflows, `package.json`, the lockfile and workspace, tsconfig, vite and vitest config, `third_party/`, `scripts/` code, unknown paths | every job |
 
 `static` also validates `server/model-manifest/model-manifest.json` with `scripts/check-model-manifest.mjs`: installs

@@ -34,7 +34,7 @@ export function checkRelease(release, version, { now, urgent = false }) {
   if (!Number.isFinite(published)) throw new Error(`v${version} has no publish date`);
   const waited = now - published;
   if (waited < SOAK_MS && !urgent) {
-    throw new Error(`v${version} was published ${Math.floor(waited / 3_600_000)} hours ago; stable takes a version our Clouds have run for 48 hours. For a fix that cannot wait, run this again with "urgent" ticked.`);
+    throw new Error(`v${version} was published ${Math.floor(waited / 3_600_000)} hours ago; stable takes a release that has been available for 48 hours. For a fix that cannot wait, run this again with "urgent" ticked.`);
   }
 }
 
@@ -52,8 +52,8 @@ const DIGEST = /^sha256:[0-9a-f]{64}$/;
  * The next stable.json. `current` is the record it replaces (null for the first). Throws when `version` is older than
  * the current one, unless `allowOlder`. Promoting the current version again changes nothing but the images, if those moved.
  */
-export function stableRecord({ version, image, cloudHomeImage, release, current, now, allowOlder = false }) {
-  for (const ref of [image, cloudHomeImage]) if (!DIGEST.test(ref.split("@")[1] ?? "")) throw new Error(`${ref} is not pinned by digest`);
+export function stableRecord({ version, image, release, current, now, allowOlder = false }) {
+  if (!DIGEST.test(image?.split("@")[1] ?? "")) throw new Error(`${image} is not pinned by digest`);
   if (current && compareVersions(version, current.version) < 0 && !allowOlder) {
     throw new Error(`stable is ${current.version}, which is newer than ${version}. To move stable back, run this again with "allow older" ticked.`);
   }
@@ -66,7 +66,6 @@ export function stableRecord({ version, image, cloudHomeImage, release, current,
     channel: "stable",
     version,
     image,
-    cloudHomeImage,
     platforms: ["linux/amd64", "linux/arm64"],
     releaseUrl: release.url,
     releasedAt: release.publishedAt,
@@ -95,7 +94,7 @@ function main([command, ...rest]) {
   if (command === "check-image") return checkIndex(readJson(options.index), options.platforms.split(","), options.name);
   if (command === "record") {
     const record = stableRecord({
-      version: stableVersion(options.version), image: options.image, cloudHomeImage: options["cloud-home"], release: readJson(options.release),
+      version: stableVersion(options.version), image: options.image, release: readJson(options.release),
       current: options.current ? readJson(options.current) : null, now: Date.now(), allowOlder: options["allow-older"] === true,
     });
     return console.log(JSON.stringify(record, null, 2));

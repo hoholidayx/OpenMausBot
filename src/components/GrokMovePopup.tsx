@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
-import { track } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { MausAvatar } from "./Avatar";
@@ -13,13 +12,12 @@ const BODY = "grok-move-popup-body";
 
 export type GrokMovePopupAction = "start" | "not_now" | "close";
 
-export function reportGrokMovePopup(action: GrokMovePopupAction | "shown"): void {
-  track("grok_move_popup", { action });
+export function reportGrokMovePopup(_action: GrokMovePopupAction | "shown"): void {
 }
 
 /** Once per person (AppNotices): the two marks and one way in. Not now, × and Escape close it for good; the dialog stays in
  * Settings → Import. */
-export function GrokMovePopup({ onDone }: { onDone: (action: GrokMovePopupAction) => void }) {
+export function GrokMovePopup({ onDone }: { onDone: (_action: GrokMovePopupAction) => void }) {
   useEffect(() => {
     document.querySelector<HTMLElement>(`${GROK_MOVE_POPUP} [data-primary]`)?.focus();
   }, []);

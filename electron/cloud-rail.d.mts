@@ -67,31 +67,7 @@ export interface RailState {
   /** The place a click on this rail is opening, until its page has loaded; `waking` while My Cloud is being woken for it. */
   switching?: { id: string; waking?: true };
 }
-/** Buying another Cloud as a page sees it: what the sheet says, never the account, an address or the checkout page. */
-export type AddCloudView =
-  | { signedIn: false }
-  | {
-    signedIn: true;
-    /** The person has a Cloud of their own already (else ＋ buys their first, in this computer's own sheet). */
-    hasCloud: boolean;
-    /** The Admin lists every Cloud of theirs (else it sells one Cloud per account). */
-    supported: boolean;
-    canAdd: boolean;
-    blocked?: import("./cloud-account.mjs").CloudAddBlock;
-    offer: import("./cloud-home.mjs").CloudOffer | null;
-    /** How many Clouds of their own they have: the next one is suggested as "Cloud {count + 1}". */
-    count: number;
-    /** For the account a Team plan with organizations is billed to: whether a new one may be added now (else why), how many
-     * it has of how many. */
-    organizations?: { canAdd: boolean; blocked?: import("./cloud-list.mjs").OrganizationBlock; count: number; max: number };
-    home?: { name: string; color: import("./cloud-buy.mjs").CloudColor | null };
-    adding?: {
-      name: string; color: import("./cloud-list.mjs").CloudSwatch | null; tier: string | null; startedAt: number;
-      status: "checkout" | "setting_up" | "ready" | "problem"; progress?: number; link?: true; done?: true;
-    };
-  };
 export declare const RAIL_MIN_PLACES: number;
 export declare const PROFILE_PLACE: "profile:";
 /** main's own circles: each as the page sees it, plus the Cloud main acts on for it (never sent to a page). */
 export declare function railPlaces(input: { saved: { environments: any[]; activeId: string }; home?: string | null; mine?: string | null; state?: unknown; offers?: (entry: any) => boolean; waiting?: (id: string) => boolean; accounts?: any[]; profiles?: Array<{ id: string; name?: string | null; color?: string | null; swatch?: string | null; active?: boolean; settling?: string }>; computerSettling?: string | null }): Array<RailPlace & { cloudId?: string }>;
-export declare function addCloudView(state: unknown, offer: import("./cloud-home.mjs").CloudOffer | null): AddCloudView;

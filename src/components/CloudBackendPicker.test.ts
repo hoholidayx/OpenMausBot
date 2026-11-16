@@ -1,41 +1,21 @@
-import { createElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { expect, it, vi } from "vitest";
+import { CloudBackendPicker } from "./CloudBackendPicker";
 
-import en from "@/locales/en.json";
-
-const fixture = vi.hoisted(() => ({ config: null as unknown }));
-vi.mock("@/state/store", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/state/store")>();
-  return { ...original, useStore: () => ({ state: { ...original.initialState, config: fixture.config }, dispatch: vi.fn() }) };
+it("offers a self-hosted VPS for a saved Boat selection", () => {
+  const onChange = vi.fn();
+  const picker = CloudBackendPicker({ value: "box", onChange });
+  const html = renderToStaticMarkup(picker);
+  expect(html).toContain("Self-hosted VPS");
+  expect(html).not.toContain("Boat");
+  const button = picker.props.children[2] as ReactElement<{ onClick(): void }>;
+  button.props.onClick();
+  expect(onChange).toHaveBeenCalledWith("vps");
 });
 
-const { CloudBackendPicker } = await import("./CloudBackendPicker");
-const picker = (value: "box" | "vps" = "box") => renderToStaticMarkup(createElement(CloudBackendPicker, { value, onChange: () => {} }));
-
-describe("CloudBackendPicker", () => {
-  afterEach(() => { fixture.config = null; });
-
-  it("offers Boat or a self-hosted VPS on a desktop or self-hosted server", () => {
-    fixture.config = { cloudHome: false };
-    expect(picker()).toContain("Self-hosted VPS");
-  });
-
-  it("is hidden on My Cloud", () => {
-    fixture.config = { cloudHome: true };
-    expect(picker()).toBe("");
-  });
-
-  it.each(["box", "vps"] as const)("offers both backends whichever is chosen (%s)", (value) => {
-    const markup = picker(value);
-    expect(markup).toContain("Boat");
-    expect(markup).toContain("Self-hosted VPS");
-    expect(markup).not.toContain("disabled");
-    expect(markup).not.toMatch(/ACP model provider/);
-  });
-
-  it("leaves no message that tells someone to switch backends for an engine", () => {
-    expect(Object.keys(en)).not.toContain("computer.err.vpsEngine");
-    expect(Object.values(en).filter((value) => /switch the cloud backend to Boat/i.test(value))).toEqual([]);
-  });
+it("shows the SSH details when a VPS is selected", () => {
+  const html = renderToStaticMarkup(createElement(CloudBackendPicker, { value: "vps", compact: true, onChange: vi.fn() }));
+  expect(html).toContain("Your own server, connected over SSH.");
+  expect(html).not.toContain("<button");
 });

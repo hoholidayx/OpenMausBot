@@ -22,8 +22,6 @@ import { ToolGroupsCard } from "./ToolGroupsCard";
 import { ToolSelectionCard } from "./ToolSelectionCard";
 import { BotApiCard } from "./BotApiCard";
 import { ToolBudgetLine } from "./ToolBudgetLine";
-import { useCloudPlan } from "../ProIntroduction";
-import { xResearchAction } from "@/lib/cloud-plan";
 import { useBotApps } from "./useBotApps";
 import {
   classifyConnectorTool,
@@ -475,22 +473,18 @@ function ConnectorToolsGrants({
   );
 }
 
-/** Research through treg (the X tools and the general research tools): on for every bot whenever this server holds a
- * treg key or a Cloud plan's research credential, and switchable off per bot. */
+
 function ResearchCard({ bot, patch }: { bot: Bot; patch: (patch: { xResearch: boolean }) => void }) {
   const { state, dispatch } = useStore();
-  const connecting = xResearchAction(useCloudPlan()?.view ?? null) === "connecting" && state.config?.xResearch?.unavailable !== true;
-  const ownKey = state.config?.treg?.configured === true, included = state.config?.xResearch?.included === true;
-  const available = ownKey || included;
+  const available = state.config?.treg?.configured === true;
   const on = bot.xResearch !== false;
-  const line = !available ? t(connecting ? "research.connecting" : "research.addKey")
-    : !on ? t("research.off") : t(ownKey ? "research.ownOn" : "research.planOn");
+  const line = t(!available ? "research.addKey" : on ? "research.ownOn" : "research.off");
   return (
     <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4" data-testid="access-x-research">
       <div>
         <div className="text-[15px] font-medium text-ink">{t("research.title")}</div>
         <div className="mt-0.5 text-[13px] text-ink-secondary">{line}</div>
-        {!available && !connecting && (
+        {!available && (
           <button type="button" className="ui-button mt-2" onClick={() => dispatch(openKeySettings("treg"))}>
             {t("research.openKeys")}
           </button>
@@ -656,7 +650,11 @@ function DraftWorksOn({ bot, patch, seat }: { bot: Bot; patch: ReturnType<typeof
       note: placeHasIssue(view) ? view.line : mode === "local" ? localReason ?? undefined : undefined,
     };
   });
-  const choose = (mode: WorksOnMode) => patch(mode === "browser" ? { computer: mode, browser: true } : { computer: mode });
+  const choose = (mode: WorksOnMode) => {
+    if (mode === "cloud") patch({ computer: mode, cloudBackend: "vps" });
+    else if (mode === "browser") patch({ computer: mode, browser: true });
+    else patch({ computer: mode });
+  };
   return <>
     <div className="text-[15px] font-medium text-ink">{t("computer.worksOn")}</div>
     <p className="mt-1 text-[12px] leading-5 text-ink-secondary">{t(state.config?.cloudHome ? "computer.worksOnHintCloudHome" : "computer.worksOnHint")}</p>

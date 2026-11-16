@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CloudUsage, CloudUsageMeter } from "../../electron/cloud-home.mjs";
 import { setLocale } from "@/lib/i18n";
 import {
-  CARD_METERS, includedUsePercent, meterAmounts, meterBand, meterPercent, NEAR_LIMIT_PERCENT, nextPlan, resetLine, tightMeters, upgradeConfirmBody, upgradeLabel, upgradePath,
+  CARD_METERS, includedUsePercent, meterAmounts, meterBand, meterPercent, NEAR_LIMIT_PERCENT, resetLine, tightMeters,
   usageCardView,
 } from "./usage-meter";
 
 const RESETS = Date.UTC(2026, 10, 1);
 const meter = (kind: CloudUsageMeter["kind"], used: number, max: number, usedUp?: true): CloudUsageMeter => ({ kind, used, max, ...(usedUp ? { usedUp } : {}) });
 const usage = (meters: CloudUsageMeter[], extra: Partial<CloudUsage> = {}): CloudUsage =>
-  ({ tier: "pro", resetsAt: RESETS, meters, upgrades: [{ tier: "max", amount: 9900 }], ...extra });
+  ({ tier: "pro", resetsAt: RESETS, meters, ...extra });
 
 beforeEach(() => setLocale("en"));
 afterEach(() => setLocale("en"));
@@ -44,7 +44,7 @@ describe("the sidebar card", () => {
     expect(usageCardView({ usage: usage([near]), teamHome: false, dismissed: null })).toEqual({ meters: [near], band: "near", dismissKey: `${RESETS}:near` });
     // A member's own personal plan never shows on their team's Cloud; the team's payer sees the team's.
     expect(usageCardView({ usage: usage([near]), teamHome: true, dismissed: null })).toBeNull();
-    expect(usageCardView({ usage: usage([near], { tier: "team", upgrades: [] }), teamHome: true, dismissed: null })).toMatchObject({ band: "near" });
+    expect(usageCardView({ usage: usage([near], { tier: "team" }), teamHome: true, dismissed: null })).toMatchObject({ band: "near" });
   });
   it("stays hidden once dismissed for this month and level: it comes back at 100%, and next month", () => {
     const dismissed = `${RESETS}:near`;
@@ -54,49 +54,6 @@ describe("the sidebar card", () => {
   });
 });
 
-describe("Upgrade", () => {
-  it("moves up to the cheapest bigger plan in the app, opens the Cloud page when the app can't, and has nothing above Max or a team's plan", () => {
-    const two = usage([], { tier: "starter", upgrades: [{ tier: "max", amount: 9900 }, { tier: "pro", amount: 4900 }] });
-    expect(nextPlan(two)).toEqual({ tier: "pro", amount: 4900 });
-    expect(upgradePath(two)).toBe("app");
-    expect(upgradePath(usage([], { upgrades: [] }))).toBe("browser");
-    expect(upgradePath(usage([], { tier: "max", upgrades: [] }))).toBe("top");
-    expect(upgradePath(usage([], { tier: "team", upgrades: [] }))).toBe("top");
-    expect(upgradeLabel({ tier: "max", amount: 9900 })).toBe("Upgrade to Max · $99/month");
-  });
-  it("says in the confirm what the new plan costs, what today's charge is and when the next payment comes", () => {
-    const next = Date.UTC(2026, 10, 18);
-    expect(upgradeConfirmBody({ plan: "max", trial: false, price: 9900, chargeNow: 2340, tax: 0, nextBillingAt: next }))
-      .toBe("Max is $99 a month and starts right away. Today you pay $23.40, the difference for the rest of this billing month. From Nov 18 it's $99 a month, plus any tax.");
-    expect(upgradeConfirmBody({ plan: "pro", trial: false, price: 4900, chargeNow: 2574, tax: 234 }))
-      .toBe("Pro is $49 a month and starts right away. Today you pay $25.74 with tax, the difference for the rest of this billing month.");
-    expect(upgradeConfirmBody({ plan: "max", trial: true, price: 9900, chargeNow: 0, tax: 0, nextBillingAt: next }, { now: Date.UTC(2026, 10, 1) }))
-      .toBe("Your free trial moves to Max now, and nothing is charged today. Your first payment on Nov 18 will be $99, plus any tax.");
-  });
-
-  describe("on a free trial", () => {
-    const now = Date.UTC(2026, 10, 4, 9), HOUR = 3_600_000, DAY = 24 * HOUR;
-    const preview = (nextBillingAt?: number) => ({ plan: "max", trial: true, price: 9900, chargeNow: 0, tax: 0, ...(nextBillingAt ? { nextBillingAt } : {}) });
-
-    it("promises nothing about today when the first charge is a day away or less, as a 1-day trial's always is", () => {
-      for (const left of [DAY, 5 * HOUR]) {
-        const said = upgradeConfirmBody(preview(now + left), { now });
-        expect(said).toMatch(/^Your free trial moves to Max now\. Your first payment on Nov \d+ will be \$99, plus any tax\.$/);
-        expect(said).not.toContain("charged today");
-      }
-      expect(upgradeConfirmBody(preview(), { trialEndsAt: now + DAY, now })).toBe("Your free trial moves to Max now. When it ends, Max is $99 a month, plus any tax.");
-    });
-
-    it("reads as it always did on a 3-day trial", () => {
-      expect(upgradeConfirmBody(preview(now + 3 * DAY), { now })).toBe("Your free trial moves to Max now, and nothing is charged today. Your first payment on Nov 7 will be $99, plus any tax.");
-      expect(upgradeConfirmBody(preview(), { trialEndsAt: now + 3 * DAY, now })).toBe("Your free trial moves to Max now, and nothing is charged today. When it ends, Max is $99 a month, plus any tax.");
-    });
-
-    it("promises nothing about today when nobody here knows when the charge is", () => {
-      expect(upgradeConfirmBody(preview(), { now })).toBe("Your free trial moves to Max now. When it ends, Max is $99 a month, plus any tax.");
-    });
-  });
-});
 
 describe("the words", () => {
   it("say used of included in each allowance's own unit, and when the month starts over", () => {

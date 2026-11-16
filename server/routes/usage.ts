@@ -1,13 +1,10 @@
 import { redactSecretsInText } from "../../shared/redact.ts";
-import type { PriceList } from "../prices.ts";
 import type { RequestAuth } from "../request-auth.ts";
-import type { SpendState } from "../spend.ts";
 import {
   flushUsageLedger,
   parseUsageRange,
   readUsage,
   summarizeUsage,
-  usageCsv,
   USAGE_GROUPINGS,
   USAGE_SPLITS,
   type UsageGroupBy,
@@ -21,9 +18,6 @@ import { PASS, type RouteHandler } from "./table.ts";
 
 export interface UsageRouteDeps {
   dataDir: string;
-  prices(): PriceList | null;
-  budget(): SpendState | null;
-  currency(): string;
   recorder: TraceServiceDeps["recorder"];
   messages: TraceServiceDeps["messages"];
   liveBot: TraceServiceDeps["liveBot"];
@@ -65,22 +59,11 @@ export function createUsageRoutes(deps: UsageRouteDeps): RouteHandler {
       res.setHeader("cache-control", "no-store");
       return found ? json(res, 200, found) : json(res, 404, { error: "no such trace" });
     }
-    if (!(method === "GET" && (path === "/api/usage" || path === "/api/usage.csv"))) return PASS;
+    if (!(method === "GET" && path === "/api/usage")) return PASS;
     const range = parseUsageRange(url.searchParams.get("from"), url.searchParams.get("to"));
     if (!range) return json(res, 400, { error: "from and to must be YYYY-MM-DD, from no later than to, at most a year apart" });
     await flushUsageLedger(deps.dataDir);
     const rows = readUsage(deps.dataDir, range).map(deps.rowFor(auth));
-    const prices = deps.prices();
-    if (path === "/api/usage.csv") {
-      const stamp = (date: Date) => date.toISOString().slice(0, 10);
-      res.writeHead(200, {
-        "content-type": "text/csv; charset=utf-8",
-        "content-disposition": `attachment; filename="usage-${stamp(range.from)}-${stamp(range.to)}.csv"`,
-        "cache-control": "no-store",
-      });
-      res.end(usageCsv(rows, prices));
-      return;
-    }
     const requested = url.searchParams.get("groupBy") ?? "bot";
     if (!USAGE_GROUPINGS.includes(requested as UsageGroupBy)) {
       return json(res, 400, { error: `groupBy must be one of ${USAGE_GROUPINGS.join(", ")}` });
@@ -97,9 +80,7 @@ export function createUsageRoutes(deps: UsageRouteDeps): RouteHandler {
       to: range.to.toISOString(),
       groupBy,
       splitBy,
-      ...summarizeUsage(rows, groupBy, prices, splitBy),
-      budget: deps.budget(),
-      billing: prices ? { currency: deps.currency() } : null,
+      ...summarizeUsage(rows, groupBy, null, splitBy),
     });
   };
 }

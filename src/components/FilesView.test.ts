@@ -44,7 +44,7 @@ beforeEach(() => {
     state: vi.fn(), onState: vi.fn((callback) => { emit = callback; return off; }),
     pickFolder: vi.fn(), checkFolders: vi.fn(), share: vi.fn().mockResolvedValue(base), stopSharing: vi.fn().mockResolvedValue(base),
     answerDeletes: vi.fn().mockResolvedValue(base), locate: vi.fn().mockResolvedValue(base), setOutputs: vi.fn().mockResolvedValue(base),
-    open: vi.fn().mockResolvedValue(undefined), moreSpace: vi.fn().mockResolvedValue(undefined),
+    open: vi.fn().mockResolvedValue(undefined),
   };
   window.ogb = { cloudAccount: { files: bridge } } as unknown as typeof window.ogb;
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
@@ -70,8 +70,6 @@ describe("Shared with the Cloud", () => {
     expect(row("missing").textContent).toContain("Can't find this folder. Was it moved?");
     expect(row("problem").textContent).toContain("My Cloud's disk had an error.");
     for (const status of ["synced", "copying", "problem"]) expect(buttons(row(status)).map((node) => node.getAttribute("aria-label"))).toEqual([`More for Folder ${status}`]);
-    await click("Get more space", row("waiting"));
-    expect(bridge.moreSpace).toHaveBeenCalledOnce();
     await click("Keep them", row("confirm-deletes"));
     expect(bridge.answerDeletes).toHaveBeenLastCalledWith("f-confirm-deletes", false);
     await mount({ ...base, shared: [folder("confirm-deletes", { pendingDeletes: 1 }), folder("missing")] });
@@ -129,8 +127,6 @@ describe("Shared with the Cloud", () => {
     await act(async () => emit({ ...base, disk: { ...disk, usedBytes: 9 * GB, freeBytes: GB, warn: true } }));
     expect(page()).toContain("9 GB of 10 GB used in the Cloud");
     expect(page()).toContain("The Cloud is almost full.");
-    await click("Get more space");
-    expect(bridge.moreSpace).toHaveBeenCalledOnce();
   });
 });
 

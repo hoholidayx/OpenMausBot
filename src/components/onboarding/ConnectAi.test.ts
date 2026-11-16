@@ -2,7 +2,6 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ManagedDesktopBridge } from "../../../electron/managed-desktop.mjs";
 import { setLocale } from "@/lib/i18n";
 import type { InstanceInfo } from "@/state/store";
 
@@ -32,12 +31,11 @@ vi.mock("./beats/OrganisationRow", () => ({ OrganisationRow: (props: NonNullable
 const { ConnectAi, ConnectAiDialog } = await import("./ConnectAi");
 const { useWelcomeAi } = await import("./welcome-ai");
 const { useStore } = await import("@/state/store");
-const { track } = await import("@/lib/analytics");
 
 /** As the first screen has it: the AI it stands on, tested once, handed to the block. */
 function FirstScreenAi({ hosted = false }: { hosted?: boolean }) {
   const { state } = useStore();
-  return createElement(ConnectAi, { hosted, tested: useWelcomeAi(state.instances, !hosted) });
+  return createElement(ConnectAi, { tested: useWelcomeAi(state.instances, !hosted) });
 }
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -45,7 +43,6 @@ const engine = (instanceId: string, driverKind: string, displayName: string, rea
   instanceId, driverKind, displayName, install: { docsUrl: "https://example.test" },
   snapshot: { state: ready ? "available" : "unavailable", authenticated: ready }, models: { default: "m", options: [] },
 });
-const bridge = { onState: vi.fn(), state: vi.fn() } as unknown as ManagedDesktopBridge;
 let host: HTMLDivElement, root: Root;
 const text = () => host.textContent ?? "";
 const show = async (extra: { hosted?: boolean } = {}) => {
@@ -62,7 +59,6 @@ beforeEach(() => {
   f.checks = [];
   f.instances = [engine("grok", "grokAgent", "Grok", false), engine("claude", "claudeAgent", "Claude", false), engine("codex", "codex", "Codex", false)];
   f.dispatch.mockReset(); f.config = {}; f.brand = "default"; f.opened = [];
-  vi.mocked(track).mockClear();
   f.row = null;
   f.fail = false;
   vi.stubGlobal("ogb", undefined);
@@ -216,20 +212,6 @@ describe("connecting an AI on the first screen", () => {
     expect(host.querySelector("[data-ai-recommended]")?.getAttribute("data-ai-recommended")).toBe("claude");
   });
 
-  it("offers the organization sign-in under Other ways on this computer's own window only", async () => {
-    await show();
-    await otherWays();
-    expect(f.row).toBeNull();
-    vi.stubGlobal("ogb", { organization: bridge });
-    window.ogb = { organization: bridge } as unknown as typeof window.ogb;
-    await show({ hosted: true });
-    expect(f.row).toBeNull();
-    await show();
-    expect(f.row?.bridge).toBe(bridge);
-    f.row!.onOpenSettings();
-    expect(f.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "organization" });
-    delete window.ogb;
-  });
 
   it("opens as the Connect an AI dialog, which Escape and a click outside close", async () => {
     const onClose = vi.fn();
@@ -244,40 +226,5 @@ describe("connecting an AI on the first screen", () => {
     expect(onClose).toHaveBeenCalledTimes(2);
     await act(async () => { dialog.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); });
     expect(onClose, "a click inside stays").toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("the ModelGo option", () => {
-  const URL_EXACT = "https://modelgo.ai/?utm_source=openmausbot&utm_medium=sponsorship&utm_content=app&campaign_id=openmausbot&ad_group_id=app";
-  const option = () => host.querySelector("[data-modelgo-option]");
-  const events = () => vi.mocked(track).mock.calls.filter(([name]) => name === "modelgo_offer").map(([, props]) => props);
-  const provider = (ready = false) => engine("modelgo", "modelgo", "ModelGo (API)", ready);
-
-  it("sits among the other ways, labelled a sponsor, and its link opens exactly the sponsor's address", async () => {
-    f.instances.push(provider());
-    await show();
-    expect(option()?.textContent).toContain("ModelGo"); expect(option()?.textContent).toContain("Sponsor");
-    expect(option()?.textContent).toContain("One API key, every model.");
-    expect(host.querySelectorAll("[data-modelgo-option]")).toHaveLength(1);
-    expect(events()).toEqual([{ action: "shown", place: "onboarding" }]);
-    const link = [...option()!.querySelectorAll("button")].find(button => button.textContent?.includes("Get a key"))!;
-    await act(async () => { link.click(); });
-    expect(f.opened).toEqual([URL_EXACT]);
-    expect(events().at(-1)).toEqual({ action: "get_key", place: "onboarding" });
-  });
-
-  it("opens to its key field, and counts that as starting to add a key", async () => {
-    f.instances.push(provider());
-    await show();
-    await act(async () => { option()!.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click(); });
-    expect(option()!.querySelector('[data-engine-setup="modelgo"]')).toBeTruthy();
-    expect(events().at(-1)).toEqual({ action: "add_key", place: "onboarding" });
-  });
-
-  it("is not added on a white-label build, a desktop whose organization refuses it, or a hosted workspace; nor once connected", async () => {
-    f.brand = "file"; await show(); expect(option()).toBeNull();
-    f.brand = "default"; f.config = { managedPolicy: { companyModelsOnly: false, allowedEngines: ["codex"] } }; await show(); expect(option()).toBeNull();
-    f.config = {}; await show({ hosted: true }); expect(option()).toBeNull();
-    f.instances.push(provider(true)); await show(); expect(option()).toBeNull();
   });
 });

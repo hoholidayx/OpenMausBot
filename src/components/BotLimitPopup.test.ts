@@ -11,12 +11,11 @@ vi.mock("@/state/api", () => ({ api: vi.fn(async (path: string, init?: { body?: 
 vi.mock("@/lib/app-links", async (original) => ({ ...await original<typeof import("@/lib/app-links")>(), openExternalLink: vi.fn(async () => {}) }));
 
 import { botLimitShown, closeBotLimit, showBotLimit, showCreatedPaused } from "@/lib/bot-limit";
-import { openExternalLink } from "@/lib/app-links";
 import { setLocale } from "@/lib/i18n";
 import { initialAwake } from "./AwakeBotsPicker";
 import { BotLimitPopup } from "./BotLimitPopup";
 
-const STARTER = { tier: "starter", resetsAt: 1, meters: [], upgrades: [{ tier: "pro", amount: 4900 }, { tier: "max", amount: 9900 }] };
+const STARTER = { tier: "starter", resetsAt: 1, meters: [] };
 const made = (count: number) => Array.from({ length: count }, (_, i) => ({ id: `b${i}` }));
 
 let root: Root;
@@ -62,46 +61,17 @@ describe("the bot limit popup", () => {
     expect(dialog()).toBeNull();
   });
 
-  it("says they've reached Starter's bots and offers the in-app upgrade, with its price", async () => {
+  it("shows the current bot limit", async () => {
     await open(bridge({ status: "paid", tier: "starter", usage: STARTER }));
     expect(dialog()!.getAttribute("aria-modal")).toBe("true");
     expect(dialog()!.querySelector("h2")?.textContent).toBe("You've reached Starter's 5 bots");
-    expect(dialog()!.querySelector("p")?.textContent).toBe("To create more, upgrade this Cloud. Every bot you have stays as it is.");
-    expect(buttons()).toEqual(["Upgrade to Pro · $49/month", "Not now", "Close"]);
-    expect(document.activeElement?.textContent).toBe("Upgrade to Pro · $49/month");
-  });
-
-  it("goes through the usual preview and confirmation, and only the confirmation changes the plan", async () => {
-    const plan = bridge({ status: "paid", tier: "starter", usage: STARTER });
-    await open(plan);
-    await press("Upgrade to Pro · $49/month");
-    expect(plan.upgradePreview).toHaveBeenCalledExactlyOnceWith("pro", "app_usage");
-    expect(plan.upgrade).not.toHaveBeenCalled();
-    expect(dialog(), "the card steps aside for the confirmation").toBeNull();
-    const confirm = document.querySelector('[role="alertdialog"]')!;
-    expect(confirm.parentElement!.className).toContain("z-[80]");
-    await press("Upgrade to Pro", confirm);
-    expect(plan.upgrade).toHaveBeenCalledExactlyOnceWith("pro", "app_usage");
-    expect(dialog()!.querySelector("h2")?.textContent).toBe("You're on Pro now. Your new allowances are ready.");
+    expect(dialog()!.querySelector("p")?.textContent).toBe("This Cloud has reached its bot limit.");
     expect(buttons()).toEqual(["Got it", "Close"]);
-    await press("Got it");
-    expect(botLimitShown()).toBe(false);
+    expect(document.activeElement?.textContent).toBe("Got it");
   });
 
-  it("names what went wrong and stays open when the upgrade is refused", async () => {
-    const plan = bridge({ status: "paid", tier: "starter", usage: STARTER });
-    plan.upgradePreview.mockResolvedValue({ outcome: "refused", code: "rate_limited" } as never);
-    await open(plan);
-    await press("Upgrade to Pro · $49/month");
-    expect(dialog()!.querySelector('[role="alert"]')).not.toBeNull();
-    expect(botLimitShown()).toBe(true);
-  });
 
-  it("says the upgrade is going through in the minute before this Cloud hears of it", async () => {
-    await open(bridge({ status: "paid", tier: "pro", usage: { ...STARTER, tier: "pro", upgrades: [{ tier: "max", amount: 9900 }] } }));
-    expect(dialog()!.querySelector("h2")?.textContent).toBe("Your upgrade is going through. This can take a minute.");
-    expect(buttons()).toEqual(["Got it", "Close"]);
-  });
+
 
   it("a template too big for the room left says so, and doesn't claim the limit is reached", async () => {
     fixture.state = { config: { cloudHome: true, botLimit: 5 }, bots: made(4) };
@@ -109,24 +79,9 @@ describe("the bot limit popup", () => {
     expect(dialog()!.querySelector("h2")?.textContent).toBe("That's more bots than Starter has room for");
   });
 
-  it("in a browser tab, with no bridge, opens the Plan page", async () => {
-    await open();
-    expect(dialog()!.querySelector("p")?.textContent).toBe("To create more, upgrade this Cloud on its Plan page. Every bot you have stays as it is.");
-    expect(buttons()).toEqual(["Open the Plan page", "Not now", "Close"]);
-    await press("Open the Plan page");
-    expect(openExternalLink).toHaveBeenCalledExactlyOnceWith("https://cloud.openmausbot.com/cloud");
-  });
 
-  it("on a person's other Cloud, which only reads its plan, opens its Plan page and closes", async () => {
-    const plan = bridge({ status: "paid", tier: "starter" });
-    await open(plan);
-    expect(buttons()).toEqual(["Open the Plan page", "Not now", "Close"]);
-    await press("Open the Plan page");
-    expect(plan.manage).toHaveBeenCalledOnce();
-    expect(botLimitShown()).toBe(false);
-  });
 
-  it.each([["Not now"], ["Close"]])("%s closes it, and the next press opens it again", async (label) => {
+  it.each([["Got it"], ["Close"]])("%s closes it, and the next press opens it again", async (label) => {
     await open(bridge({ status: "paid", tier: "starter", usage: STARTER }));
     await press(label);
     expect(dialog()).toBeNull();
@@ -137,30 +92,24 @@ describe("the bot limit popup", () => {
   it("Escape closes it, and Tab stays inside", async () => {
     await open(bridge({ status: "paid", tier: "starter", usage: STARTER }));
     await key("Tab");
-    expect(document.activeElement?.textContent).toBe("Not now");
-    await key("Tab", { shiftKey: true });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Close");
+    await key("Tab");
+    expect(document.activeElement?.textContent).toBe("Got it");
     await key("Tab", { shiftKey: true });
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Close");
     await key("Escape");
     expect(botLimitShown()).toBe(false);
   });
 
-  it("leaves Escape to the confirmation while it is open", async () => {
-    await open(bridge({ status: "paid", tier: "starter", usage: STARTER }));
-    await press("Upgrade to Pro · $49/month");
-    await key("Escape");
-    expect(botLimitShown()).toBe(true);
-    expect(dialog(), "back to the card").not.toBeNull();
-  });
 });
 
 describe("the popup for Starter's other limits", () => {
-  it("says Starter runs two tasks at once when work handed out was refused, with the upgrade", async () => {
+  it("says Starter runs two tasks at once when work handed out was refused", async () => {
     fixture.state = { config: { cloudHome: true, botLimit: 5, planTurns: { running: 2, waiting: 4 } }, bots: made(3) };
     await open(bridge({ status: "paid", tier: "starter", usage: STARTER }), "tasks");
     expect(dialog()!.querySelector("h2")?.textContent).toBe("Starter runs 2 tasks at once");
-    expect(dialog()!.querySelector("p")?.textContent).toContain("Upgrade to run more at once");
-    expect(buttons()).toContain("Upgrade to Pro · $49/month");
+    expect(dialog()!.querySelector("p")?.textContent).toContain("Your bots reached the limit on tasks that can run at once.");
+    expect(buttons()).toContain("Got it");
   });
 
   it("opens by itself when a config frame says work was just refused, and not for a refusal from before", async () => {
@@ -198,7 +147,7 @@ describe("the popup for Starter's other limits", () => {
     await act(async () => { showCreatedPaused("b5"); });
     await act(async () => {});
     expect(dialog()!.querySelector("h2")?.textContent).toBe("Created Scout, paused for now");
-    expect(dialog()!.textContent).toContain("Starter keeps 5 bots awake, so this one is paused. Choose which 5 stay awake, or upgrade to wake them all.");
+    expect(dialog()!.textContent).toContain("This bot is paused. Choose which 5 stay awake.");
     expect(dialog()!.textContent).not.toContain("You've reached");
     const picker = dialog()!.querySelector("[data-awake-bots]")!;
     await press("Keep these awake", picker);

@@ -85,17 +85,11 @@ describe("buildApplicationMenu", () => {
     expect(onOrganizationSignIn).toHaveBeenCalledOnce();
   });
 
-  it("mirrors Add a Cloud… under the saved servers only when main offers it, and names My Cloud's line", () => {
+  it("lists saved servers with their labels and no purchase item", () => {
     const servers = [{ id: "cloud", name: "My Cloud", origin: "https://omb-u-1.fly.dev" }];
-    const without = build("darwin", { environments: servers }).find(entry => entry.label === "Server").submenu;
-    expect(without.some(entry => entry.id === "add-cloud")).toBe(false);
-    expect(without.find(entry => entry.type === "radio" && entry.label.startsWith("My Cloud")).label).toBe("My Cloud — omb-u-1.fly.dev");
-    const onAddCloud = vi.fn();
-    const submenu = build("darwin", { environments: servers, onAddCloud, sublabels: { cloud: "Always on" } }).find(entry => entry.label === "Server").submenu;
-    expect(submenu.map(entry => entry.id ?? entry.label ?? entry.type).slice(0, 4)).toEqual(["This computer", "My Cloud — Always on", "add-cloud", "separator"]);
-    submenu.find(entry => entry.id === "add-cloud").click();
-    expect(onAddCloud).toHaveBeenCalledOnce();
-    expect(submenu.find(entry => entry.id === "add-cloud").label).toBe("Add a Cloud…");
+    const submenu = build("darwin", { environments: servers, sublabels: { cloud: "Always on" } }).find(entry => entry.label === "Server").submenu;
+    expect(submenu.map(entry => entry.id ?? entry.label ?? entry.type).slice(0, 3)).toEqual(["This computer", "My Cloud — Always on", "separator"]);
+    expect(submenu.some(entry => entry.id === "add-cloud")).toBe(false);
   });
 
   it("once My Cloud is home, lists only the other saved servers with Back to My Cloud, and has no Server menu without any", () => {
@@ -118,10 +112,10 @@ describe("buildApplicationMenu", () => {
   it("speaks Brazilian Portuguese: Servidor, Configurações… and This computer as the app names it", () => {
     const { t } = nativeText.createNativeText({ saved: "pt-br" });
     const pt = JSON.parse(readFileSync(new URL("../src/locales/pt-br.json", import.meta.url), "utf8"));
-    const template = build("darwin", { t, activeId: "local", onAddCloud: vi.fn() });
+    const template = build("darwin", { t, activeId: "local" });
     const server = template.find((entry) => entry.label === "Servidor");
     expect(server.submenu[0].label).toBe(pt["place.local"]);
-    expect(server.submenu.find((entry) => entry.id === "add-cloud").label).toBe("Adicionar um Cloud…");
+    expect(server.submenu.some((entry) => entry.id === "add-cloud")).toBe(false);
     expect(template[0].submenu.find((entry) => entry.accelerator === "CmdOrCtrl+,").label).toBe("Configurações…");
     expect(template[0].submenu.at(-1)).toEqual({ role: "quit", label: "Sair do app OpenMausBot" });
     expect(template.map((entry) => entry.label)).toEqual(["OpenMausBot", "Arquivo", "Editar", "Servidor", "Visualizar", "Janela"]);

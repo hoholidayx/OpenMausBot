@@ -12,21 +12,13 @@ const require = createRequire(import.meta.url);
 const environments = require("./environments.cjs");
 const localOrigin = require("./local-origin.cjs");
 
-const POPUP = "whats-new-2026-11", BOAT = "boat-credit-2026-11", GROK = "grok-move-2026-11", MODELGO = "modelgo-offer-2026-11";
+const POPUP = "grok-move-2026-11";
 const NOON = new Date(2026, 9, 16, 12).getTime();
 const LOCAL = "http://127.0.0.1:18799", CLOUD = "https://omb-u-1.fly.dev", VPS = "https://bots.example.test";
 
-test("a page on an older release keeps working with the longer list: its own ids record as before, and it never reads the new one", () => {
-  let saved = { seen: [POPUP, GROK, "gone-notice"] };
-  const prefs = createDesktopPrefs({ read: () => saved, write: value => { saved = structuredClone(value); } });
-  assert.deepEqual(prefs.seen(), [POPUP, GROK]);
-  prefs.markSeen(BOAT);
-  assert.deepEqual(saved.seen, [POPUP, GROK, BOAT], "the new id is kept beside the ones an older page records");
-  assert.ok(prefs.seen().includes(BOAT) && prefs.seen().includes(POPUP), "the lookups an older page makes");
-});
 
-test("What's new, Boat's credit offer and the Grok Bot move are the notices a page can record; seen and analytics survive a restart; a broken record never stops the app", () => {
-  assert.deepEqual([...DESKTOP_NOTICES], [POPUP, BOAT, GROK, MODELGO]);
+test("The Grok Bot move is the notice a page can record; seen and analytics survive a restart; a broken record never stops the app", () => {
+  assert.deepEqual([...DESKTOP_NOTICES], [POPUP]);
   let saved = null;
   const writes = [];
   const prefs = createDesktopPrefs({ read: () => saved, write: value => { writes.push(value); saved = structuredClone(value); } });
@@ -35,11 +27,9 @@ test("What's new, Boat's credit offer and the Grok Bot move are the notices a pa
   assert.equal(writes.length, 0, "nothing a page names outside the list is written");
   prefs.markSeen(POPUP); prefs.markSeen(POPUP);
   assert.deepEqual(prefs.seen(), [POPUP]); assert.equal(writes.length, 1);
-  prefs.markSeen(BOAT);
-  assert.deepEqual(prefs.seen(), [POPUP, BOAT]); assert.equal(writes.length, 2);
   prefs.setAnalytics(false);
   const restarted = createDesktopPrefs({ read: () => saved, write: value => { saved = value; } });
-  assert.deepEqual(restarted.seen(), [POPUP, BOAT]); assert.equal(restarted.analytics(), false);
+  assert.deepEqual(restarted.seen(), [POPUP]); assert.equal(restarted.analytics(), false);
   restarted.setAnalytics("yes"); assert.equal(restarted.analytics(), false, "only true turns it on");
   restarted.setAnalytics(true); assert.equal(restarted.analytics(), true);
 
@@ -55,20 +45,6 @@ test("What's new, Boat's credit offer and the Grok Bot move are the notices a pa
   }
 });
 
-test("an announcement card's mark and the last sponsor day are kept beside the fixed notices, the newest few only", () => {
-  let saved = { seen: [POPUP] };
-  const prefs = createDesktopPrefs({ read: () => saved, write: value => { saved = structuredClone(value); } });
-  prefs.markSeen("announcement:phone-app"); prefs.markSeen("announcement:phone-app");
-  prefs.markSeen("announcement-sponsor:2026-11-01"); prefs.markSeen("announcement-sponsor:2026-12-01");
-  assert.deepEqual(prefs.seen(), [POPUP, "announcement:phone-app", "announcement-sponsor:2026-12-01"], "one sponsor day: the latest");
-  for (const id of ["announcement:", "announcement:Bad Id", "announcement:x", `announcement:${"x".repeat(41)}`, "announcement-sponsor:soon", "announcement:../../x"]) prefs.markSeen(id);
-  assert.deepEqual(prefs.seen(), [POPUP, "announcement:phone-app", "announcement-sponsor:2026-12-01"], "nothing outside the two shapes is kept");
-  for (let index = 0; index < 45; index++) prefs.markSeen(`announcement:card-${index}`);
-  const marks = prefs.seen().filter(id => id.startsWith("announcement:"));
-  assert.equal(marks.length, 40); assert.equal(marks.at(-1), "announcement:card-44"); assert.ok(prefs.seen().includes(POPUP));
-  const restarted = createDesktopPrefs({ read: () => saved, write: () => {} });
-  assert.deepEqual(restarted.seen(), prefs.seen(), "survives a restart");
-});
 
 test("a write that fails leaves the last whole record on disk, analytics opt-out included", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "desktop-prefs-"));
@@ -100,7 +76,7 @@ function desktopMain({ offered = true, page = event => event.page, config = () =
   registerDesktopPrefs({
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: (channel, listener) => listeners.set(channel, listener) },
     read: () => saved, write: value => { saved = structuredClone(value); }, page,
-    cloudOffered: async () => { calls.push("offered"); return offered; },
+    cloudAvailable: async () => { calls.push("offered"); return offered; },
     localConfig: () => config(),
     languageChanged: (language, sender) => told.push([language, sender]),
     onLanguage: language => languages.push(language),
@@ -115,11 +91,10 @@ function desktopMain({ offered = true, page = event => event.page, config = () =
 test("every page of this desktop's window reads and records the same notices; nothing else is answered", async () => {
   const main = desktopMain();
   assert.deepEqual(main.channels, ["desktop-notices:state", "desktop-notices:seen", "desktop-profile:system-name", "desktop-analytics:set", "desktop-language:set", "window-frame:state", "window-frame:set"]);
-  for (const page of ["local", "cloud", "server"]) assert.deepEqual(await main.ask("desktop-notices:state", page), { seen: [], cloud: true });
+  for (const page of ["local", "cloud", "server"]) assert.deepEqual(await main.ask("desktop-notices:state", page), { seen: [] });
   await main.ask("desktop-notices:seen", "server", POPUP);
-  assert.deepEqual(await main.ask("desktop-notices:state", "local"), { seen: [POPUP], cloud: true });
+  assert.deepEqual(await main.ask("desktop-notices:state", "local"), { seen: [POPUP] });
   for (const channel of main.channels) assert.throws(() => main.ask(channel, null, POPUP), /only available in this app's window/, channel);
-  assert.deepEqual((await desktopMain({ offered: false }).ask("desktop-notices:state", "server")).cloud, false);
 });
 
 test("a first run's default name for the profile goes to this computer's own page only", async () => {
@@ -128,28 +103,7 @@ test("a first run's default name for the profile goes to this computer's own pag
   for (const page of ["cloud", "server"]) assert.throws(() => main.ask("desktop-profile:system-name", page), /only available in this app's window/, page);
 });
 
-test("This computer's own record counts on every page before its page loads on this build: an earlier close; the welcome's Cloud beat does not", async () => {
-  assert.equal(ONBOARDING_CLOUD_HINT, "onboarding-cloud-v1");
-  const record = (onboarding) => () => ({ composio: { apiKey: "" }, onboarding });
-  for (const [hint, seen] of [[POPUP, [POPUP]], [ONBOARDING_CLOUD_HINT, []]]) {
-    const main = desktopMain({ config: record({ completedAt: "2026-10-01", version: 1, hintsSeen: ["tour-finished", hint] }) });
-    for (const page of ["local", "cloud", "server"]) assert.deepEqual(await main.ask("desktop-notices:state", page), { seen, cloud: true }, `${hint} ${page}`);
-    assert.equal(main.saved(), null, "read, never written into this desktop's record");
-  }
-  assert.deepEqual(onboardingHints({ onboarding: { completedAt: "x", version: 2, hintsSeen: ["a", 1, null, "b"] } }), ["a", "b"]);
-});
 
-test("every desktop has What's new still to show, whatever This computer's welcome record says or lacks", async () => {
-  // An install from before the welcome kept a record, a welcome never finished, no config.json, or one main cannot read.
-  const records = [() => ({ onboarding: { completedAt: "", version: 0, hintsSeen: [] } }), () => ({ composio: {} }), () => null, () => "nonsense",
-    () => { throw new Error("ENOENT"); }, () => { throw new SyntaxError("Unexpected token"); }, () => ({ onboarding: { hintsSeen: POPUP } }), () => ({ onboarding: { hintsSeen: [{ id: POPUP }] } })];
-  for (const config of records) {
-    for (const page of ["local", "cloud", "server"]) {
-      const main = desktopMain({ config }), name = `${String(config)} ${page}`;
-      assert.deepEqual(await main.ask("desktop-notices:state", page), { seen: [], cloud: true }, name);
-    }
-  }
-});
 
 test("the analytics switch is This computer's page's to set; a server's page in the window is told only that it is off", async () => {
   const main = desktopMain();
@@ -230,14 +184,14 @@ test("a page of the window says which language it shows, and main hears it only 
   const shown = [];
   const listeners = new Map();
   registerDesktopPrefs({ ipcMain: { handle: () => {}, on: (channel, listener) => listeners.set(channel, listener) }, read: () => null, write: () => {},
-    page: event => event.page, cloudOffered: async () => true, onShown: (language, sender) => shown.push([language, sender]) });
+    page: event => event.page, cloudAvailable: async () => true, onShown: (language, sender) => shown.push([language, sender]) });
   const say = (page, language) => listeners.get("desktop-language:shown")({ page, sender: `${page}-page` }, language);
   say("server", "pt-br"); say("local", "en"); say(null, "de");
   for (const bad of ["", "../../etc", "x".repeat(40), 42, null, { toString: () => "en" }]) say("local", bad);
   assert.deepEqual(shown, [["pt-br", "server-page"], ["en", "local-page"]]);
   const broken = new Map();
   registerDesktopPrefs({ ipcMain: { handle: () => {}, on: (channel, listener) => broken.set(channel, listener) }, read: () => null, write: () => {},
-    page: () => { throw new Error("Object has been destroyed"); }, cloudOffered: async () => true, onShown: () => { throw new Error("never"); } });
+    page: () => { throw new Error("Object has been destroyed"); }, cloudAvailable: async () => true, onShown: () => { throw new Error("never"); } });
   assert.doesNotThrow(() => broken.get("desktop-language:shown")({}, "en"));
 });
 
@@ -340,7 +294,7 @@ test("production wiring: main answers this computer's page, My Cloud's own page 
     senderIsLocal: localOrigin.isLocalSender, workspaceSenderAllowed: environments.workspaceSenderAllowed,
     mainWindow: { webContents: contents }, environmentsState: { environments: [{ id: "vps", name: "VPS", origin: VPS }], activeId: "vps" },
     appWindows: () => windows, BrowserWindow: { getAllWindows: () => windows }, chromeRail: { send: (...told) => sent.push(["rail", ...told]) },
-    rendererOrigin: () => LOCAL, cloudAccountRestored: async () => calls.push("restored"), cloudOffersReady: async () => { calls.push("offers"); return true; },
+    rendererOrigin: () => LOCAL, cloudAccountRestored: async () => calls.push("restored"),
     cloudPageAsking: event => event.verifiedCloud ? "cloud" : null,
     serverReady: true, LOCAL_ID: "local", switchEnvironment: id => switched(id),
     process: { platform: "win32" }, windowFrameMade: false, broadcastDesktopCapabilities: async () => { broadcasts++; },
@@ -350,7 +304,6 @@ test("production wiring: main answers this computer's page, My Cloud's own page 
   vm.runInContext(main.slice(start, end), context);
   assert.equal(options.prefs, context.nativeText.prefs, "the record main read before the tray and the startup screen");
   assert.match(main, /const nativeText = createDesktopText\(app\), nativeT = nativeText\.t;/);
-  assert.equal(options.localConfig(), "/home/.openmausbot/config.json", "This computer's own workspace, whichever server the window shows");
   assert.deepEqual([options.frame.made(), options.frame.restarts], [false, true], "Windows: the frame its window was made with, until a restart");
   options.frame.changed();
   assert.equal(broadcasts, 1, "the pages hear the frame change");
@@ -361,14 +314,14 @@ test("production wiring: main answers this computer's page, My Cloud's own page 
   assert.equal(options.page({ sender: {}, senderFrame: serverFrame }), null, "another window");
   const evil = { url: "https://evil.example.test/" };
   assert.equal(options.page({ sender: { mainFrame: evil }, senderFrame: evil }), null, "a page that is not the active server");
-  assert.equal(await options.cloudOffered(), true);
-  assert.deepEqual(calls, ["restored", "offers"]);
+  assert.equal(await options.cloudAvailable(), true);
+  assert.deepEqual(calls, ["restored"]);
   options.languageChanged("en", windows[0].webContents);
   assert.deepEqual(sent, [["home", "desktop-language:changed", "en"], ["rail", "desktop-language:changed", "en"]], "every other open window hears the pick, and the window's rail");
   options.onLanguage("pt-br"); options.onLanguage("en");
-  assert.deepEqual(calls.slice(2), [["language", "pt-br"], "relabel", "talk relabel", ["language", "en"]], "main draws its native surfaces again only when the words change");
+  assert.deepEqual(calls.slice(1), [["language", "pt-br"], "relabel", "talk relabel", ["language", "en"]], "main draws its native surfaces again only when the words change");
   options.onShown("de", {}); options.onShown("de", contents); options.onShown("en", contents);
-  assert.deepEqual(calls.slice(6), [["shown", "de"], "relabel", "talk relabel", ["shown", "en"]], "only the window's own page leads main's words, and only a change redraws them");
+  assert.deepEqual(calls.slice(5), [["shown", "de"], "relabel", "talk relabel", ["shown", "en"]], "only the window's own page leads main's words, and only a change redraws them");
   const navigate = main.slice(main.indexOf("function navigateMainWindow(url, keepingRecovery = false) {"), main.indexOf("\n}\n", main.indexOf("function navigateMainWindow(url, keepingRecovery = false) {")) + 3);
   const load = vm.runInNewContext(`${navigate}; navigateMainWindow`, { homeWindow: { cancel: () => {} }, mainWindow: { isDestroyed: () => false, loadURL: async url => { if (url.endsWith("fail")) throw new Error("ERR_CONNECTION_REFUSED"); } } });
   assert.equal(await load(`${LOCAL}/ok`), true); assert.equal(await load(`${LOCAL}/fail`), false, "a failed load answers false, never throws");
@@ -420,7 +373,7 @@ test("registerDesktopPrefs works on the store main hands it", async () => {
   const prefs = createDesktopPrefs({ read: () => null, write: () => {} });
   const handlers = new Map();
   registerDesktopPrefs({ prefs, ipcMain: { handle: (c, h) => handlers.set(c, h), on: () => {} }, read: () => null, write: () => {},
-    page: () => "local", cloudOffered: async () => false });
+    page: () => "local", cloudAvailable: async () => false });
   await handlers.get("desktop-analytics:set")({}, false);
   assert.equal(prefs.analytics(), false);
 });
@@ -443,7 +396,7 @@ test("Settings reads and changes the window's frame on any page of the window; o
   const handlers = new Map();
   let made = true, changes = 0, asking = "server";
   const register = (restarts) => registerDesktopPrefs({ prefs, ipcMain: { handle: (c, h) => handlers.set(c, h), on: () => {} }, read: () => null, write: () => {},
-    page: () => asking, cloudOffered: async () => false, frame: { made: () => made, restarts, changed: () => { changes++; } } });
+    page: () => asking, cloudAvailable: async () => false, frame: { made: () => made, restarts, changed: () => { changes++; } } });
   register(false);
   assert.deepEqual(await handlers.get("window-frame:state")({}), { on: true, restart: false });
   assert.deepEqual(await handlers.get("window-frame:set")({}, false), { on: false, restart: false }, "macOS: at once");

@@ -1,4 +1,3 @@
-import { track } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { teamImportPreview, type PendingTeamImport } from "@/lib/team-import";
@@ -104,7 +103,7 @@ export function TeamLibraryPanel({
   const [catalogError, setCatalogError] = useState("");
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingTeamImport | null>(null);
-  const [source, setSource] = useState<ImportSource>("file");
+  const [, setSource] = useState<ImportSource>("file");
   const [githubUrl, setGithubUrl] = useState("");
   const [githubLoading, setGithubLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -276,7 +275,6 @@ export function TeamLibraryPanel({
     setError("");
     try {
       const response = await addTemplate(pending.manifest, dispatch);
-      track("team_imported", { members: response.bots.length, source, mode: "add", format: pending.kind });
       onImported({
         name: pending.name,
         members: response.bots.length,
@@ -322,7 +320,6 @@ export function TeamLibraryPanel({
       for (const group of response.groups ?? []) dispatch({ type: "groupPatched", group });
       for (const routine of response.routines ?? []) dispatch({ type: "routinePatched", routine });
       const first = response.bots?.find((bot) => !bot.hidden);
-      track("team_imported", { members: response.bots?.length ?? 0, source: "organization", mode: "add", format: "package" });
       if (first) {
         dispatch({ type: "select", id: first.id });
         onImported({
@@ -363,7 +360,6 @@ export function TeamLibraryPanel({
       setScouted(result);
       setScoutedFolder(folder);
       setRoomName(result.suggestion.roomName);
-      track("team_scouted", { signals: result.suggestion.manifest.team.members.length - 1 });
       void api(`/api/teams/scout/directory?cwd=${encodeURIComponent(folder)}`)
         // SAFETY: this endpoint is owned by the app and returns candidates.
         .then((extra) => {
@@ -421,7 +417,6 @@ export function TeamLibraryPanel({
         dispatch({ type: "groupPatched", group: { ...response.group, messages: [] } });
         dispatch({ type: "select", id: response.group.id });
       }
-      track("team_imported", { members: response.bots.length, source: "scout", mode: "project" });
       onImported({
         name: room,
         members: response.bots.length,

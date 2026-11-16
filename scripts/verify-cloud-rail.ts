@@ -1,5 +1,5 @@
 // The rail of Clouds and its ＋ sheet in the real app, as a Cloud's page in the desktop window shows them, against a
-// disposable fake-engine server; the desktop bridge's rail and add-a-Cloud answers are the preview's own fixtures.
+// disposable fake-engine server; the desktop bridge's rail and server connection use the preview's own fixtures.
 // Run: node --experimental-strip-types scripts/verify-cloud-rail.ts [--shots <dir> [--only <view,view>] [--size <width>x<height>]]
 // With --shots it photographs each view in a light and a dark skin with a headless Chrome in a throwaway profile
 // (OMB_CDP_CHROME, else the installed Google Chrome) at twice the window's size (1280x800 unless --size says) and
@@ -40,11 +40,8 @@ const VIEWS: Array<{ name: string; query: string; ready: string; height?: number
   { name: "strip-settings", query: "settings=strip", ready: "[data-rail-switch]" },
   { name: "strip-settings-simple", query: "mode=simple&settings=strip", ready: "[data-rail-switch]" },
   { name: "rail-many", query: "places=many&more=1", ready: "[data-rail-more] li" },
-  { name: "add-sheet", query: "sheet=add", ready: "[data-place-add='choose']" },
+  { name: "add-sheet", query: "sheet=add", ready: "[data-place-add='own-server']" },
   { name: "add-own-server", query: "sheet=server", ready: "[data-place-add='own-server']" },
-  { name: "add-buy-cloud", query: "sheet=cloud", ready: "[data-plan-buy]", height: 900 },
-  { name: "add-name-colour", query: "sheet=name", ready: "[data-cloud-add='extra-name']" },
-  { name: "add-setting-up", query: "sheet=cloud&adding=setting_up", ready: "[data-cloud-add='extra-starting']" },
   { name: "rail-servers", query: "places=servers&look=teal", ready: "[data-rail-server]" },
   { name: "connect-server", query: "places=servers&sheet=connect", ready: "[data-place-add='connect-server']" },
   { name: "look-settings", query: "look=teal&settings=look", ready: "[data-place-look='admin']" },

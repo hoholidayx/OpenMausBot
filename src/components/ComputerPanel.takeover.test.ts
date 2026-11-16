@@ -5,7 +5,6 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Action, AppState, Bot, InstanceInfo } from "@/state/store";
-import { viewerClosedRelease } from "./computer-takeover";
 
 const fixture = vi.hoisted(() => ({
   held: false,
@@ -75,7 +74,7 @@ vi.mock("@/state/store", async (importOriginal) => ({
     }
     if (route === "/api/bots/scout/local-computer/screenshot") return { image: "data:image/png;base64,FRAME" };
     if (route === "/api/bots/scout/computer") {
-      return { configured: true, ready: true, managed: true, imageMatches: true, container: "running", problem: null, box: { state: "ready" } };
+      return { configured: true, ready: true, managed: true, imageMatches: true, container: "running", problem: null };
     }
     if (route === "/api/bots/scout/computer/screenshot") return { png: "FRAME", format: "png" };
     if (route === "/api/bots/scout/computer/join") return { joinUrl: "https://desktop.invalid/scout" };
@@ -407,29 +406,5 @@ describe("taking control of other computers", () => {
     expect(window.ogb!.desktopViewer!.open).not.toHaveBeenCalled();
     await press("Hand control back");
     expect(fixture.beacons.some((beacon) => beacon.url.startsWith("/api/bots/scout/computer/viewer-close"))).toBe(true);
-  });
-
-  it("a cloud computer's provider-hosted desktop still opens in the app's own viewer window", async () => {
-    await open(makeBot({ computer: "cloud" }));
-    await press("Take control");
-    expect(liveDesktop()).toBeNull();
-    expect(fixture.posts).toContain("/api/bots/scout/computer/join");
-    expect(window.ogb!.desktopViewer!.open).toHaveBeenCalledWith("https://desktop.invalid/scout", "Scout's live desktop", "scout");
-  });
-
-  it("closing a cloud computer's viewer window gives back the hold its open took, by that lease", async () => {
-    await open(makeBot({ computer: "cloud" }));
-    await press("Take control");
-    expect(viewerClosedRelease("scout")).toEqual({ action: "release", controlLeaseId: fixture.controls[0]!.controlLeaseId });
-  });
-
-  it("a cloud computer's desktop is taken before it opens even while the bot shows a hold another device has elsewhere", async () => {
-    fixture.held = true;
-    heldElsewhere(true);
-    await open(makeBot({ computer: "cloud" }));
-    await press("Full screen");
-    expect(fixture.controls).toEqual([{ action: "take", controlLeaseId: expect.stringMatching(/^[0-9a-f]{36}$/) }]);
-    expect(fixture.controlPaths.at(-1)).toContain("threadId=thread");
-    expect(window.ogb!.desktopViewer!.open).toHaveBeenCalledWith("https://desktop.invalid/scout", "Scout's live desktop", "scout");
   });
 });

@@ -327,15 +327,15 @@ describe("the Bot API door on the webhook receiver", () => {
     const threadId = h.fake.bots.get("b1")!.tasks[0]!.threadId;
 
     starter = true;
-    const words = { error: "Bot API comes with a higher plan. Upgrade this Cloud to use it." };
+    const words = { error: "Bot API is unavailable on this Cloud." };
     const before = h.turns.length;
     expect(await h.call("b1", key, { message: "After" })).toEqual({ status: 403, body: words });
     expect(await h.call("b1", key, undefined, { method: "GET", query: `?thread=${threadId}` })).toEqual({ status: 403, body: words });
     expect(h.turns).toHaveLength(before);
     // Only a key holder learns about the plan: a stranger still gets the wrong-key answer.
     expect(await h.call("b1", `${key}x`, { message: "Hi" })).toEqual({ status: 401, body: { error: "Invalid key" } });
-    expect(await h.app("POST", "/api/bots/b1/bot-api/new-key")).toMatchObject({ status: 403, body: { ...words, upgrade: true } });
-    expect(await h.app("POST", "/api/bots/b1/bot-api", { enabled: true })).toMatchObject({ status: 403, body: { ...words, upgrade: true } });
+    expect(await h.app("POST", "/api/bots/b1/bot-api/new-key")).toMatchObject({ status: 403, body: words });
+    expect(await h.app("POST", "/api/bots/b1/bot-api", { enabled: true })).toMatchObject({ status: 403, body: words });
     expect((await h.app("GET", "/api/bots/b1/bot-api")).body).toMatchObject({ included: false, enabled: true });
     expect(h.manager.authorize("b1", key)).toBe(true);
 

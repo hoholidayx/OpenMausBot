@@ -9,7 +9,6 @@ export type PagesFailure = {
   reason: "sign_in" | "limit" | "rate_limited" | "gone" | "refused" | "unavailable";
   message: string;
   usage?: PageUsage;
-  upgrade?: boolean;
   plan?: string;
   /** The PUT may have committed even though its answer was lost. Keep this page removable. */
   uncertain?: { pageId: string; url: string };
@@ -24,12 +23,12 @@ export type Unpublished = { ok: true; pageId: string; usage: PageUsage | null };
 interface Minted {
   token: string; pageId: string; uploadUrl: string; pageUrl: string;
   limits: { pages: number; bytes: number; files: number; perHour: number };
-  limit?: { message: string; upgrade: boolean };
   plan?: string;
 }
 
 export const SIGN_IN_MESSAGE = "Publishing a page needs a MausBot account. Sign in to MausBot in the app's Settings, then ask again.";
 const UNAVAILABLE = "Publishing isn't available right now. Try again in a few minutes.";
+const PAGE_LIMIT = "You’ve reached the page limit. Unpublish a page to make room.";
 const NOT_TURNED_ON = "Publishing pages isn't turned on for this account yet.";
 /** A server with no desktop app to sign in through and no Cloud home (`openmausbot serve`): no Settings sign-in can help. */
 export const SELF_HOSTED_MESSAGE = "Publishing pages isn't available on self-hosted servers yet.";
@@ -84,7 +83,7 @@ export function createPagesClient(options: { access: () => PagesAccess | null; n
     if (response.status === 401) return fail("sign_in", access.kind === "desktop" ? "Your MausBot sign-in has ended. Sign in to MausBot again in the app's Settings, then ask again." : UNAVAILABLE);
     if (response.status === 402) {
       const usage = usageOf(answer.usage);
-      return fail("limit", said(answer, "This account's pages are used up."), { ...(usage ? { usage } : {}), upgrade: answer.upgrade === true,
+      return fail("limit", PAGE_LIMIT, { ...(usage ? { usage } : {}),
         ...(typeof answer.plan === "string" && /^[a-z][a-z0-9-]{0,23}$/.test(answer.plan) ? { plan: answer.plan } : {}) });
     }
     if (response.status === 429) return fail("rate_limited", said(answer, "You've published a lot this hour. Try again in a few minutes."));
@@ -92,15 +91,13 @@ export function createPagesClient(options: { access: () => PagesAccess | null; n
     if (!response.ok || typeof answer.token !== "string" || typeof answer.pageId !== "string" || !uploadUrl || !pageUrl || !answer.limits) {
       return fail("unavailable", response.status === 404 ? NOT_TURNED_ON : UNAVAILABLE);
     }
-    const limit = answer.limit as Minted["limit"];
-    return { token: answer.token, pageId: answer.pageId, uploadUrl, pageUrl, limits: answer.limits as Minted["limits"], ...(typeof answer.plan === "string" ? { plan: answer.plan } : {}),
-      ...(limit && typeof limit.message === "string" ? { limit: { message: limit.message, upgrade: limit.upgrade === true } } : {}) };
+    return { token: answer.token, pageId: answer.pageId, uploadUrl, pageUrl, limits: answer.limits as Minted["limits"], ...(typeof answer.plan === "string" ? { plan: answer.plan } : {}) };
   };
 
   const workerFailure = (status: number, body: Record<string, unknown>, minted: Minted): PagesFailure => {
     if (status === 402) {
       const usage = usageOf(body.usage);
-      return fail("limit", minted.limit?.message ?? said(body, "This account's pages are used up."), { ...(usage ? { usage } : {}), upgrade: minted.limit?.upgrade ?? false,
+      return fail("limit", PAGE_LIMIT, { ...(usage ? { usage } : {}),
         ...(minted.plan ? { plan: minted.plan } : {}) });
     }
     if (status === 404 || status === 410) return fail("gone", said(body, "That page no longer exists."));

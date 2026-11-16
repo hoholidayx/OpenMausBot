@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
 import { inflateSync } from "node:zlib";
-import { CLOUD_COLORS, CLOUD_COLOR_HEX, cleanCloudColor, cleanCloudName, cloudLinkOpensSheet, colorDotIcons, createCloudLook, createCloudReadyNotice,
-  installCloudBuy, lookFile } from "./cloud-buy.mjs";
+import { CLOUD_COLORS, CLOUD_COLOR_HEX, cleanCloudColor, cleanCloudName, colorDotIcons, createCloudLook,
+  lookFile } from "./cloud-buy.mjs";
 import { colorDotPng } from "./color-dot.mjs";
 import environments from "./environments.cjs";
 
@@ -81,116 +79,4 @@ test("the name and colour chosen while setting up are kept for that account unti
   assert.equal(lookFile(() => "/user/broken.json", fs).read(), null);
   files.set("/user/forged.json", JSON.stringify({ accountId: "acct-1", name: "<img>", color: "javascript:" }));
   assert.equal(lookFile(() => "/user/forged.json", fs).read(), null);
-});
-
-test("{name} is ready once per checkout from here: not while the sheet is open in the focused window, which opens it itself", () => {
-  const shown = [], opened = [];
-  let focused = true, sheet = true;
-  class Note { constructor(options) { this.options = options; } on(_event, listener) { this.click = listener; } show() { shown.push(this); } static isSupported() { return true; } }
-  const ended = [];
-  const announce = createCloudReadyNotice({ Notification: Note, focused: () => focused, sheetOpen: () => sheet, name: () => "Studio", open: () => opened.push(1), shown: () => ended.push(1) });
-  const ready = startedAt => ({ status: "connected", checkout: { plan: "pro", startedAt }, machine: { status: "ready", origin } });
-  assert.equal(announce({ status: "connected", machine: { status: "ready", origin } }), false, "a Cloud bought elsewhere: nothing");
-  assert.equal(announce({ ...ready(1), machine: { status: "provisioning" } }), false);
-  assert.equal(announce(ready(1)), false, "the sheet is open and in front: it counts down and opens it");
-  assert.equal(announce(ready(1)), false, "once per checkout");
-  focused = false;
-  assert.equal(announce(ready(2)), true);
-  assert.equal(shown[0].options.title, "Studio is ready");
-  shown[0].click(); assert.deepEqual(opened, [1], "a click opens the Cloud");
-  assert.deepEqual(ended, [1], "announced: main marks the purchase done");
-  focused = true; sheet = false;
-  assert.equal(announce(ready(3)), true, "focused but the sheet is closed: told");
-  Note.isSupported = () => false;
-  assert.equal(announce(ready(4)), false);
-  Note.isSupported = () => true; focused = false;
-  const paid = (machine) => ({ status: "connected", entitlement: { plan: "pro", status: "active" }, ...(machine ? { machine } : {}) });
-  const watched = createCloudReadyNotice({ Notification: Note, focused: () => false, sheetOpen: () => false, name: () => "Lab", open: () => {} });
-  assert.equal(watched(paid({ status: "ready", origin })), false, "a ready Cloud this app never saw being set up: nothing");
-  assert.equal(watched(paid(null)), false); assert.equal(watched(paid({ status: "provisioning" })), false);
-  assert.equal(watched(paid({ status: "ready", origin })), true, "set up while this app watched (bought elsewhere, or restarted): told");
-  assert.equal(shown.at(-1).options.title, "Lab is ready");
-  assert.equal(watched(paid({ status: "ready", origin })), false, "once");
-});
-
-test("openmausbot://cloud shows the sheet while a purchase from here is under way, whether or not its checkout is still watched", () => {
-  assert.equal(cloudLinkOpensSheet({ status: "connected", checkout: { plan: "pro", startedAt: 1 } }), true);
-  assert.equal(cloudLinkOpensSheet({ status: "connected", purchase: { state: "confirming" } }), true);
-  assert.equal(cloudLinkOpensSheet({ status: "connected", machine: { status: "provisioning" } }), true);
-  assert.equal(cloudLinkOpensSheet({ status: "connecting", checkout: { plan: "pro", startedAt: 1, signIn: true } }), true);
-  assert.equal(cloudLinkOpensSheet({ status: "connected", checkout: { plan: "pro", startedAt: 1, done: true }, machine: { status: "ready", origin } }), false,
-    "a purchase that is over: Settings, which opens the Cloud");
-  for (const state of [null, undefined, { status: "signed-out" }, { status: "connected", machine: { status: "ready", origin } }]) assert.equal(cloudLinkOpensSheet(state), false, JSON.stringify(state));
-});
-
-function installed({ link = null, offered = true } = {}) {
-  const handlers = new Map(), calls = [], clipboard = [], guarded = [];
-  const client = {
-    emailStart: async (...args) => { calls.push(["emailStart", ...args]); return { outcome: "sent" }; },
-    emailVerify: async (...args) => { calls.push(["emailVerify", ...args]); return { outcome: "wrong-code", triesLeft: 4 }; },
-    emailCancel: () => calls.push(["emailCancel"]),
-    checkoutDone: () => calls.push(["checkoutDone"]),
-    reopenCheckout: async (...args) => { calls.push(["reopenCheckout", ...args]); return { outcome: "opened", state: { status: "connected" } }; },
-    checkoutLink: () => link,
-    offer: async () => { calls.push(["offer"]); return { plans: [{ tier: "pro", amount: 4900 }], recommended: "pro" }; },
-    interest: async (...args) => { calls.push(["interest", ...args]); },
-  };
-  const look = { current: () => ({ name: "My Cloud", color: "blue" }), save: (...args) => { calls.push(["save", ...args]); return { name: args[0], color: args[1] }; } };
-  const buy = installCloudBuy({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
-    guard: (channel, handler) => (...args) => { guarded.push(channel); return handler(...args); }, client: () => client, offersReady: async () => offered,
-    clipboard: { writeText: text => clipboard.push(text) }, look });
-  return { handlers, calls, clipboard, guarded, buy };
-}
-
-test("each sheet channel is behind main's guard, takes only text, and never answers with the checkout page or a token", async () => {
-  const h = installed({ link: "https://checkout.dodopayments.com/session/cks_1" });
-  const call = (method, ...args) => h.handlers.get(`cloud-account:${method}`)({}, ...args);
-  assert.deepEqual([...h.handlers.keys()].sort(), ["copyCheckoutLink", "interest", "look", "readySeen", "reopenCheckout", "setLook", "sheet", "signInCancel", "signInStart", "signInVerify"].map(method => `cloud-account:${method}`).sort());
-  await call("readySeen", "anything"); assert.deepEqual(h.calls.splice(-1), [["checkoutDone"]], "the sheet showed ready: the purchase is over");
-  await call("signInStart", { email: "x" }); await call("signInStart", "person@example.test");
-  await call("signInVerify", 48201937); await call("signInVerify", "48201937");
-  await call("signInCancel", "anything");
-  assert.equal(await call("copyCheckoutLink", "https://evil.example.test"), true, "copied, and only yes or no comes back");
-  assert.deepEqual(h.clipboard, ["https://checkout.dodopayments.com/session/cks_1"]);
-  assert.deepEqual(await call("reopenCheckout", "team", "elsewhere"), { outcome: "opened", state: { status: "connected" } });
-  await call("interest", "another_cloud", "extra"); await call("setLook", { name: "x" }, "teal"); await call("setLook", "Studio", "teal");
-  assert.equal(h.buy.sheetOpen(), false); await call("sheet", "yes"); assert.equal(h.buy.sheetOpen(), false); await call("sheet", true); assert.equal(h.buy.sheetOpen(), true);
-  const listeners = new Map(), page = { on: (name, listener) => listeners.set(name, [...(listeners.get(name) ?? []), listener]) };
-  const sheet = open => h.handlers.get("cloud-account:sheet")({ sender: page }, open);
-  await sheet(true); await sheet(false); await sheet(true);
-  assert.deepEqual([...listeners.keys()], ["did-navigate", "destroyed"]); assert.equal(listeners.get("did-navigate").length, 1, "watched once per page");
-  listeners.get("did-navigate")[0](); assert.equal(h.buy.sheetOpen(), false, "the page went elsewhere: the sheet is closed");
-  await sheet(true); listeners.get("destroyed")[0](); assert.equal(h.buy.sheetOpen(), false);
-  assert.deepEqual(h.calls, [["emailStart", ""], ["emailStart", "person@example.test"], ["emailVerify", ""], ["emailVerify", "48201937"], ["emailCancel"],
-    ["reopenCheckout"], ["interest", "another_cloud"], ["save", "", "teal"], ["save", "Studio", "teal"]], "a kept page is reopened as it is: the page's plan is never asked about");
-  assert.equal(h.guarded.length, 17, "every call went through the guard");
-  const none = installed();
-  const reopen = (...args) => none.handlers.get("cloud-account:reopenCheckout")({}, ...args);
-  for (const [plan, source] of [["team", "app_menu"], ["pro", "site"], [{ tier: "pro" }, "app_menu"]]) await assert.rejects(reopen(plan, source), /Choose a plan/);
-  await reopen("pro", "app_card");
-  assert.deepEqual(none.calls.filter(row => row[0] === "reopenCheckout"), [["reopenCheckout", "pro", "app_card"]]);
-  assert.equal(await none.handlers.get("cloud-account:copyCheckoutLink")({}), false); assert.deepEqual(none.clipboard, []);
-  await assert.rejects(installed({ offered: false }).handlers.get("cloud-account:reopenCheckout")({}, "pro", "app_card"), /isn't offered/);
-});
-
-test("the page's bridge sends the sheet's words as text only, and exists only on this computer's own page", async () => {
-  const local = "http://127.0.0.1:48993";
-  const load = ({ remote = false } = {}) => {
-    let bridge; const invoked = [];
-    vm.runInNewContext(readFileSync(new URL("./preload.cjs", import.meta.url), "utf8"), {
-      process: { platform: "fixture", argv: [`--omb-local-origin=${local}`, "--omb-company-desktop=1"] },
-      location: { origin: remote ? "https://remote.example.test" : local }, TextEncoder, localStorage: { getItem: () => null },
-      require: () => ({ webUtils: {}, contextBridge: { exposeInMainWorld: (_name, value) => { bridge = value; } },
-        ipcRenderer: { on() {}, removeListener() {}, send() {}, invoke: (...args) => { invoked.push(args); return Promise.resolve(null); } } }),
-    });
-    return { bridge, invoked };
-  };
-  const f = load(), cloud = f.bridge.cloudAccount;
-  await cloud.signInStart({ toString: () => "person@example.test" }); await cloud.signInVerify(48201937); await cloud.signInCancel({ token: "forged" });
-  await cloud.reopenCheckout("pro", undefined); await cloud.copyCheckoutLink("https://evil.example.test"); await cloud.interest("x");
-  await cloud.look({ origin }); await cloud.setLook("Studio", { color: "teal" }); await cloud.sheet("yes"); await cloud.sheet(true); await cloud.readySeen("x");
-  assert.deepEqual(f.invoked, [["cloud-account:signInStart", "person@example.test"], ["cloud-account:signInVerify", "48201937"], ["cloud-account:signInCancel"],
-    ["cloud-account:reopenCheckout", "pro", "undefined"], ["cloud-account:copyCheckoutLink"], ["cloud-account:interest"], ["cloud-account:look"],
-    ["cloud-account:setLook", "Studio", "[object Object]"], ["cloud-account:sheet", false], ["cloud-account:sheet", true], ["cloud-account:readySeen"]]);
-  assert.equal(load({ remote: true }).bridge.cloudAccount, undefined);
 });

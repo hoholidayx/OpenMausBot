@@ -30,8 +30,8 @@ describe("openmausbot command line", () => {
     expect(parseArgs(["pair", "--ttl", "2d"], {})).toEqual({ error: "--ttl must be a duration from 1m to 24h, such as 90, 90s, 5m or 2h" });
     expect(parseArgs(["pair", "--ttl", "30s"], {})).toMatchObject({ error: expect.stringContaining("from 1m to 24h") });
     expect(parseArgs(["serve", "--ttl", "1h"], {})).toEqual({ error: 'unknown argument "--ttl"' });
-    expect(parseArgs(["fleet", "create", "acme", "--admin", "ada@example.test", "--member", "@acme.test", "--member", "bob@acme.test", "--cap", "40", "--memory", "1G", "--dry-run"], {})).toMatchObject({
-      command: "fleet", fleetAction: "create", slug: "acme", admins: ["ada@example.test"], members: ["@acme.test", "bob@acme.test"], cap: 40, memory: "1G", dryRun: true,
+    expect(parseArgs(["fleet", "create", "acme", "--admin", "ada@example.test", "--member", "@acme.test", "--member", "bob@acme.test", "--memory", "1G", "--dry-run"], {})).toMatchObject({
+      command: "fleet", fleetAction: "create", slug: "acme", admins: ["ada@example.test"], members: ["@acme.test", "bob@acme.test"], memory: "1G", dryRun: true,
     });
     expect(parseArgs(["fleet", "users", "acme", "add", "bob@acme.test", "--chat-only"], {})).toMatchObject({ command: "fleet", fleetAction: "users", slug: "acme", fleetUserAction: "add", email: "bob@acme.test", chatOnly: true });
     expect(parseArgs(["fleet", "delete", "acme", "--yes", "--keep-data"], {})).toMatchObject({ fleetAction: "delete", slug: "acme", yes: true, keepData: true });

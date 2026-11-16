@@ -28,10 +28,9 @@ describe("the queued line", () => {
   it("says a free slot elsewhere, and on Starter names the plan and the way to a bigger one", () => {
     const line = (props: object) => renderToStaticMarkup(createElement(QueuedComposerMessages, { items: capacity, onCancel: () => {}, ...props }));
     expect(line({})).toContain("Starts when this bot has a free thread slot.");
-    const starter = line({ oneThreadPerBot: true, onSeePlans: () => {} });
+    const starter = line({ oneThreadPerBot: true });
     expect(starter).toContain("Starter runs one thread at a time per bot");
     expect(starter).toContain("A bigger plan runs more.");
-    expect(starter).toContain("See plans");
   });
 });
 

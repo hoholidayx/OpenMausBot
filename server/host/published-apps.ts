@@ -1,19 +1,8 @@
-// What the Published apps page lists and deletes: the pages this server published to a MausBot link, the sites bots
-// published to the person's own Netlify account, and the apps on the hosting the Cloud plan includes.
-//
-// Security: everything here answers for one viewer. An app is theirs to see only through a bot they can see and, where
-// conversations have audiences of their own (a Team Cloud), a conversation they can read in which that bot published
-// it: a page's own cards; for a Netlify site or an included app the conversation whose own folder holds its record, or,
-// for a record in a folder the bot's conversations share, the bot's message carrying its link. So the list never names
-// an app, or its address, from a conversation the viewer cannot read. An included app whose record is gone belongs to no
-// conversation: only a viewer who sees everything here is shown it.
 import type { PublishedApp, PublishedAppDeleteFailure, PublishedAppDeleteRefusal } from "../../shared/published-apps.ts";
 import type { VisibleSet } from "../bot-visibility.ts";
 import type { PublishedPageRecord } from "../pages/store.ts";
 import type { RequestAuth } from "../request-auth.ts";
 import { dirname, resolve } from "node:path";
-import type { AppPublisher } from "./app-publisher.ts";
-import type { HostedApp, IncludedHosting } from "./included-hosting.ts";
 import { deleteNetlifySite, findNetlifySites, forgetSiteRecord, within, type NetlifySite } from "./netlify-sites.ts";
 
 interface AppBot { id: string; name: string; threadId: string; tasks?: ReadonlyArray<{ threadId: string }> }
@@ -35,8 +24,6 @@ export interface PublishedAppsDeps {
   netlifyToken(botId: string, auth: RequestAuth, threadId: string | undefined): string | null;
   /** True when the conversation is this person's own private one (a Team Cloud). */
   ownChat(auth: RequestAuth, threadId: string): boolean;
-  /** The plan's included app hosting; absent where this server has none. */
-  included?: { hosting: IncludedHosting; publisher: AppPublisher };
   home: string;
   env: NodeJS.ProcessEnv;
   fetch?: typeof fetch;
@@ -47,7 +34,6 @@ export const MAX_LISTED = 500;
 const MAX_THREADS_SEARCHED = 300;
 /** Long enough for the list and the framing checks a page sends together to share one read of the folders. */
 const SCAN_FRESH_MS = 2_000;
-const INCLUDED_LIST_TIMEOUT_MS = 8_000;
 
 /** One source of published apps. A second kind of hosting adds an entry here: how its apps are found, and how one is
  * deleted for the person asking. */
@@ -91,18 +77,6 @@ export function createPublishedApps(deps: PublishedAppsDeps) {
     const sites = findNetlifySites(deps.folders(bot), { home: deps.home, env: deps.env }).catch(() => []);
     scans.set(bot.id, { at: now(), sites });
     return sites;
-  }
-
-  type IncludedListing = Awaited<ReturnType<IncludedHosting["list"]>> | null;
-  let includedListing: { at: number; listing: Promise<IncludedListing> } | null = null;
-  /** What the relay holds for this Cloud; null where there is no included hosting or it can't be reached right now. */
-  function includedApps(): Promise<IncludedListing> {
-    const hosting = deps.included?.hosting;
-    if (!hosting?.available()) return Promise.resolve(null);
-    if (includedListing && now() - includedListing.at < SCAN_FRESH_MS) return includedListing.listing;
-    const listing = hosting.list(AbortSignal.timeout(INCLUDED_LIST_TIMEOUT_MS)).catch(() => null);
-    includedListing = { at: now(), listing };
-    return listing;
   }
 
   function botThreads(bot: AppBot): string[] {
@@ -158,45 +132,6 @@ export function createPublishedApps(deps: PublishedAppsDeps) {
     })));
   }
 
-  function includedApp(hosted: HostedApp, bot: { id: string; name: string }, recorded?: NetlifySite): Entry["app"] {
-    const status = hosted.state === "taken_down" ? "taken_down" as const : hosted.publishedAt === null || !hosted.url ? "not_live" as const : undefined;
-    return {
-      id: `included-${hosted.key}`, source: "included", title: hosted.title || recorded?.title || hosted.key, url: hosted.url ?? "", bot,
-      publishedAt: hosted.publishedAt ?? hosted.createdAt ?? recorded?.publishedAt ?? 0, access: status || hosted.visibility === "private" ? "unknown" : "public",
-      ...(status ? { status } : {}),
-    };
-  }
-
-  /** The plan's apps under the bots whose folders hold their records. `orphans`: also the ones no bot's folder holds. */
-  async function includedEntries(bots: readonly AppBot[], orphans: boolean): Promise<Entry[]> {
-    const included = deps.included, listing = await includedApps();
-    if (!included || !listing?.apps.length) return [];
-    const byKey = new Map(listing.apps.map((app) => [app.key, app]));
-    const remove = (key: string, file: string | null) => async (): Promise<PublishedAppDeleteRefusal | null> => {
-      try { await included.publisher.removeByKey(key, file); } catch { return "failed"; }
-      includedListing = null;
-      scans.clear();
-      return null;
-    };
-    const claimed = new Set<string>(), entries: Entry[] = [];
-    for (const bot of bots) {
-      for (const site of (await sitesOf(bot)).filter((one) => one.hosting === "included")) {
-        // Security: the app a record stands for is decided by the folder it is in, never by what the record says.
-        const key = await included.hosting.keyFor(bot.id, dirname(resolve(site.file))).catch(() => null);
-        const hosted = key ? byKey.get(key) : undefined;
-        if (!key || !hosted || claimed.has(key)) continue;
-        claimed.add(key);
-        entries.push({ app: includedApp(hosted, { id: bot.id, name: bot.name }, site), ...recordThreads(bot, site, hosted.url ?? ""), remove: remove(key, site.file) });
-      }
-    }
-    if (orphans) {
-      for (const hosted of listing.apps) {
-        if (!claimed.has(hosted.key)) entries.push({ app: includedApp(hosted, { id: "", name: "" }), threads: () => [], needsThread: false, remove: remove(hosted.key, null) });
-      }
-    }
-    return entries;
-  }
-
   function mayDelete(visible: VisibleSet, auth: RequestAuth, botId: string, threadId: string | undefined): boolean {
     if (!visible.member) return true;
     return visible.filtersThreads && ((threadId !== undefined && deps.ownChat(auth, threadId)) || visible.level(botId) === "edit");
@@ -204,7 +139,7 @@ export function createPublishedApps(deps: PublishedAppsDeps) {
 
   async function shown(visible: VisibleSet, auth: RequestAuth): Promise<Shown[]> {
     const bots = deps.bots().filter((bot) => visible.bot(bot.id));
-    const entries = [...pageEntries(), ...await siteEntries(bots), ...await includedEntries(bots, visible.everything)];
+    const entries = [...pageEntries(), ...await siteEntries(bots)];
     const out: Shown[] = [];
     for (const entry of entries) {
       const botId = entry.app.bot.id;
@@ -236,12 +171,6 @@ export function createPublishedApps(deps: PublishedAppsDeps) {
         const base = new URL(app.url);
         return asked.origin === base.origin && asked.pathname.startsWith(base.pathname);
       });
-    },
-    /** The plan's apps in use and how many it includes: the whole Cloud's, so a team's. Null where the plan includes
-     * none and none is published, or the relay can't be reached. */
-    async allowance(): Promise<{ used: number; max: number } | null> {
-      const apps = (await includedApps())?.allowance.apps;
-      return apps && (apps.max > 0 || apps.used > 0) ? apps : null;
     },
     async remove(visible: VisibleSet, auth: RequestAuth, id: string): Promise<DeleteAnswer> {
       const found = (await shown(visible, auth)).find((one) => one.app.id === id);

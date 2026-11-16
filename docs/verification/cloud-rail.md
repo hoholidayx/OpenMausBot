@@ -3,8 +3,8 @@
 Once a person has two places or more in all (This computer counts while it is
 a place; their Clouds, their teams' Clouds, servers they connected by hand), a
 narrow rail of circles at the window's left edge switches between them, and ＋
-buys another Cloud or adds a server of their own. With one place there is no
-rail, and the window looks as before.
+adds a server of their own or, if available for their account, an organization.
+With one place there is no rail.
 
 The rail is the window's own chrome, not a page's: this app's page `/rail` in a
 view of its own at the left edge (electron/chrome-rail.mjs), beside whichever
@@ -53,11 +53,8 @@ Nothing here needs a real MausBot Cloud account, a payment or the Electron app.
   spot, even one back to the place on screen. Main ends what the earlier click
   had under way; a server restart that can't stop leaves the window on the place
   the person chose last, and the rail stays up through it.
-- Buying another Cloud sends the plan, a name and a swatch to the Admin, which
-  answers with a checkout this app opens in the browser; the sheet then follows
-  the payment and the setup. An Admin that sells one Cloud per account (no
-  `clouds`, `canAdd` false, or no such route) is the calm "One Cloud per
-  account for now".
+- The add sheet accepts a pairing link to a self-hosted server. An account
+  with organization capacity can also create an organization.
 - The place on screen tints the top of its sidebar in its colour, faintly
   (`.place-tint`, stronger in dark skins, a thin line with reduced
   transparency, none with forced colours); no colour, no tint. Every place
@@ -169,13 +166,13 @@ server never starts.
 
 ```sh
 node --test electron/cloud-list.node-test.mjs electron/cloud-account-clouds.node-test.mjs electron/cloud-rail.node-test.mjs electron/chrome-rail.node-test.mjs electron/home-window.node-test.mjs electron/place-look.node-test.mjs electron/desktop-prefs.node-test.mjs
-pnpm exec vitest run src/components/PlacesRail.test.ts src/components/ChromeRail.test.ts src/components/ChromeRailToggle.test.ts src/components/Sidebar.header.test.ts src/components/cloud-buy/AddCloudFlow.test.ts src/components/PlaceLookCard.test.ts
+pnpm exec vitest run src/components/PlacesRail.test.ts src/components/ChromeRail.test.ts src/components/ChromeRailToggle.test.ts src/components/Sidebar.header.test.ts src/components/PlaceLookCard.test.ts
 pnpm exec vitest run server/workspace-banner.test.ts server/routes/workspace-banner.test.ts server/workspace-banner.e2e.test.ts src/lib/place-banner.test.ts src/components/PlacePicture.test.ts
 ```
 
 The account tests answer as a loopback Admin, with and without `clouds`. The
 rail tests load the production preload and check which page gets the list,
-which ids open, and that a circle, ＋, checkout and a colour change act only
+which ids open, and that a circle, ＋ and a colour change act only
 from a click. The colour tests check who may change a place's colour and where
 it is kept, from its own page and from the rail's menu, that nothing is saved
 when the Admin refuses, and that the tint follows at once. The banner tests
@@ -197,8 +194,8 @@ a Vite preview (`scripts/testing/rail-preview.tsx`), answering the desktop
 bridge a hosted Cloud's page gets: six places, one being set up, one that needs
 its owner, eleven for the list past eight. A headless Chrome in a throwaway
 profile photographs the rail in Advanced and Simple mode (with the place's
-tint), the list past eight, ＋'s two choices, the steps for a server of one's
-own, the plans, the name and colour of a new Cloud and its setup, the person's
+tint), the list past eight, the steps for adding a self-hosted server from ＋,
+and the person's
 signed-in servers and the steps to connect one, the colour in Settings and in
 a circle's own menu for an admin and for a team member, and a banner picture
 (drawn by the script and kept through the fixture server's own route) in the
@@ -226,6 +223,4 @@ The sidebar's button for the rail, with the rail shown and hidden
 
 ![The sidebar's button for the rail on the same spot, the rail shown and hidden](evidence/rail-collapse/after-button-spot-daylight.png)
 
-This is not production qualification: the places and the purchase are the
-preview's fixtures, and no Admin, browser checkout or desktop window is
-involved.
+The preview uses isolated places and a mock desktop bridge.

@@ -2,7 +2,6 @@
 import { createContext, useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Copy, Crosshair, Download, Globe, Loader2, Maximize2, Pin, PinOff, Share2, Trash2, X } from "lucide-react";
-import { useStore } from "@/state/store";
 import { openExternalLink } from "@/lib/app-links";
 import { cn } from "@/lib/cn";
 import { useCopyFeedback } from "@/lib/copy-text";
@@ -16,10 +15,11 @@ import type { AppDocument, AppPayload } from "../../../shared/app";
 import { marksMessage, pointMessage, readPointEvent } from "../../../shared/app-frame/point";
 import type { PublishedPageCard } from "../../../shared/published-page";
 import { canonicalDownloadFilename } from "../AttachmentPreview";
+import { pageLimitText } from "../PublishedPageCard";
 import { appDownloadPath, publishAppPage, unpublishPage } from "./app-api";
 import { AppFrame, type AppFrameHandle } from "./AppFrame";
 import type { AppSelection } from "./app-frame-host";
-import { ASK_CHIP, ASK_CHIP_IDLE, ASK_CHIP_PICKED, ASK_PRIMARY_BUTTON } from "../AskCard";
+import { ASK_CHIP, ASK_CHIP_IDLE, ASK_CHIP_PICKED } from "../AskCard";
 
 /** A page starts at this height in the chat and grows to its content up to the cap, then scrolls inside. */
 export const PAGE_HEIGHT = { start: 520, cap: 560 } as const;
@@ -55,7 +55,7 @@ export function usePageVersion(app: AppPayload): { rev: number; first: number; l
 type Share =
   | { kind: "idle" }
   | { kind: "busy" }
-  | { kind: "refused"; text: string; card?: PublishedPageCard }
+  | { kind: "refused"; text: string }
   | { kind: "unpublishing" }
   | { kind: "unpublish-failed" };
 
@@ -70,7 +70,7 @@ export function usePageShare(threadId: string, messageId: string, published: Pub
     const outcome = await publishAppPage(threadId, messageId, rev);
     setAgain(Boolean(live) && outcome.ok);
     if (outcome.ok) setShare({ kind: "idle" });
-    else setShare({ kind: "refused", text: outcome.card?.message ?? outcome.error, ...(outcome.card ? { card: outcome.card } : {}) });
+    else setShare({ kind: "refused", text: outcome.card?.state === "limit" ? pageLimitText(outcome.card) : outcome.error });
   };
   const unpublish = async () => {
     if (!live?.pageId) return;
@@ -264,7 +264,6 @@ export function PageToolbar({ version, point, share, save, ready, fullScreen, ro
 /** Under the toolbar: the public link with Copy, Update link and Unpublish once shared, or why sharing failed; the Point
  * hint. */
 export function PageNotes({ version, point, share, save, room, className }: Pick<PageToolsProps, "version" | "point" | "share" | "save" | "room"> & { className?: string }) {
-  const { dispatch } = useStore();
   const { state: copied, copy } = useCopyFeedback(share.url ?? "");
   const state = share.share;
   const rows: ReactNode[] = [];
@@ -295,9 +294,6 @@ export function PageNotes({ version, point, share, save, room, className }: Pick
     rows.push(
       <div key="refused" role="alert" className="flex items-center gap-2 rounded-2xl bg-inset px-3 py-2 text-[13px] text-ink-secondary">
         <span dir="auto" className="min-w-0 flex-1">{state.text}</span>
-        {state.card?.upgrade && window.ogb?.cloudAccount && !window.ogb.remoteClient?.active && (
-          <button type="button" className={ASK_PRIMARY_BUTTON} onClick={() => dispatch({ type: "openCloudAdd", source: "app_pages" })}>{t("chat.page.morePages")}</button>
-        )}
       </div>,
     );
   }

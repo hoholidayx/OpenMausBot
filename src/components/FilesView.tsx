@@ -105,7 +105,6 @@ function FilesPage({ bridge }: { bridge: CloudFilesBridge }) {
   };
   const close = () => setAsk(null);
   const share = (tokens: string[]) => { close(); void run(async () => { let next: CloudFilesState | undefined; for (const token of tokens) next = await bridge.share(token); return next; }); };
-  const moreSpace = () => void run(() => bridge.moreSpace());
   if (!state) return null;
   if (state.phase === "unavailable") return <Unavailable />;
   return <>
@@ -127,7 +126,7 @@ function FilesPage({ bridge }: { bridge: CloudFilesBridge }) {
         : <p className="text-[13px] text-ink-secondary">{t("files.empty")}</p>}
       <button type="button" disabled={busy} className="ui-button self-start"
         onClick={() => void run(async () => { const check = await bridge.pickFolder(); if (check) setAsk({ kind: "share", check }); })}>{t("files.add")}</button>
-      {state.disk && <Storage disk={state.disk} busy={busy} onMore={moreSpace} />}
+      {state.disk && <Storage disk={state.disk} />}
     </section>
     <section aria-labelledby="files-outputs" className="flex flex-col gap-3">
       <h2 id="files-outputs" className="text-[15px] font-medium text-ink">{t("files.outputs.title")}</h2>
@@ -176,8 +175,7 @@ function FilesPage({ bridge }: { bridge: CloudFilesBridge }) {
 function FolderRow({ folder, bridge, busy, run, onStop }: { folder: SharedFolder; bridge: CloudFilesBridge; busy: boolean; run: Run; onStop: () => void }) {
   const button = (label: string, action: () => void, primary = false) =>
     <button type="button" disabled={busy} className={cn("ui-button ui-button-sm", primary && "ui-button-primary")} onClick={action}>{label}</button>;
-  const actions = folder.status === "waiting" ? button(t("files.moreSpace"), () => void run(() => bridge.moreSpace()))
-    : folder.status === "confirm-deletes" ? <>
+  const actions = folder.status === "confirm-deletes" ? <>
       {button(t("files.deletes.remove"), () => void run(() => bridge.answerDeletes(folder.id, true)))}
       {button(t("files.deletes.keep"), () => void run(() => bridge.answerDeletes(folder.id, false)))}
     </>
@@ -219,7 +217,7 @@ function FolderMenu({ name, busy, onOpen, onStop }: { name: string; busy: boolea
   </div>;
 }
 
-function Storage({ disk, busy, onMore }: { disk: CloudFilesDisk; busy: boolean; onMore: () => void }) {
+function Storage({ disk }: { disk: CloudFilesDisk }) {
   const percent = disk.totalBytes > 0 ? Math.min(100, Math.round((disk.usedBytes / disk.totalBytes) * 100)) : 0;
   return <div className="flex flex-col gap-1.5">
     <span className="text-[12px] text-ink-secondary">{t("files.storage", { used: formatBytes(disk.usedBytes), total: formatBytes(disk.totalBytes) })}</span>
@@ -228,7 +226,6 @@ function Storage({ disk, busy, onMore }: { disk: CloudFilesDisk; busy: boolean; 
     </div>
     {disk.warn && <div className="flex flex-wrap items-center gap-2">
       <span className="text-[12px] text-warning">{t("files.almostFull")}</span>
-      <button type="button" disabled={busy} className="ui-button ui-button-sm" onClick={onMore}>{t("files.moreSpace")}</button>
     </div>}
   </div>;
 }

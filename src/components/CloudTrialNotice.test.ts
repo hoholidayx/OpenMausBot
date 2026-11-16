@@ -14,7 +14,7 @@ vi.mock("react", async original => ({ ...await original<typeof import("react")>(
 }));
 import { CLOUD_PLAN_REFRESH_MS, CloudTrialNoticeCard, useCloudPlanSnapshot } from "./CloudTrialNotice";
 
-const ENDS = new Date(2026, 9, 15, 12).getTime(), DAY = 86_400_000;
+const ENDS = new Date(2026, 9, 15, 12).getTime();
 const trial = (state: CloudTrial["state"], extra: Partial<CloudTrial> = {}): CloudTrial =>
   ({ state, tier: "pro", endsAt: ENDS, amount: 4900, chargeAt: state === "active" ? ENDS : null, holdUntil: null, deleteAt: null, keep: "none", ...extra });
 type Node = ReactElement<Record<string, any>>;
@@ -35,10 +35,10 @@ describe("the trial's notice card", () => {
     const element = createElement(CloudTrialNoticeCard, { view, failed, onAction, onClose });
     return { html: renderToStaticMarkup(element), tree: nodes(CloudTrialNoticeCard({ view, failed, onAction, onClose })), onAction, onClose };
   };
-  it("says one message, its next step, and the way down in its last days; it never takes focus", () => {
-    const { html, tree, onAction, onClose } = card(cloudTrialView(trial("active", { switchTo: { tier: "starter", amount: 1500 } }), { grantedUsd: 5, remainingUsd: 3.2, state: "active" }));
+  it("says one message, and its account action; it never takes focus", () => {
+    const { html, tree, onAction, onClose } = card(cloudTrialView(trial("active"), { grantedUsd: 5, remainingUsd: 3.2, state: "active" }));
     for (const text of ["Your free trial ends on Oct 15", "Then Pro is $49/month plus tax, charged on Oct 15.", "Includes $5 of Claude credit: $3.20 left.",
-      "Prefer Starter at $15? Tell us from your Plan page before Oct 15, and we&#x27;ll switch your plan.", "Manage subscription", "Not now"]) expect(html).toContain(text);
+      "Manage subscription", "Not now"]) expect(html).toContain(text);
     expect(html).toContain('role="status"'); expect(html).not.toContain("autofocus"); expect(html).not.toContain('aria-modal="true"');
     expect(html).toContain('data-notice="cloud-trial-active"');
     tree.find(node => node.type === "button" && renderToStaticMarkup(node).includes("Manage subscription"))!.props.onClick();
@@ -52,7 +52,7 @@ describe("the trial's notice card", () => {
   it("with nothing to do, one OK; a browser that did not open says so", () => {
     const { html } = card(cloudTrialView(trial("processing")));
     expect(html).toContain("Your first payment is processing"); expect(html).toContain(">OK<"); expect(html).not.toContain("Not now");
-    expect(card(cloudTrialView(trial("ended", { deleteAt: ENDS + 3 * DAY, keep: "checkout" })), true).html).toContain("Could not open your browser. Please try again.");
+    expect(card(cloudTrialView(trial("late")), true).html).toContain("Could not open your browser. Please try again.");
   });
 });
 

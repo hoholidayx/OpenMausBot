@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { createCloudAccountClient } from "./cloud-account.mjs";
-import { CLOUD_HOME_NAME, cloudHomeConnectUrl, cloudPlanDisk, cloudUnreachableText, isCloudHomeEntry, parseCloudCredit, parseCloudOffer, parseCloudPower, parseCloudPurchase, parseCloudSummary, parseCloudTeams, teamRoleLabel, CLOUD_TEAM_ROLES, parseCloudTrial, parsePairingGrant, parsePublicOffer, rememberedCloudHome, savedCloudHomeOrigin, withCloudHome, withoutTrial } from "./cloud-home.mjs";
+import { CLOUD_HOME_NAME, cloudHomeConnectUrl, cloudPlanDisk, cloudUnreachableText, isCloudHomeEntry, parseCloudCredit, parseCloudPower, parseCloudPurchase, parseCloudSummary, parseCloudTeams, teamRoleLabel, CLOUD_TEAM_ROLES, parseCloudTrial, parsePairingGrant, rememberedCloudHome, savedCloudHomeOrigin, withCloudHome } from "./cloud-home.mjs";
 import environments from "./environments.cjs";
 import { handSaved } from "./own-home-main.mjs";
 import { homeLook, withoutOldCloudHome } from "./cloud-list.mjs";
@@ -237,7 +237,6 @@ test("main lists the machine from verified states only, and connects without a d
   assert.deepEqual(opened, [null, "phone"]);
   assert.deepEqual([navigated, probes, done], [[], [], 0], "main itself neither loads nor asks My Cloud");
   context.activateCloud(origin);
-  assert.equal(done, 1, "opened: the purchase is over");
   assert.equal(context.environmentsState.activeId, "cloud-home-id");
   refuse = true;
   await assert.rejects(context.connectCloudHome(), /not ready/);
@@ -291,16 +290,7 @@ test("a free trial is read in the Admin's five states, with only what is well fo
     { state: "active", endsAt, amount: null, chargeAt: null, holdUntil: null, deleteAt: null, keep: "none" });
   assert.deepEqual(parseCloudTrial({ state: "late", endsAt, keep: "portal" }),
     { state: "late", endsAt, amount: null, chargeAt: null, holdUntil: null, deleteAt: null, keep: "portal" });
-  assert.deepEqual(parseCloudTrial({ ...active, personalAmount: 2900 }), { ...active, personalAmount: 2900 });
-  for (const personalAmount of [29.5, -1, "2900", 0, 20_000_000]) assert.equal("personalAmount" in parseCloudTrial({ ...active, personalAmount }), false, String(personalAmount));
-  assert.deepEqual(parseCloudTrial({ ...active, switchTo: { tier: "starter", amount: 1500, label: "Starter <b>" } }), { ...active, switchTo: { tier: "starter", amount: 1500 } });
-  assert.deepEqual(parseCloudTrial({ ...active, switchTo: { tier: "personal", amount: 2900 }, personalAmount: 2900 }),
-    { ...active, switchTo: { tier: "personal", amount: 2900 }, personalAmount: 2900 }, "while Personal is the way down, an Admin says it both ways");
-  for (const switchTo of [null, "starter", [], {}, { tier: "starter" }, { amount: 1500 }, { tier: "team", amount: 1500 }, { tier: "Starter", amount: 1500 },
-    { tier: "toString", amount: 1500 }, { tier: ["starter"], amount: 1500 }, { tier: "starter", amount: 15.5 }, { tier: "starter", amount: 0 }, { tier: "starter", amount: -1 },
-    { tier: "starter", amount: "1500" }, { tier: "starter", amount: 20_000_000 }]) {
-    assert.equal("switchTo" in parseCloudTrial({ ...active, switchTo }), false, JSON.stringify(switchTo));
-  }
+  assert.deepEqual(parseCloudTrial({ ...active, personalAmount: 2900, switchTo: { tier: "starter", amount: 1500 } }), active);
   for (const input of [null, undefined, "active", [], { ...active, state: "paused" }, { ...active, state: "toString" }, { ...active, state: ["active"] },
     { ...active, endsAt: 0 }, { ...active, endsAt: "2026-10-15" }, { ...active, endsAt: 1.5 }, { ...active, keep: "refund" }, { ...active, keep: undefined }]) {
     assert.equal(parseCloudTrial(input), null, JSON.stringify(input));
@@ -315,91 +305,6 @@ test("the trial's AI credit is read only when it adds up, and only while it last
     { grantedUsd: Infinity, remainingUsd: 3, state: "active" }, { grantedUsd: 5, remainingUsd: Number.NaN, state: "active" }, { grantedUsd: 5, state: "active" }]) {
     assert.equal(parseCloudCredit(input), null, JSON.stringify(input));
   }
-});
-
-const allowances = (computers, diskGb, maxDiskGb = diskGb) => ({ cpus: computers, cpuKind: "shared", memoryMb: computers * 1024, diskGb, maxDiskGb, computers, computerHours: computers * 50, voiceCharacters: 100_000 });
-const catalog = () => [
-  { tier: "starter", label: "Starter", price: { currency: "USD", amount: 1500, interval: "month", regularAmount: null, note: null }, allowances: allowances(1, 10) },
-  { tier: "pro", label: "Pro", price: { currency: "USD", amount: 4900, interval: "month", regularAmount: 8900, note: "Launch price, then $89/month." }, allowances: allowances(4, 40, 50) },
-  { tier: "max", label: "Max", price: { currency: "USD", amount: 9900, interval: "month", regularAmount: null, note: null }, allowances: allowances(8, 80, 100) },
-];
-
-test("the session's offer is this account's: its plans, the preselected one, and the trial's extras only with a trial", () => {
-  const offer = parseCloudOffer({ plans: catalog(), recommended: "pro", trialDays: 7, creditUsd: 5, refundDays: 14, reminderDays: 2, checkout: { plan: "pro", openUntil: NOW + 3600_000 } });
-  assert.ok(offer.plans.every(plan => !("sleeps" in plan.allowances)), "a plan says nothing about sleeping unless the Admin does");
-  assert.deepEqual(offer.plans.map(plan => [plan.tier, plan.label, plan.amount, plan.trialDays]), [["starter", "Starter", 1500, 7], ["pro", "Pro", 4900, 7], ["max", "Max", 9900, 7]]);
-  assert.deepEqual(offer.plans[1].allowances, { cpus: 4, cpuKind: "shared", memoryMb: 4096, diskGb: 40, maxDiskGb: 50, computers: 4, computerHours: 200, voiceCharacters: 100_000 });
-  assert.equal(offer.recommended, "pro");
-  assert.deepEqual([offer.creditUsd, offer.refundDays, offer.reminderDays], [5, 14, 2]);
-  assert.deepEqual(offer.checkout, { plan: "pro", openUntil: NOW + 3600_000 });
-  assert.ok(!JSON.stringify(offer).includes("8900") && !JSON.stringify(offer).includes("Launch"));
-  const perPlan = parseCloudOffer({ plans: catalog().map(plan => plan.tier === "max" ? plan : { ...plan, trialDays: 7 }), trialDays: 7, creditUsd: 5 });
-  assert.deepEqual(perPlan.plans.map(plan => plan.trialDays ?? null), [7, 7, null]);
-  const paid = parseCloudOffer({ plans: catalog(), creditUsd: 5, reminderDays: 2, refundDays: 14 });
-  assert.deepEqual(paid.plans.map(plan => plan.trialDays ?? null), [null, null, null]);
-  assert.deepEqual([paid.creditUsd, paid.reminderDays, paid.refundDays], [undefined, undefined, 14]);
-  assert.equal(parseCloudOffer({ plans: catalog(), recommended: "team" }).recommended, "pro");
-  assert.equal(parseCloudOffer({ plans: catalog().filter(plan => plan.tier !== "pro") }).recommended, "starter");
-});
-
-test("an Admin that still sells Personal: this app sells no Personal, preselects Pro instead, and watches no checkout of it", () => {
-  const personal = { tier: "personal", label: "Personal", price: { currency: "USD", amount: 2900, interval: "month" }, allowances: allowances(2, 10, 20) };
-  const [starter, pro, max] = catalog(), older = [starter, personal, pro, max];
-  for (const recommended of ["pro", "personal", undefined]) {
-    const offer = parseCloudOffer({ plans: older, recommended, trialDays: 7, checkout: { plan: "personal", openUntil: NOW + 3600_000 } });
-    assert.deepEqual(offer.plans.map(plan => plan.tier), ["starter", "pro", "max"], String(recommended));
-    assert.equal(offer.recommended, "pro", String(recommended));
-    assert.equal(offer.checkout, undefined, String(recommended));
-  }
-  assert.equal(parseCloudOffer({ plans: [starter, personal, max], recommended: "personal" }).recommended, "starter", "with no Pro, the first plan left");
-  assert.deepEqual(parsePublicOffer({ plans: older, trial: { days: 7 } }).plans.map(plan => plan.tier), ["starter", "pro", "max"]);
-});
-
-test("a plan's swap, backup days and CPU kind come along when the Admin lists them, and are left out when they are malformed", () => {
-  const listed = parseCloudOffer({ plans: [{ ...catalog()[1], allowances: { ...allowances(4, 10, 100), swapMb: 4096, snapshotDays: 14 } }] });
-  assert.deepEqual(listed.plans[0].allowances, { cpus: 4, cpuKind: "shared", memoryMb: 4096, diskGb: 10, maxDiskGb: 100, computers: 4, computerHours: 200, voiceCharacters: 100_000,
-    swapMb: 4096, snapshotDays: 14 });
-  assert.equal(parseCloudOffer({ plans: [{ ...catalog()[1], allowances: { ...allowances(4, 10, 100), seats: 5 } }] }).plans[0].allowances.seats, 5, "a team plan's most people comes through");
-  for (const seats of [0, -1, "5", 2.5, 5000]) assert.equal(parseCloudOffer({ plans: [{ ...catalog()[1], allowances: { ...allowances(4, 10, 100), seats } }] }).plans[0].allowances.seats, undefined, String(seats));
-  for (const extra of [{ swapMb: 0 }, { swapMb: -1 }, { swapMb: "4096" }, { snapshotDays: 0 }, { snapshotDays: 400 }, { snapshotDays: 7.5 }, { cpuKind: "gpu" }, { cpuKind: null }]) {
-    const plan = parseCloudOffer({ plans: [{ ...catalog()[1], allowances: { ...allowances(4, 10, 100), ...extra } }] }).plans[0];
-    assert.deepEqual(Object.keys(plan.allowances).filter(key => ["swapMb", "snapshotDays"].includes(key) || (key === "cpuKind" && "cpuKind" in extra)), [], JSON.stringify(extra));
-  }
-});
-
-test("a malformed offer is no offer, and a malformed plan or extra is left out, never trusted in part", () => {
-  for (const input of [null, undefined, "offer", [], {}, { plans: [] }, { plans: "pro" }, { plans: [{ tier: "pro" }] },
-    { plans: [{ tier: "pro", price: { currency: "EUR", amount: 4900, interval: "month" } }] },
-    { plans: [{ tier: "pro", price: { currency: "USD", amount: 4900, interval: "year" } }] },
-    { plans: [{ tier: "Pro <b>", price: { currency: "USD", amount: 4900, interval: "month" } }] },
-    { plans: [{ tier: "pro", price: { currency: "USD", amount: 49.5, interval: "month" } }] },
-    { plans: [{ tier: "pro", price: { currency: "USD", amount: 0, interval: "month" } }] }]) {
-    assert.equal(parseCloudOffer(input), null, JSON.stringify(input));
-  }
-  const [starter, pro] = catalog();
-  const offer = parseCloudOffer({ plans: [starter, { ...pro, label: "Pro <script>", allowances: { cpus: "4" }, trialDays: 99 }, { ...pro }, { tier: "team", price: null }],
-    trialDays: 0, creditUsd: 500, refundDays: 400, reminderDays: 2, checkout: { plan: "max", openUntil: NOW } });
-  assert.deepEqual(offer.plans, [{ tier: "starter", label: "Starter", amount: 1500, allowances: { cpus: 1, cpuKind: "shared", memoryMb: 1024, diskGb: 10, maxDiskGb: 10, computers: 1, computerHours: 50,
-    voiceCharacters: 100_000 } },
-    { tier: "pro", amount: 4900 }]);
-  assert.equal(offer.checkout, undefined); assert.equal(offer.refundDays, undefined); assert.equal(offer.creditUsd, undefined);
-});
-
-test("the public offer is the catalog, with the free trial for new customers when the Admin says so", () => {
-  const offer = parsePublicOffer({ name: "OpenMausBot", surface: "cloud", plans: catalog(), trial: { days: 7, holdDays: 3, creditUsd: 5, reminderDays: 2 }, refundDays: 14 });
-  assert.deepEqual(offer.plans.map(plan => plan.trialDays), [7, 7, 7]);
-  assert.deepEqual([offer.recommended, offer.creditUsd, offer.reminderDays, offer.refundDays, offer.checkout], ["pro", 5, 2, 14, undefined]);
-  const today = parsePublicOffer({ plans: catalog() });
-  assert.deepEqual(today.plans.map(plan => plan.trialDays ?? null), [null, null, null]);
-  assert.equal(today.creditUsd, undefined); assert.equal(today.refundDays, undefined);
-  for (const config of [null, "config", { trial: { days: 7 } }, { plans: [], trial: { days: 7 } }]) assert.equal(parsePublicOffer(config), null);
-  for (const trial of [{ days: 0 }, { days: 31 }, { days: "7" }, { days: 7.5 }]) {
-    assert.deepEqual(parsePublicOffer({ plans: catalog(), trial }).plans.map(plan => plan.trialDays ?? null), [null, null, null], JSON.stringify(trial));
-  }
-  const plain = withoutTrial(offer);
-  assert.deepEqual(plain.plans.map(plan => plan.trialDays ?? null), [null, null, null]);
-  assert.deepEqual([plain.creditUsd, plain.reminderDays, plain.refundDays], [undefined, undefined, 14]);
-  assert.equal(withoutTrial(null), null);
 });
 
 test("a plan's disk is only what the Admin says; without its word a move is measured against today's free space", () => {

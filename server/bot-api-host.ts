@@ -5,7 +5,7 @@
 import { z } from "zod";
 
 import { redactSecretsInText } from "../shared/redact.ts";
-import { BOT_API_UPGRADE, botApiEndpoint, type BotApiReply } from "../shared/bot-api.ts";
+import { BOT_API_UNAVAILABLE, botApiEndpoint, type BotApiReply } from "../shared/bot-api.ts";
 import type { AdminActionRow } from "./admin-activity.ts";
 import { BOT_API_MAX_MESSAGE_CHARS, BOT_API_MAX_PENDING, BotApiManager, botApiPrompt, withoutAttachedImages, type BotApiAttempt, type BotApiStatus } from "./bot-api.ts";
 import { personKey } from "./person-key.ts";
@@ -215,8 +215,8 @@ export function createBotApiHost(deps: BotApiHostDeps) {
         return true;
       }
       if (!included()) {
-        manager.recordRefused(botId, 403, BOT_API_UPGRADE);
-        json(res, 403, { error: BOT_API_UPGRADE });
+        manager.recordRefused(botId, 403, BOT_API_UNAVAILABLE);
+        json(res, 403, { error: BOT_API_UNAVAILABLE });
         return true;
       }
       if (!deps.canConfine(botId)) {
@@ -291,7 +291,7 @@ export function createBotApiHost(deps: BotApiHostDeps) {
     const target = { kind: "bot", id: bot.id, name: bot.name };
     try {
       if (match[2] === "new-key") {
-        if (!included()) return answer(res, 403, { error: BOT_API_UPGRADE, upgrade: true });
+        if (!included()) return answer(res, 403, { error: BOT_API_UNAVAILABLE });
         if (!manager.enabled(botId)) return answer(res, 409, { error: "The Bot API is off for this bot" });
         const minted = manager.enable(botId, minter(auth));
         deps.record?.(auth, { category: "bot-api", action: "bot-api.new-key", target });
@@ -301,7 +301,7 @@ export function createBotApiHost(deps: BotApiHostDeps) {
       if (!parsed.success) return answer(res, 400, { error: schemaIssue(parsed.error, "Send {\"enabled\": true | false}") });
       if (parsed.data.enabled) {
         // Already on keeps its key: only New key replaces one an app may be using.
-        if (!included()) return answer(res, 403, { error: BOT_API_UPGRADE, upgrade: true });
+        if (!included()) return answer(res, 403, { error: BOT_API_UNAVAILABLE });
         if (manager.enabled(botId)) return answer(res, 200, view(botId, auth));
         const minted = manager.enable(botId, minter(auth));
         deps.record?.(auth, { category: "bot-api", action: "bot-api.on", target });

@@ -3,17 +3,13 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { setLocale } from "@/lib/i18n";
-import type { WhatsNewView } from "@/lib/whats-new";
 
 vi.mock("@/components/Avatar", () => ({ MausAvatar: () => null }));
 vi.mock("@/components/EngineLibrary", () => ({ engineReady: () => true }));
 const { otherDialogOpen, useOtherDialogOpen } = await import("./notice-dialogs");
-const { WhatsNewPopup } = await import("./whats-new/WhatsNewPopup");
 const { Spotlight } = await import("./onboarding/Spotlight");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const VIEW: WhatsNewView = { slides: ["pro", "team"], audience: "none", signedIn: false, staging: false,
-  plans: { pro: { name: "Pro", terms: "Pro · $49/month + tax" }, team: { name: "Team", terms: "Team · $169/month + tax" } } };
 const done = vi.fn();
 let roots: Root[];
 const mount = async (element: ReturnType<typeof createElement>) => {
@@ -21,7 +17,7 @@ const mount = async (element: ReturnType<typeof createElement>) => {
   roots.push(root);
   await act(async () => { root.render(element); });
 };
-const showPopup = () => mount(createElement(WhatsNewPopup, { view: VIEW, report: () => {}, onBuy: () => {}, onDone: done }));
+const showPopup = () => mount(createElement("div", { role: "dialog", "data-simple-mode-prompt": "" }));
 
 beforeEach(() => { setLocale("en"); roots = []; done.mockClear(); });
 afterEach(async () => { for (const root of roots) await act(async () => root.unmount()); document.body.replaceChildren(); vi.useRealTimers(); });
@@ -57,7 +53,7 @@ it("any dialog on screen counts, modal or not, the tour's cards and the card tha
   const inside = document.querySelector('[role="dialog"]')!.appendChild(document.createElement("div"));
   inside.setAttribute("role", "alertdialog");
   expect(otherDialogOpen(), "inside the popup").toBe(false);
-  for (const own of ["data-simple-mode-prompt", "data-updates-consent-popup"]) {
+  for (const own of ["data-simple-mode-prompt", "data-new-look-notice", "data-grok-move-popup"]) {
     const popup = document.body.appendChild(document.createElement("div"));
     popup.setAttribute(own, ""); popup.setAttribute("role", "dialog");
     expect(otherDialogOpen(), own).toBe(false);

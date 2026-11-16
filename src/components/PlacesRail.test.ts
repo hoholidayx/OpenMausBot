@@ -27,9 +27,7 @@ const workspaces = { state: vi.fn(async () => ({ local: false, name: "My Cloud" 
   open: vi.fn(async () => {}), add: vi.fn(async (..._args: unknown[]): Promise<unknown> => undefined), onChanged: vi.fn(() => () => {}) };
 type Organizations = { canAdd: boolean; blocked?: "no_team_plan" | "limit" | "rate" | "off"; count: number; max: number };
 let organizations: Organizations | undefined;
-const cloudAdd = { state: vi.fn(async () => ({ signedIn: true, hasCloud: true, supported: false, canAdd: false, offer: null, count: 1, home: { name: "My Cloud", color: null },
-  ...(organizations ? { organizations } : {}) })),
-  start: vi.fn(), reopen: vi.fn(), copyLink: vi.fn(), open: vi.fn(), interest: vi.fn(async () => {}), sheet: vi.fn(async () => {}),
+const cloudAdd = { organizationState: vi.fn(async () => organizations ?? null),
   organization: vi.fn(async (): Promise<{ outcome: "added" | "taken" | "unsupported" | "failed" } | { outcome: "blocked"; blocked: "no_team_plan" | "limit" | "rate" | "off" }> => ({ outcome: "added" })) };
 async function mount(element: ReturnType<typeof createElement>) {
   root = createRoot(host);
@@ -59,7 +57,7 @@ it("a circle per place, with its initials on its colour; the place on screen is 
   expect(host.querySelector('[data-rail-place="c"]')?.getAttribute("aria-label")).toBe("Client C: setting up, Cloud");
   expect(host.querySelector('[data-rail-place="pending:c-b"]')?.getAttribute("aria-label")).toBe("Client B: waiting for payment, Cloud");
   expect(host.querySelector("[data-rail-more-button]")).toBeNull();
-  expect(host.querySelector("[data-rail-add]")?.getAttribute("aria-label")).toBe("Add a Cloud or your own server");
+  expect(host.querySelector("[data-rail-add]")?.getAttribute("aria-label")).toBe("Add a place");
 });
 
 it("marks the place on screen with a pill on the rail's edge, a short one on hover for a place that opens, and no ring round a tile", async () => {
@@ -205,12 +203,11 @@ const submit = async (form: Element | null) => {
   await act(async () => { (form as HTMLFormElement).requestSubmit(); await Promise.resolve(); await Promise.resolve(); });
 };
 
-it("＋ offers buying a Cloud or connecting to the person's own server: a box for its link or address, sent to main", async () => {
+it("＋ connects to the person's own server: a box for its link or address, sent to main", async () => {
   await mount(createElement(PlacesRail));
   await click(host.querySelector("[data-rail-add]"));
   const sheet = document.querySelector("[data-place-add-sheet]")!;
-  expect([...sheet.querySelectorAll("[data-place-add-choice]")].map((choice) => choice.getAttribute("data-place-add-choice"))).toEqual(["cloud", "server"]);
-  await click(sheet.querySelector('[data-place-add-choice="server"]'));
+  expect([...sheet.querySelectorAll("[data-place-add-choice]")].map((choice) => choice.getAttribute("data-place-add-choice"))).toEqual([]);
   const form = document.querySelector('[data-place-add="own-server"]')!;
   expect(form.textContent).toContain("Link or address");
   expect(form.textContent, "no commands before the person starts typing").not.toContain("npx");
@@ -226,7 +223,6 @@ it("＋ offers buying a Cloud or connecting to the person's own server: a box fo
 it("a pasted link main can't open says so and keeps the sheet; cancelling main's Connect keeps it too", async () => {
   await mount(createElement(PlacesRail));
   await click(host.querySelector("[data-rail-add]"));
-  await click(document.querySelector('[data-place-add-choice="server"]'));
   const form = document.querySelector('[data-place-add="own-server"]')!;
   await type(form.querySelector("[data-own-server-link]"), "not a link");
   workspaces.add.mockRejectedValueOnce(new Error("Error invoking remote method 'workspaces:add': Error: That isn't a server address."));
@@ -248,7 +244,6 @@ it("Connect to a server never sits grey without saying why: it says it is lookin
   Object.assign(window, { ogb: { workspaces: { ...workspaces, probe }, cloudAdd } });
   await mount(createElement(PlacesRail));
   await click(host.querySelector("[data-rail-add]"));
-  await click(document.querySelector('[data-place-add-choice="server"]'));
   const form = document.querySelector('[data-place-add="own-server"]')!;
   await type(form.querySelector("[data-own-server-link]"), "http://192.168.1.20:8799/#pair=ABCD-EFGH-JKLM");
   await settle();
@@ -270,7 +265,6 @@ it("Connect to a server says plainly that another computer's desktop app can't b
   Object.assign(window, { ogb: { workspaces: { ...workspaces, probe }, cloudAdd } });
   await mount(createElement(PlacesRail));
   await click(host.querySelector("[data-rail-add]"));
-  await click(document.querySelector('[data-place-add-choice="server"]'));
   const form = document.querySelector('[data-place-add="own-server"]')!;
   await type(form.querySelector("[data-own-server-link]"), "192.168.1.30:8799");
   await settle();
@@ -288,7 +282,6 @@ it("Connect to a server says plainly that another computer's desktop app can't b
 it("an address typed key by key stays in its box; a pasted one moves on to the code", async () => {
   await mount(createElement(PlacesRail));
   await click(host.querySelector("[data-rail-add]"));
-  await click(document.querySelector('[data-place-add-choice="server"]'));
   const form = document.querySelector('[data-place-add="own-server"]')!;
   const address = form.querySelector("[data-own-server-link]") as HTMLInputElement;
   const afterTimers = () => act(async () => { await new Promise((done) => setTimeout(done, 0)); });
@@ -315,7 +308,6 @@ it("Connect to a server takes an address and a code typed apart: a code pasted a
   Object.assign(window, { ogb: { workspaces: { ...workspaces, probe }, cloudAdd } });
   await mount(createElement(PlacesRail));
   await click(host.querySelector("[data-rail-add]"));
-  await click(document.querySelector('[data-place-add-choice="server"]'));
   const form = document.querySelector('[data-place-add="own-server"]')!;
   await type(form.querySelector("[data-own-server-link]"), "abcd-efgh-jklm");
   expect((form.querySelector("[data-own-server-link]") as HTMLInputElement).value, "the code left the address field").toBe("");
@@ -342,84 +334,7 @@ it("Connect to a server takes an address and a code typed apart: a code pasted a
   expect(document.querySelector("[data-place-add-sheet]")).toBeNull();
 });
 
-const createButton = () => [...document.querySelectorAll<HTMLButtonElement>('[data-place-add="organization"] button[type="submit"]')][0];
 
-it("＋ for the account a Team plan's organizations are billed to: New organization first; a name and a color add it at once, no checkout, and the sheet closes", async () => {
-  rail = { places: PLACES, add: { cloud: true, link: true, address: false, organization: true } };
-  organizations = { canAdd: true, count: 3, max: 10 };
-  await mount(createElement(PlacesRail));
-  await click(host.querySelector("[data-rail-add]"));
-  const sheet = document.querySelector("[data-place-add-sheet]")!;
-  expect([...sheet.querySelectorAll("[data-place-add-choice]")].map((choice) => choice.getAttribute("data-place-add-choice"))).toEqual(["organization", "cloud", "server"]);
-  await click(sheet.querySelector('[data-place-add-choice="organization"]'));
-  await act(async () => { await Promise.resolve(); });
-  const form = document.querySelector('[data-place-add="organization"]')!;
-  expect(form.querySelector("h2")?.textContent).toBe("New organization");
-  expect(form.textContent).toContain("nothing to pay now");
-  expect(form.querySelector("[data-org-count]")?.textContent).toBe("Organization 4 of 10");
-  expect(createButton()?.disabled, "a name first").toBe(true);
-  await type(form.querySelector("input"), "  Client   B ");
-  expect(form.querySelector("[data-org-preview]")?.textContent).toBe("Client B");
-  await click(form.querySelector("[data-swatch='violet']"));
-  await click(createButton());
-  await act(async () => { await Promise.resolve(); });
-  expect(cloudAdd.organization.mock.calls).toEqual([["Client B", "violet"]]);
-  expect(cloudAdd.start, "never a checkout").not.toHaveBeenCalled();
-  expect(document.querySelector("[data-place-add-sheet]"), "added: the rail shows it being set up").toBeNull();
-});
-
-it("New organization says plainly why it can't be added: the plan has as many as it can, the name is taken, or it didn't work; nothing else is offered then", async () => {
-  rail = { places: PLACES, add: { cloud: false, link: false, address: false, organization: true } };
-  organizations = { canAdd: false, blocked: "limit", count: 10, max: 10 };
-  await mount(createElement(PlacesRail));
-  await click(host.querySelector("[data-rail-add]"));
-  await act(async () => { await Promise.resolve(); });
-  const form = document.querySelector('[data-place-add="organization"]')!;
-  expect(form, "the only choice opens at once").toBeTruthy();
-  expect(form.querySelector("[data-org-problem]")?.textContent).toBe("Your Team plan has as many organizations as it can have. Email us to add more.");
-  await type(form.querySelector("input"), "Client K");
-  expect(createButton()?.disabled).toBe(true);
-  // Closed for a reason this app doesn't know: the neutral word, not the limit.
-  await act(async () => root?.unmount()); root = null; document.body.innerHTML = ""; host = document.createElement("div"); document.body.append(host);
-  organizations = { canAdd: false, count: 2, max: 10 };
-  await mount(createElement(PlacesRail));
-  await click(host.querySelector("[data-rail-add]"));
-  await act(async () => { await Promise.resolve(); });
-  expect(document.querySelector('[data-place-add="organization"] [data-org-problem]')?.textContent).toBe("New organizations aren't available right now.");
-  await act(async () => root?.unmount()); root = null; document.body.innerHTML = ""; host = document.createElement("div"); document.body.append(host);
-  organizations = { canAdd: true, count: 2, max: 10 };
-  await mount(createElement(PlacesRail));
-  await click(host.querySelector("[data-rail-add]"));
-  await act(async () => { await Promise.resolve(); });
-  const again = document.querySelector('[data-place-add="organization"]')!;
-  await type(again.querySelector("input"), "Client A");
-  for (const [answer, said] of [
-    [{ outcome: "taken" }, "Another of your organizations has that name. Choose another."],
-    [{ outcome: "blocked", blocked: "rate" }, "Too many organizations were added just now. Try again in a few minutes."],
-    [{ outcome: "unsupported" }, "Nothing was added. Try again in a moment."],
-  ] as const) {
-    cloudAdd.organization.mockResolvedValueOnce(answer);
-    await click(createButton());
-    await act(async () => { await Promise.resolve(); });
-    expect(again.querySelector("[data-org-problem]")?.textContent).toBe(said);
-  }
-  cloudAdd.organization.mockRejectedValueOnce(new Error("main went away"));
-  await click(createButton());
-  await act(async () => { await Promise.resolve(); });
-  expect(again.querySelector("[data-org-problem]")?.textContent).toBe("Nothing was added. Try again in a moment.");
-  expect(document.querySelector("[data-place-add-sheet]"), "the sheet stays open to try again").toBeTruthy();
-});
-
-it("Buy a Cloud, for someone whose Admin sells one Cloud per account: the calm word, never an error", async () => {
-  await mount(createElement(PlacesRail));
-  await click(host.querySelector("[data-rail-add]"));
-  await click(document.querySelector('[data-place-add-choice="cloud"]'));
-  await act(async () => { await Promise.resolve(); });
-  const flow = document.querySelector('[data-cloud-add="extra-one"]')!;
-  expect(flow.textContent).toContain("One Cloud per account for now");
-  expect(flow.textContent).toContain("You have My Cloud.");
-  expect(cloudAdd.sheet).toHaveBeenCalledWith(true);
-});
 
 it("a circle's letters and words", () => {
   expect(["Client A", "Acme", "  my  cloud ", "Ünïcode Øne", "😀 Fun"].map(placeInitials)).toEqual(["CA", "A", "MC", "ÜØ", "😀F"]);
@@ -576,7 +491,7 @@ it("a Cloud of the person's own that ended says so on its circle, and its menu o
   await act(async () => { host.querySelector("[data-rail-menu]")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
   const menu = await menuOf("old");
   await click(menu!.querySelector("[data-rail-remove-ask]"));
-  expect(menu!.querySelector("[data-rail-remove] [role='alertdialog'] p")?.textContent).toBe("Remove “Old Cloud” from your list? You can buy a new Cloud any time.");
+  expect(menu!.querySelector("[data-rail-remove] [role='alertdialog'] p")?.textContent).toBe("Remove “Old Cloud” from your list?");
   expect(remove).not.toHaveBeenCalled();
   await click(menu!.querySelector("[data-rail-remove-confirm]"));
   await settle();
@@ -672,17 +587,6 @@ it("a saved account whose sign-in ended: its tile says so, and a click opens the
   expect((document.querySelector("#cloud-add-email") as HTMLInputElement | null)?.value).toBe(BOB);
 });
 
-it("＋ offers Add another account while someone is signed in, and it opens the sign-in over the window", async () => {
-  rail = { places: TWO_ACCOUNTS, add: { cloud: true, link: true, address: false, account: true } };
-  Object.assign(window, { ogb: { workspaces, cloudAdd, accounts } });
-  await mount(createElement(PlacesRail));
-  await click(host.querySelector("[data-rail-add]"));
-  await click(document.querySelector('[data-place-add-choice="account"]'));
-  await act(async () => { await Promise.resolve(); });
-  expect(document.querySelector("[data-place-add-sheet]")).toBeNull();
-  expect((document.querySelector("#cloud-add-email") as HTMLInputElement | null)?.value).toBe("");
-});
-
 it("past eight, ⋯ keeps the groups, each under its address, and search finds a place by its account's address", async () => {
   const many = [place("local", "This computer", { kind: "computer" }), ...Array.from({ length: 5 }, (_, at) => place(`a${at}`, `A ${at}`, { group: "active", email: ALICE })), ...Array.from({ length: 5 }, (_, at) => place(`b${at}`, `B ${at}`, { group: "b", email: BOB }))];
   rail = { places: many, add: { cloud: false, link: false, address: false } };
@@ -768,7 +672,7 @@ it("＋ offers a new workspace on this computer first, to Cloud owners too: a na
   expect(host.querySelector("[data-rail-add]")?.getAttribute("aria-label")).toBe("Add a place for your bots");
   await click(host.querySelector("[data-rail-add]"));
   const sheet = document.querySelector("[data-place-add-sheet]")!;
-  expect([...sheet.querySelectorAll("[data-place-add-choice]")].map((choice) => choice.getAttribute("data-place-add-choice"))).toEqual(["local", "cloud", "server"]);
+  expect([...sheet.querySelectorAll("[data-place-add-choice]")].map((choice) => choice.getAttribute("data-place-add-choice"))).toEqual(["local", "server"]);
   expect(sheet.querySelector('[data-place-add-choice="local"]')?.textContent).toContain("New workspace on this computer");
   await click(sheet.querySelector('[data-place-add-choice="local"]'));
   let form = document.querySelector('[data-place-add="local"]')!;

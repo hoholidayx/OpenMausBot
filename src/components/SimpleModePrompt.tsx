@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { track } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { readAdvancedMode, setAdvancedMode, useAdvancedMode } from "@/lib/interface-mode";
@@ -9,8 +8,7 @@ import { markSimpleModePromptSeen } from "@/lib/simple-mode-prompt";
 export const SIMPLE_MODE_PROMPT = "[data-simple-mode-prompt]";
 const TITLE = "simple-mode-prompt-title";
 
-export function reportSimpleModePrompt(action: "shown" | "toggled" | "closed", advanced = readAdvancedMode()): void {
-  track("simple_mode_prompt", { action, mode: advanced ? "advanced" : "simple" });
+export function reportSimpleModePrompt(_action: "shown" | "toggled" | "closed", _advanced = readAdvancedMode()): void {
 }
 
 /** Once per browser (AppNotices): a switch for Simple mode that changes the app behind it as it is flipped. Done, ×,

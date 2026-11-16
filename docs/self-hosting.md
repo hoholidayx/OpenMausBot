@@ -534,7 +534,7 @@ client:
 ```sh
 openmausbot fleet create acme --admin owner@acme.test --member @acme.test \
   --brand /root/acme-brand.json --anthropic-key-file /root/acme-anthropic.key \
-  --cap 50 --memory 1G
+  --memory 1G
 openmausbot fleet users acme add bob@acme.test --chat-only
 openmausbot fleet list
 openmausbot fleet suspend acme      # 503 page, service stopped; resume undoes it
@@ -542,19 +542,9 @@ openmausbot fleet upgrade           # new release, then every running workspace 
 openmausbot fleet delete acme --yes # add --keep-data to keep the home folder
 ```
 
-Give `init` `--operator USER` (the Unix user your own workspace runs as; the
-user behind `sudo` by default) and it also installs the **fleet agent**: a
-root service on a Unix socket only that user may open. Your workspace then
-shows **Settings → Installations** (with the enterprise `admin` feature): create
-an installation, add or remove who may sign in, suspend, resume, delete, upgrade
-all, and see each one's spend this month. Every action goes through the
-agent's audit log at `/var/log/openmausbot/fleet.jsonl`.
-
-`https://acme.example.com` is up when `create` returns; the first admin signs
-in with an emailed code. `OMB_LICENSE_KEY` in the environment (or
-`--license-key`) is carried into every workspace so a partner's white-label
-key covers them all. Not root? Every command prints the exact steps to run as
-root instead, and `--dry-run` always prints.
+The fleet commands manage the installations from the server. When `create`
+returns, the first admin signs in to the workspace with an emailed code.
+Pass `--dry-run` to print the steps.
 
 ## Signing the engines in without a terminal
 
@@ -744,7 +734,7 @@ server at all.
 For development, `pnpm dev:server` sets `OMB_DEV_TRUST_LOCAL_BROWSER=1`, so a
 browser on Vite's dev page (`pnpm dev`) is the owner as before. The server
 honours it only when it runs from source with owner trust, logs a warning, and
-ignores it in a build, the desktop app, a hosted workspace and MausBot Cloud.
+ignores it in a build and the desktop app.
 Run `OMB_DEV_TRUST_LOCAL_BROWSER=0 pnpm dev:server` to try the sign-in.
 
 ### Loopback trust: owner or service
@@ -758,29 +748,22 @@ loopback request **without a session** is trusted, and logs it:
 
 ```
 local requests: owner trust (self-hosted default)
-local requests: service trust (hosted workspace); without a session, loopback may use only health, the Slack worker's guarded routes and bot capability routes
+local requests: service trust
 ```
 
 | Trust | Default for | A session-less loopback request may |
 |---|---|---|
 | `owner` | a self-hosted server, the desktop app | do everything, as today |
-| `service` | a hosted workspace: any of `OMB_ADMIN_URL`, `OMB_ADMIN_WORKSPACE` or `OMB_ADMIN_MEMBERSHIP` set (shared-workspace Full access only works there, so it is covered too) | read health, who-am-I, the bot list, a thread's messages and a bot's picture; open a thread; send through the guarded route; watch and stop its exact request; withdraw a queued line; **decline** a card; use the bots' own capability routes (`/api/internal/*`, which check their own per-turn token) |
+| `service` | a server with `OMB_LOOPBACK_TRUST=service` | read health, who-am-I, the bot list, a thread's messages and a bot's picture; open a thread; send through the guarded route; watch and stop its exact request; withdraw a queued line; **decline** a card; use the bots' own capability routes (`/api/internal/*`, which check their own per-turn token) |
 
 Under `service`, everything else from loopback needs a real session and
 answers 403: settings and keys (`/api/config`), instances, MCP servers,
-webhooks, sessions and pairing, people and sign-in lists, usage, budgets,
-the decision log, fleet, workspace backups, creating or loosening bots, and
-approving or answering any card. The Slack worker (the only session-less
-local caller a hosted workspace has) needs nothing more and keeps working
-unchanged. Sessions — a portal sign-in, an email sign-in or a pairing — work
-exactly as before, with their own scopes.
+webhooks, sessions and pairing, people and sign-in lists, usage,
+the decision log, workspace backups, creating or loosening bots, and
+approving or answering any card. Email and pairing sessions retain their own scopes.
 
 Set `OMB_LOOPBACK_TRUST=service` on a self-hosted server people share (with
-an email sign-in list, say), or `OMB_LOOPBACK_TRUST=owner` to opt a hosted
-workspace back into the old behaviour (the log then warns). Any other value
-means `service`. The desktop app ignores the setting: its local changes
-already need the app's own per-launch capability. MausBot Cloud ignores
-it too and is always `service` (docs/cloud-pro.md).
+an email sign-in list, for example). The desktop app uses its own per-launch capability to authorize local changes.
 
 With `service` on a self-hosted server:
 
@@ -880,13 +863,6 @@ seen, and what each person spent this month. **Invite** adds an address (or
 with the address filled in, and the one-time code still goes to that address.
 Roles change with one click; removing someone stops new sign-ins.
 
-On a hosted workspace whose members your organization's Admin manages
-(`OMB_ADMIN_MEMBERSHIP=portal`), this list decides nothing, so Settings →
-People shows, read-only, who has signed in and what they spent, with a
-**Manage people in Admin** link to that workspace in Admin → People. Remote
-access there lists signed-in devices and offers no pairing codes, since a
-hosted workspace refuses them.
-
 ### Who may answer a card
 
 Approval cards are the provider's own (see the approval modes); OpenMausBot
@@ -983,14 +959,6 @@ nothing there changes.
 On the Workspaces screen, creating a client workspace shows the same kind of
 link for that workspace's admin, so a client gets one address, one workspace
 and one link.
-
-## Announcements from the project
-
-When someone opens the app, the server downloads the project's public announcements file from GitHub
-(`raw.githubusercontent.com`, at most once an hour, a plain GET with nothing of yours in it) and its pages may show one of
-its cards in the corner: product news, a tip, or a sponsor's offer, each once per person
-([docs/announcements.md](announcements.md)). Set `OMB_DISABLE_ANNOUNCEMENTS=1` in the server's environment to never
-download it and never show those cards.
 
 ## Attachment storage
 
@@ -1108,14 +1076,11 @@ bot, which model and engine, tokens in and out, the cost the engine reported
 engine reports none), and who asked: the email a person signed in with, the
 device label otherwise, a routine, another bot, or this computer. No message
 text is stored. **Settings → Usage → History** shows a period grouped by bot,
-model, person, day or engine, and **Export CSV** downloads one line per turn.
-Owners can read the same over the API:
+model, person, day or engine. Owners can read the same over the API:
 
 ```sh
 curl -H "Authorization: Bearer $TOKEN" \
   "https://maus.example.com/api/usage?from=2026-09-01&to=2026-09-30&groupBy=user"
-curl -H "Authorization: Bearer $TOKEN" -o usage.csv \
-  "https://maus.example.com/api/usage.csv?from=2026-09-01&to=2026-09-30"
 ```
 
 Dates are inclusive, UTC, at most a year apart; without them you get the
@@ -1335,34 +1300,6 @@ curl -H "Authorization: Bearer $TOKEN" -o activity.csv \
 `visibility`; `who` matches part of a name or email; without `from` the list
 starts 30 days ago. Nothing here is sent to your organization's cloud Admin,
 which keeps its own activity log.
-
-## Spend limits and sell prices (enterprise)
-
-With the `budgets` entitlement, **Settings → Usage → Monthly spend limit**
-caps the workspace: once the month's cost reaches it, no bot starts a turn,
-whether a person wrote, a routine fired, a peer asked or a webhook arrived,
-until an admin raises it. A warning shows at a configurable percentage, and
-admins get one in-app notification the first time each month crosses the
-warning and one when it reaches the limit (a new month or a new limit starts
-over).
-
-The figure is every cost in the usage ledger. Claude reports its own cost
-(real on your keys, an equivalent on personal subscriptions). Codex, the
-OpenAI-compatible/OpenRouter engine, Grok, MiniMax and the ACP engines report
-tokens but no price, so the server books an **estimate** from a built-in list
-of vendor list prices (`server/model-prices.ts`, each entry with its source
-and the date it was read) and marks the row `costSource: "estimated"`. A model
-that is not in the list is unpriced and not counted; Usage says how many
-turns that was. Estimates use each vendor's standard short-context rate, so
-long prompts, cache writes and priority tiers cost more than estimated.
-
-With the `billing` entitlement, **Sell prices** takes your own price per
-million tokens by model id, `driver/model`, or `default`, and History and the
-CSV export gain a **billable** column next to the provider's cost. For an
-engine that reports no cost, a price you set for that exact model also
-replaces the list price in its estimate; `default` is used only for models
-the list does not know. Both are plain settings in `config.json` (`budgets`,
-`billing`) and through `PUT /api/config`.
 
 ## A bot that also runs outside the server
 

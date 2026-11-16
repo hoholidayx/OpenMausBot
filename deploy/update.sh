@@ -9,8 +9,7 @@
 #   ./update.sh --dir PATH       the install's folder, when it is not this one (the installer's: /opt/openmausbot)
 #
 # It runs on the server itself, beside docker-compose.yml, because a server cannot replace its own container. The steps
-# are the ones the MausBot connector runs for a connected server (connector/src/home.ts `update`): download the new
-# image by digest, stop the server and check that it stopped, copy its data into a new Docker volume and check the copy
+# download the new image by digest, stop the server and check that it stopped, then copy its data into a new volume and check the copy
 # file by file, start the new image, and wait until it answers and can still start bots. When it does not, the old image
 # and the copy are put back. The copy from the update before is removed only once the new copy has been checked.
 #
@@ -19,7 +18,7 @@
 # run left unfinished (a reboot, a kill) is kept when its new version is healthy; otherwise the next run asks before it
 # puts the old data back, and says what that loses.
 #
-# Exit codes, the same ones the connector's update runner reads (connector/host/mausbot-update-runner.sh):
+# Exit codes:
 #   0    done, or nothing to do
 #   1    the update failed, and the old version and its data are back
 #   2    the old version or its data could not be brought back: see what it said; ./update.sh --rollback tries again

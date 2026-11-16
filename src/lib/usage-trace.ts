@@ -30,10 +30,6 @@ export function formatCost(usd: number | null | undefined): string {
   return usd > 0 && usd < 0.001 ? `<${usdText(0.001, 3)}` : formatUsd(usd);
 }
 
-export function usageExportHref(range: { from: string; to: string }): string {
-  return `/api/usage.csv?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`;
-}
-
 export function fetchTraces(range: { from: string; to: string }, offset = 0): Promise<TraceList> {
   return api(`/api/usage/traces?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}&offset=${offset}&limit=50`);
 }

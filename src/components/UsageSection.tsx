@@ -1,19 +1,18 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { SettingRow, SettingsEmptyRow, SettingsGroup, SettingsLook, SettingsRows } from "./SettingsPrimitives";
-import { ArrowLeft, ChevronRight, Download, Loader2 } from "lucide-react";
+import { ArrowLeft, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { activeLocale, documentLanguage, t } from "@/lib/i18n";
 import { listenLiveFrames } from "@/lib/live-events";
 import { modelColor, modelFamily } from "@/lib/model-color";
 import { formatTokens, hasFiniteCost, headlineTokens } from "@/lib/usage";
-import { currentBotName, fetchTraces, formatCost, formatDuration, runTitle, USAGE_PERIODS, usageExportHref, usagePeriodRange, type UsagePeriod } from "@/lib/usage-trace";
+import { currentBotName, fetchTraces, formatCost, formatDuration, runTitle, USAGE_PERIODS, usagePeriodRange, type UsagePeriod } from "@/lib/usage-trace";
 import { api, useStore } from "@/state/store";
 import type { LocaleKey } from "@/locales";
 import type { TraceList, TraceRootSummary } from "../../shared/usage-trace";
 import { BotAvatar } from "./Avatar";
 import { PlanUsage } from "./PlanUsage";
 import { Select } from "./Select";
-import { UsageBudgetCards, type BudgetState } from "./UsageBudget";
 import { TraceView } from "./usage/TraceView";
 import { LiveBadge, modelName, StatStrip, totalsStats } from "./usage/TraceWaterfall";
 
@@ -37,7 +36,6 @@ export interface UsageGroup {
 interface UsageSummary {
   groupBy: UsageGroupBy;
   groups: UsageGroup[];
-  budget?: BudgetState | null;
 }
 
 const GROUP_LABEL_KEYS: Record<UsageGroupBy, LocaleKey> = {
@@ -183,12 +181,11 @@ function ModelLegend({ groups }: { groups: readonly UsageGroup[] }) {
 }
 
 /** The "Where it went" panel: bots on one side, the chosen grouping on the other, both split by model. */
-function WhereItWent({ range, version, onBudget }: { range: { from: string; to: string }; version: number; onBudget: (budget: BudgetState | null) => void }) {
+function WhereItWent({ range, version }: { range: { from: string; to: string }; version: number }) {
   const [other, setOther] = useState<UsageGroupBy>("model");
   const settings = useContext(SettingsLook);
   const byBot = useUsageGroups(range, "bot", version, "model");
   const byOther = useUsageGroups(range, other, version, other === "model" ? undefined : "model");
-  useEffect(() => { onBudget(byBot?.budget ?? null); }, [byBot, onBudget]);
   if (settings) return null;
   return (
     <section className="rounded-2xl border border-hairline/50 bg-card p-5" aria-label={t("usage.page.where")}>
@@ -227,12 +224,10 @@ function WhereItWent({ range, version, onBudget }: { range: { from: string; to: 
 const SETTINGS_GROUPINGS: readonly UsageGroupBy[] = ["bot", ...OTHER_GROUPINGS];
 
 /** Settings' Where it went: a select (by bot, model, person…) as the section's action, then one row per item. */
-function SettingsWhereItWent({ range, version, onBudget }: { range: { from: string; to: string }; version: number; onBudget: (budget: BudgetState | null) => void }) {
+function SettingsWhereItWent({ range, version }: { range: { from: string; to: string }; version: number }) {
   const { state } = useStore();
   const [by, setBy] = useState<UsageGroupBy>("bot");
-  const byBot = useUsageGroups(range, "bot", version);
   const groups = useUsageGroups(range, by, version);
-  useEffect(() => { onBudget(byBot?.budget ?? null); }, [byBot, onBudget]);
   const top = groups?.groupBy === by ? [...groups.groups].sort((a, b) => headlineTokens(b) - headlineTokens(a)).filter((group) => headlineTokens(group) > 0).slice(0, 8) : null;
   return (
     <SettingsGroup label={t("usage.page.where")} block="where"
@@ -299,7 +294,6 @@ export function UsageSection() {
   const [list, setList] = useState<TraceList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
-  const [budget, setBudget] = useState<BudgetState | null>(null);
   const [open, setOpen] = useState<{ id: string; at: number } | null>(null);
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -348,7 +342,7 @@ export function UsageSection() {
             <SettingsRows>
               <div data-testid="usage-totals" className="contents">
                 {totals ? <>
-                  <SettingRow title={t("trace.stat.cost")}><span className="text-[13px] leading-5 tabular-nums text-ink-secondary">{totals.costUsd ? t("usage.page.estimated", { cost: formatCost(totals.costUsd) }) : formatCost(0)}</span></SettingRow>
+                  <SettingRow title={t("trace.stat.cost")}><span className="text-[13px] leading-5 tabular-nums text-ink-secondary">{formatCost(totals.costUsd)}</span></SettingRow>
                   <SettingRow title={t("usage.page.runs")}><span className="text-[13px] leading-5 tabular-nums text-ink-secondary">{String(list.roots.length)}{list.next !== undefined ? "+" : ""}</span></SettingRow>
                   <SettingRow title={t("trace.stat.errors")}><span className="text-[13px] leading-5 tabular-nums text-ink-secondary">{String(totals.errors)}</span></SettingRow>
                   <SettingRow title={t("trace.stat.time")}><span className="text-[13px] leading-5 tabular-nums text-ink-secondary">{totals.durationMs > 0 ? formatDuration(Math.max(1_000, totals.durationMs)) : "—"}</span></SettingRow>
@@ -356,9 +350,8 @@ export function UsageSection() {
               </div>
             </SettingsRows>
           </SettingsGroup>
-          <SettingsWhereItWent range={range} version={version} onBudget={setBudget} />
-          <SettingsGroup label={t("usage.page.runs")} block="runs" footnote={untimed ? t("usage.page.untimedNote") : undefined}
-            actions={<a href={usageExportHref(range)} download className="ui-button ui-button-md rounded-full">{t("usage.history.export")}</a>}>
+          <SettingsWhereItWent range={range} version={version} />
+          <SettingsGroup label={t("usage.page.runs")} block="runs" footnote={untimed ? t("usage.page.untimedNote") : undefined}>
             <SettingsRows>
               {list && !list.roots.length && <SettingsEmptyRow>{t("usage.page.runsEmpty")}</SettingsEmptyRow>}
               {list?.roots.length ? <ul className="flex flex-col p-1">{list.roots.map((root) => <RunRow key={root.id} root={root} onOpen={() => setOpen({ id: root.id, at: root.startedAt })} />)}</ul> : null}
@@ -367,7 +360,6 @@ export function UsageSection() {
           </SettingsGroup>
         </>}
         <PlanUsage />
-        <UsageBudgetCards budget={budget} />
       </div>
     );
   }
@@ -380,9 +372,6 @@ export function UsageSection() {
           <Select size="sm" value={period} onChange={(event) => { setPeriod(event.target.value as UsagePeriod); setOpen(null); }} aria-label={t("usage.history.period")}>
             {USAGE_PERIODS.map((option) => <option key={option} value={option}>{t(PERIOD_LABEL_KEYS[option])}</option>)}
           </Select>
-          <a href={usageExportHref(range)} download className="flex items-center gap-1.5 rounded-lg border border-hairline/40 px-2.5 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink">
-            <Download size={13} />{t("usage.history.export")}
-          </a>
         </div>
       </div>
       {error && <p role="alert" className="text-[12px] text-danger">{error}</p>}
@@ -398,7 +387,7 @@ export function UsageSection() {
             {list ? <StatStrip items={totalsStats(list.totals, t("trace.stat.time"))} />
               : <div className="flex items-center gap-2 p-5 text-[13px] text-ink-secondary"><Loader2 size={14} className="animate-spin" />{t("common.checking")}</div>}
           </section>
-          <WhereItWent range={range} version={version} onBudget={setBudget} />
+          <WhereItWent range={range} version={version} />
           <section className="rounded-2xl border border-hairline/50 bg-card p-2" aria-label={t("usage.page.runs")}>
             <div className="px-3 pb-1 pt-3">
               <h3 className="text-[15px] font-medium text-ink">{t("usage.page.runs")}</h3>
@@ -416,7 +405,6 @@ export function UsageSection() {
         </>
       )}
       <PlanUsage />
-      <UsageBudgetCards budget={budget} />
     </div>
   );
 }

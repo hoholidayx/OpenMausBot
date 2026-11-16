@@ -168,7 +168,7 @@ describe("publishing a page", () => {
     expect(f.cards.every(({ card }) => card.state === "limit")).toBe(true);
   });
 
-  it("at the plan's limit, says so for the bot to pass on and shows a card offering more pages, with the usage", async () => {
+  it("at the plan's limit, says so for the bot to pass on and shows a card with the current usage", async () => {
     const f = setup({ quota: 1 });
     signIn();
     writeSite(join(f.work, "one"));
@@ -176,9 +176,10 @@ describe("publishing a page", () => {
     await f.publish({ path: "one" });
     const refused = await f.publish({ path: "two", title: "Second" });
     expect(refused.status).toBe(402);
-    expect(refused.text).toBe("You’ve used your 1 free pages. MausBot Cloud gives you more, and pages without the badge. Tell the person this in your reply.");
-    expect(f.cards.at(-1)).toMatchObject({ text: "You’ve used your 1 free pages. MausBot Cloud gives you more, and pages without the badge.",
-      card: { state: "limit", title: "Second", upgrade: true, plan: "free", usage: { pages: 1, limit: 1 } } });
+    expect(refused.text).toBe("You’ve reached the page limit. Unpublish a page to make room. Tell the person this in your reply.");
+    expect(f.cards.at(-1)?.card).not.toHaveProperty("upgrade");
+    expect(f.cards.at(-1)).toMatchObject({ text: "You’ve reached the page limit. Unpublish a page to make room.",
+      card: { state: "limit", title: "Second", plan: "free", usage: { pages: 1, limit: 1 } } });
   });
 
   it("publishes as a Cloud home with a request signed by its bootstrap secret", async () => {
@@ -615,7 +616,7 @@ describe("sharing a chat page from its card", () => {
     const f = setup({ quota: 0 });
     signIn();
     const { call, shown } = route(f);
-    expect(await call("POST", "/api/threads/thread-1/messages/m7/app/publish", {})).toMatchObject({ status: 402, body: { card: { state: "limit", upgrade: true } } });
+    expect(await call("POST", "/api/threads/thread-1/messages/m7/app/publish", {})).toMatchObject({ status: 402, body: { card: { state: "limit" } } });
     expect(shown).toEqual([]);
     expect(await call("POST", "/api/threads/room-1/messages/m7/app/publish", {})).toMatchObject({ status: 404 });
     expect(await call("POST", "/api/threads/thread-1/messages/m7/app/publish", { rev: "2" })).toMatchObject({ status: 400 });

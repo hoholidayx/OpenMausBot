@@ -1,23 +1,12 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, Cloud, Laptop } from "lucide-react";
-import { track } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
-import type { Action } from "@/state/store";
 import type { CloudPlanSnapshot } from "../../electron/cloud-account.mjs";
 import { cloudColor } from "@/lib/cloud-look";
 import { t } from "@/lib/i18n";
 import { railShown, usePlaces } from "@/lib/places";
 import { CloudTile } from "./cloud-buy/parts";
 import { SIMPLE_RAIL_BUTTON } from "./SidebarSimpleTop";
-
-export function openServerMenu(bridge: { menu: (options?: { from?: "howto" }) => Promise<void> }, { howTo = false, onClosed }: { howTo?: boolean; onClosed?: () => void } = {}): Promise<void> {
-  return bridge.menu(howTo ? { from: "howto" } : undefined).finally(() => { if (howTo) onClosed?.(); });
-}
-
-export function endCloudHowTo(dispatch: (action: Action) => void): void {
-  track("cloud_howto", { result: "closed" });
-  dispatch({ type: "cloudHowTo", open: false });
-}
 
 function PowerLine({ text }: { text: string }) {
   return <span className="font-normal text-ink-secondary"> · {text}</span>;
@@ -53,7 +42,7 @@ export type WorkspacePlace = ReturnType<typeof useWorkspacePlace>;
  * Security: the dropdown is native; a remote workspace cannot choose a destination or read the other workspaces saved
  * here.
  */
-export function useWorkspacePlace({ cloudHome = false, howTo = false, onMenuClosed }: { cloudHome?: boolean; howTo?: boolean; onMenuClosed?: () => void }) {
+export function useWorkspacePlace({ cloudHome = false }: { cloudHome?: boolean }) {
   const bridge = window.ogb?.workspaces;
   const [current, setCurrent] = useState<{ local: boolean; name: string; localPath?: string; origin?: string; color?: string; home?: boolean; profileName?: string } | null>(null);
   const [open, setOpen] = useState(false);
@@ -72,7 +61,7 @@ export function useWorkspacePlace({ cloudHome = false, howTo = false, onMenuClos
   const openMenu = () => {
     if (!bridge || open) return;
     setError(""); setOpen(true);
-    void openServerMenu(bridge, { howTo, onClosed: onMenuClosed }).catch(() => setError(t("sidebar.switchServerError")))
+    void bridge.menu().catch(() => setError(t("sidebar.switchServerError")))
       .finally(() => setOpen(false));
   };
   return { bridge, current, cloudHome, open, error, onLine, waking, openMenu, switchable: Boolean(bridge) && current?.home !== true };
@@ -80,7 +69,7 @@ export function useWorkspacePlace({ cloudHome = false, howTo = false, onMenuClos
 
 /** `place`: what this Cloud is called here, a team's name on a team's Cloud; My Cloud otherwise. */
 type SwitcherProps = {
-  compact?: boolean; inline?: boolean; pill?: boolean; rail?: boolean; cloudHome?: boolean; owner?: string | null; howTo?: boolean; place?: string; onMenuClosed?: () => void;
+  compact?: boolean; inline?: boolean; pill?: boolean; rail?: boolean; cloudHome?: boolean; owner?: string | null; place?: string;
 };
 
 /** The place on screen and the native Server menu; where a rail of places stands beside the page, the rail switches
@@ -91,9 +80,9 @@ export function DesktopWorkspaceSwitcher(props: SwitcherProps) {
   return railShown(places) ? <div data-switcher-beside-rail className={places.beside ? "hidden" : "contents md:hidden"}>{switcher}</div> : switcher;
 }
 
-function Switcher({ compact = false, inline = false, pill = false, rail = false, cloudHome = false, owner = null, howTo = false, place, onMenuClosed }: SwitcherProps) {
+function Switcher({ compact = false, inline = false, pill = false, rail = false, cloudHome = false, owner = null, place }: SwitcherProps) {
   const cloudName = place || t("cloudSetup.myCloud");
-  const { bridge, current, open, error, onLine, waking, openMenu } = useWorkspacePlace({ cloudHome, howTo, onMenuClosed });
+  const { bridge, current, open, error, onLine, waking, openMenu } = useWorkspacePlace({ cloudHome });
   const withPower = (name: string) => (onLine ? `${name} · ${onLine}` : name);
   // This window's home is My Cloud: it opens nothing else, so there is nothing to switch.
   if (!bridge || current?.home === true) {

@@ -4,7 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 import { parseCloudList } from "./cloud-list.mjs";
-import { addCloudView, createAddedCloudNotice, installCloudRail, railPlaces } from "./cloud-rail.mjs";
+import { installCloudRail, railPlaces } from "./cloud-rail.mjs";
 import { otherCloudSnapshot } from "./cloud-plan-ipc.mjs";
 
 const HOME = "https://omb-u-1a2b3c4d5e6f.fly.dev", CLIENT_A = "https://omb-c-a.fly.dev", TEAM = "https://omb-t-acme.fly.dev", VPS = "https://bots.example.test";
@@ -108,11 +108,9 @@ test("a server of the person's own that signed in with their account: one saved 
 
 function rail(over = {}) {
   const handlers = new Map(), opened = [], ran = [], sent = [];
-  const w = { trusted: true, lists: true, beside: true, state: session(), offer: { recommended: "pro", plans: [{ tier: "pro", amount: 4900 }] }, added: [], organized: [],
+  const w = { trusted: true, lists: true, beside: true, state: session(), organized: [],
     organization: { outcome: "added", cloudId: "c-new" } };
-  const account = { state: () => w.state, offer: async () => w.offer, addCloud: async (input) => { w.added.push(input); return { outcome: "opened", state: w.state }; },
-    addOrganization: async (input) => { w.organized.push(input); return w.organization; },
-    reopenAdd: async () => true, addLink: () => "https://test.checkout.dodopayments.com/x", addDone: () => { w.done = true; }, interest: async () => {} };
+  const account = { state: () => w.state, addOrganization: async (input) => { w.organized.push(input); return w.organization; } };
   const installed = installCloudRail({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) }, guard: handler => handler, trusted: () => w.trusted,
     lists: () => w.lists, beside: () => w.beside,
     places: () => railPlaces({ saved: saved(), home: HOME, mine: HOME, state: w.state }), open: id => opened.push(id), account: () => account,
@@ -126,12 +124,12 @@ test("the rail's channels: the list only for the rail's own page, a circle only 
   const r = rail();
   assert.deepEqual((await r.call("workspaces:places")).places.map(place => place.id), ["home", "a", "acme", "vps"]);
   r.w.lists = false;
-  assert.deepEqual(await r.call("workspaces:places"), { places: [], add: { cloud: false, link: false, address: false, organization: false }, beside: true },
+  assert.deepEqual(await r.call("workspaces:places"), { places: [], add: { link: false, address: false, organization: false }, beside: true },
     "a place's page, this computer's and a Cloud's included, learns only that the rail stands beside it");
   r.w.beside = false;
-  assert.deepEqual(await r.call("workspaces:places"), { places: [], add: { cloud: false, link: false, address: false, organization: false } });
+  assert.deepEqual(await r.call("workspaces:places"), { places: [], add: { link: false, address: false, organization: false } });
   assert.throws(() => r.call("workspaces:open", "a"), /only available/);
-  assert.equal(typeof await r.call("cloud-add:state"), "object", "＋'s buying sheet still runs on a page main vouches for (this computer's own)");
+  assert.equal(typeof await r.call("cloud-add:organization-state"), "object", "organization availability is visible on the trusted local page");
   r.w.lists = true;
   r.call("workspaces:open", "a");
   assert.throws(() => r.call("workspaces:open", "https://evil.example.test"), /isn't here/);
@@ -159,7 +157,7 @@ test("a circle's click goes through main's list of what is being opened, the rai
   let target = null;
   const handlers = new Map();
   const installed = installCloudRail({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) }, guard: handler => handler, trusted: () => w.trusted,
-    places: () => [{ id: "a", name: "Client A", color: null, kind: "cloud", opens: true }], open: async id => { asked.push(["open", id]); return "opened"; }, add: { choices: () => ({ cloud: false, link: false, address: false }), run: () => {} }, account: () => null, clipboard: {}, openCloud: () => {},
+    places: () => [{ id: "a", name: "Client A", color: null, kind: "cloud", opens: true }], open: async id => { asked.push(["open", id]); return "opened"; }, add: { choices: () => ({ link: false, address: false }), run: () => {} }, account: () => null, clipboard: {}, openCloud: () => {},
     targets: () => [{ send: channel => sent.push(channel), isDestroyed: () => false }], ask: async (id, run) => { asked.push(["ask", id]); return run(); }, switching: () => target });
   const call = (channel, ...args) => handlers.get(channel)({}, ...args);
   assert.equal(await call("workspaces:open", "a"), "opened");
@@ -188,29 +186,6 @@ test("Settings → Servers on this computer's own page looks a server up and con
   assert.equal(r.ran.length, 2);
 });
 
-test("buying another Cloud from a page: the plan must be on sale, the name is checked, and the page gets only what the sheet says", async () => {
-  const r = rail();
-  await assert.rejects(r.call("cloud-add:start", "max", "Client B", "rose"), /Choose a plan/);
-  await assert.rejects(r.call("cloud-add:start", "pro", " ", "rose"), /Choose a plan/);
-  assert.deepEqual(await r.call("cloud-add:start", "pro", "Client B", "url(x)"), { outcome: "opened" });
-  assert.deepEqual(r.w.added, [{ tier: "pro", interval: "month", name: "Client B", color: null }], "an unknown swatch is none");
-  await r.call("cloud-add:start", "pro", "Client C", "rose", "app_whats_new_team");
-  await r.call("cloud-add:start", "pro", "Client D", "rose", "https://evil.example.test");
-  assert.deepEqual(r.w.added.slice(1), [{ tier: "pro", interval: "month", name: "Client C", color: "rose", source: "app_whats_new_team" },
-    { tier: "pro", interval: "month", name: "Client D", color: "rose" }], "the app's own source goes with it; anything else is left out");
-  assert.equal(await r.call("cloud-add:copy-link"), true);
-  assert.deepEqual(r.sent, ["https://test.checkout.dodopayments.com/x"]);
-  r.w.state = session({ adding: { cloudId: "c-a", name: "Client A", color: "green", tier: "pro", startedAt: 1, link: true } });
-  await r.call("cloud-add:open");
-  assert.deepEqual(r.opened, ["cloud:c-a"]);
-  assert.equal(r.w.done, true);
-  const view = await r.call("cloud-add:state");
-  assert.equal(JSON.stringify(view).includes("acct-1"), false, "never the account");
-  assert.deepEqual({ ...view, offer: undefined }, { signedIn: true, hasCloud: true, supported: true, canAdd: true, offer: undefined, count: 2,
-    home: { name: "My Cloud", color: null }, adding: { name: "Client A", color: "green", tier: "pro", startedAt: 1, status: "ready", link: true } });
-  r.w.trusted = false;
-  for (const channel of ["cloud-add:state", "cloud-add:start", "cloud-add:open", "cloud-add:copy-link", "cloud-add:interest"]) assert.throws(() => r.call(channel), /only available/, channel);
-});
 
 test("New organization on ＋: only while this account runs a Team plan's organizations and the Admin hasn't turned adding them off; the name is checked, the page gets only the outcome", async () => {
   const r = rail(), plan = { planCloudId: "5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a", canAdd: true, count: 2, max: 10 };
@@ -228,51 +203,16 @@ test("New organization on ＋: only while this account runs a Team plan's organi
   assert.deepEqual(r.w.organized, [{ name: "Client B", color: null }], "the name folded; an unknown swatch is none");
   r.w.organization = { outcome: "blocked", blocked: "limit" };
   assert.deepEqual(await r.call("cloud-add:organization", "Client C", "rose"), { outcome: "blocked", blocked: "limit" });
-  assert.deepEqual(addCloudView(session({ organizations: { ...plan, canAdd: false, blocked: "limit" } }), null).organizations, { canAdd: false, blocked: "limit", count: 2, max: 10 });
-  assert.equal(addCloudView(session(), null).organizations, undefined);
   r.w.trusted = false;
   assert.throws(() => r.call("cloud-add:organization", "Client D", null), /only available/);
 });
 
-test("what the add sheet says: an older Admin is one Cloud for now, the Admin's cap says why, and a new Cloud's setup is followed", () => {
-  assert.deepEqual(addCloudView({ status: "signed-out" }, null), { signedIn: false });
-  const older = addCloudView(session({ clouds: undefined }), null);
-  assert.deepEqual([older.supported, older.canAdd, older.hasCloud, older.count], [false, false, true, 1]);
-  const capped = addCloudView(session({ addCloud: { canAdd: false, blocked: "cap" } }), null);
-  assert.deepEqual([capped.canAdd, capped.blocked], [false, "cap"]);
-  const none = addCloudView({ status: "connected", account: { id: "x" }, clouds: [] }, null);
-  assert.equal(none.hasCloud, false, "no Cloud yet: ＋ buys the first one on this computer's own sheet");
-  const adding = (status, extra = {}) => addCloudView(session({ clouds: parseCloudList([PRIMARY, entry({ id: "c-b", status, origin: status === "ready" ? CLIENT_A : null, ...extra })]),
-    adding: { cloudId: "c-b", name: "Client B", color: "rose", tier: "pro", startedAt: 5 } }), null).adding;
-  assert.deepEqual(adding("checkout"), { name: "Client B", color: "rose", tier: "pro", startedAt: 5, status: "checkout", progress: 0 });
-  assert.deepEqual(adding("setting_up", { setup: { progress: 0.5 } }), { name: "Client B", color: "rose", tier: "pro", startedAt: 5, status: "setting_up", progress: 0.5 });
-  assert.equal(adding("ready").status, "ready");
-  assert.equal(adding("payment_problem").status, "problem");
-});
 
 test("another Cloud's page reads its own plan: its tier, and whether it runs", () => {
   assert.deepEqual(otherCloudSnapshot(entry()), { status: "paid", tier: "pro" });
   assert.deepEqual(otherCloudSnapshot(entry({ status: "payment_problem", tier: null })), { status: "attention" });
 });
 
-test("“{name}” is ready, once per Cloud this app bought, unless its sheet shows it in the focused window; a click opens it", () => {
-  const shown = [], opened = [];
-  class FakeNotification { static isSupported() { return true; } constructor(options) { this.options = options; shown.push(this); } on(_event, handler) { this.click = handler; } show() {} }
-  let sheet = false;
-  const notice = createAddedCloudNotice({ Notification: FakeNotification, focused: () => true, sheetOpen: () => sheet, open: id => opened.push(id) });
-  const state = status => session({ clouds: parseCloudList([PRIMARY, entry({ id: "c-b", name: "Client B", status, origin: status === "ready" ? CLIENT_A : null })]),
-    adding: { cloudId: "c-b", name: "Client B", color: null, tier: "pro", startedAt: 1 } });
-  assert.equal(notice(state("setting_up")), false);
-  assert.equal(notice(state("ready")), true);
-  assert.equal(shown[0].options.title, "“Client B” is ready");
-  shown[0].click();
-  assert.deepEqual(opened, ["c-b"]);
-  assert.equal(notice(state("ready")), false, "once");
-  sheet = true;
-  const quiet = createAddedCloudNotice({ Notification: FakeNotification, focused: () => true, sheetOpen: () => sheet, open: () => {} });
-  assert.equal(quiet(state("ready")), false, "the sheet in the focused window says it itself");
-  assert.equal(shown.length, 1);
-});
 
 test("a Cloud of your own that ended is marked, and its menu offers Remove from list only when the Admin says so; a running Cloud or a team's never does", () => {
   const OLD = "https://omb-c-old.fly.dev";
@@ -356,18 +296,14 @@ function preload(origin, { activation = false } = {}) {
   return { bridge, invoked };
 }
 
-test("a Cloud's page gets the rail and the add sheet's narrow bridges; a circle, ＋ and checkout open only from the person's click", async () => {
+test("a Cloud's page gets the rail and the add sheet's narrow bridges; opening a place and creating an organization require the person's click", async () => {
   const page = preload(HOME);
   assert.deepEqual(Object.keys(page.bridge.workspaces), ["state", "menu", "line", "places", "open", "add", "probe", "look", "color", "recolor", "remove", "makeHome", "onChanged", "local", "onNewLocal"]);
-  assert.deepEqual(Object.keys(page.bridge.cloudAdd), ["state", "start", "reopen", "copyLink", "open", "interest", "sheet", "organization"]);
+  assert.deepEqual(Object.keys(page.bridge.cloudAdd), ["organizationState", "organization"]);
   await page.bridge.workspaces.places();
-  await page.bridge.cloudAdd.state();
+  await page.bridge.cloudAdd.organizationState();
   await assert.rejects(page.bridge.workspaces.open("a"), /Choose a place/);
   await assert.rejects(page.bridge.workspaces.add("link"), /Choose what to add/);
-  await assert.rejects(page.bridge.cloudAdd.start("pro", "Client B", "rose"), /Continue to checkout/);
-  await assert.rejects(page.bridge.cloudAdd.reopen(), /Reopen checkout/);
-  await assert.rejects(page.bridge.cloudAdd.copyLink(), /Copy link/);
-  await assert.rejects(page.bridge.cloudAdd.open(), /Open/);
   await assert.rejects(page.bridge.cloudAdd.organization("Client B", "rose"), /Create organization/);
   await assert.rejects(page.bridge.workspaces.color("rose"), /Choose a color/, "a page changes its place's colour only from the person's click");
   await assert.rejects(page.bridge.workspaces.recolor("vps", "rose"), /Choose a color/);
@@ -381,14 +317,11 @@ test("a Cloud's page gets the rail and the add sheet's narrow bridges; a circle,
   const clicked = preload(HOME, { activation: true });
   await clicked.bridge.workspaces.open({ toString: () => "a" });
   await clicked.bridge.workspaces.add("link");
-  await clicked.bridge.cloudAdd.start("pro", "Client B", null);
   await clicked.bridge.workspaces.color("rose");
   await clicked.bridge.workspaces.color(null);
   await clicked.bridge.cloudAdd.organization({ toString: () => "Client C" }, null);
-  assert.deepEqual(clicked.invoked, [["workspaces:open", "a"], ["workspaces:add", "link"], ["cloud-add:start", "pro", "Client B", null], ["workspaces:color", "rose"], ["workspaces:color", null],
+  assert.deepEqual(clicked.invoked, [["workspaces:open", "a"], ["workspaces:add", "link"], ["workspaces:color", "rose"], ["workspaces:color", null],
     ["cloud-add:organization", "Client C", null]]);
-  await clicked.bridge.cloudAdd.start("team", "Studio", "blue", { toString: () => "app_whats_new_team" });
-  assert.deepEqual(clicked.invoked.at(-1), ["cloud-add:start", "team", "Studio", "blue", "app_whats_new_team"], "a source travels as plain text");
   assert.equal(page.bridge.cloudAccount, undefined, "never the account bridge");
   const local = preload(LOCAL);
   await local.bridge.workspaces.open("a");

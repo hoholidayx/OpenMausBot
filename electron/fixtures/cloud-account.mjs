@@ -9,9 +9,8 @@ export async function fixture(t, options = {}) {
   const f = { now: 1_800_000_000_000, requests: [], browsers: [], states: [], saved: null, approved: false, revoked: false,
     sessionStatus: 200, invalidIdentity: false, invalidEntitlement: false, badUrl: false, failWrite: false, slowToken: null,
     entitlement: { plan: "free", status: "inactive", expiresAt: null, version: 0 }, timer: null, delay: null, cloud: undefined, expiresIn: 600,
-    disk: { status: 404, body: "<!doctype html>not here" }, x: { status: 404, body: { error: "unsupported" } }, pages: { status: 404, body: { error: "unsupported" } }, sessionPage: null, sessionError: null, tokenPage: null, publicConfig: { status: 404, body: { error: "not_found" } },
-    offer: undefined, checkout: { status: 404, body: "<!doctype html>not here" }, interest: { status: 200, body: { ok: true } },
-    upgradePreview: { status: 404, body: { error: "not_found" } }, upgrade: { status: 404, body: { error: "not_found" } }, teams: undefined, teamPairing: { status: 404, body: { error: "not_found" } }, moved: { status: 404, body: { error: "not_found" } }, moveStatus: { status: 404, body: { error: "not_found" } },
+    disk: { status: 404, body: "<!doctype html>not here" }, x: { status: 404, body: { error: "unsupported" } }, pages: { status: 404, body: { error: "unsupported" } }, sessionPage: null, sessionError: null, tokenPage: null,
+    teams: undefined, teamPairing: { status: 404, body: { error: "not_found" } }, moved: { status: 404, body: { error: "not_found" } }, moveStatus: { status: 404, body: { error: "not_found" } },
     // An Admin before the app's Cancel and Keep: neither route, and the session's `clouds` absent.
     clouds: undefined, feedback: { status: 404, body: { error: "Not found." } }, renewal: () => ({ status: 404, body: { error: "Not found." } }) };
   const identity = () => ({ cloudContractVersion: 1, expiresAt: f.now + 86400_000, device: { id: "fixture-device" }, account: { id: "fixture-account", email: "person@example.test" } });
@@ -21,11 +20,6 @@ export async function fixture(t, options = {}) {
     const send = (status, data) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(data)); };
     if (req.url === "/api/cloud/desktop/authorize") return send(201, { cloudContractVersion: 1, deviceCode: "A".repeat(43), userCode: "ABCDE-FGHJK",
       verificationUriComplete: f.badUrl ? "https://untrusted.example.test" : `${f.origin}/cloud/desktop?code=ABCDE-FGHJK`, expiresIn: f.expiresIn, interval: 5 });
-    if (req.url === "/api/public/config" && req.method === "GET") {
-      f.requests.at(-1).cookie = req.headers.cookie;
-      if (typeof f.publicConfig.body === "string") { res.writeHead(f.publicConfig.status, { "content-type": "text/html" }); return res.end(f.publicConfig.body); }
-      return send(f.publicConfig.status, f.publicConfig.body);
-    }
     if (req.url === "/api/cloud/desktop/disk" && req.headers.authorization === `Bearer ${accessToken}`) {
       if (typeof f.disk.body === "string") { res.writeHead(f.disk.status, { "content-type": "text/html" }); return res.end(f.disk.body); }
       return send(f.disk.status, f.disk.body);
@@ -38,12 +32,6 @@ export async function fixture(t, options = {}) {
     if (req.url === "/api/cloud/desktop/feedback" && req.method === "POST" && req.headers.authorization === `Bearer ${accessToken}`) return send(f.feedback.status, f.feedback.body);
     const renewal = /^\/api\/cloud\/desktop\/clouds\/([^/]+)\/(cancel|keep)$/.exec(req.url);
     if (renewal && req.method === "POST" && req.headers.authorization === `Bearer ${accessToken}`) { const answer = f.renewal(renewal[2], renewal[1]); return send(answer.status, answer.body); }
-    for (const [route, answer] of [["/api/cloud/desktop/checkout", f.checkout], ["/api/cloud/desktop/interest", f.interest],
-      ["/api/cloud/desktop/upgrade/preview", f.upgradePreview], ["/api/cloud/desktop/upgrade", f.upgrade]]) {
-      if (req.url !== route || req.method !== "POST" || req.headers.authorization !== `Bearer ${accessToken}`) continue;
-      if (typeof answer.body === "string") { res.writeHead(answer.status, { "content-type": "text/html" }); return res.end(answer.body); }
-      return send(answer.status, answer.body);
-    }
     if (req.url === "/api/cloud/desktop/token") {
       if (f.tokenPage) { res.writeHead(f.tokenPage, { "content-type": "text/html" }); return res.end("<!doctype html>Just a moment"); }
       if (f.slowToken) await f.slowToken;
@@ -57,7 +45,7 @@ export async function fixture(t, options = {}) {
       if (f.sessionStatus !== 200) return send(f.sessionStatus, { error: "unavailable" });
       return send(200, { ...identity(), ...(f.invalidIdentity ? { account: { id: "someone-else", email: "other@example.test" } } : {}),
         entitlement: f.invalidEntitlement ? { plan: "pro", status: "active" } : f.entitlement, ...(f.cloud === undefined ? {} : { cloud: f.cloud }),
-        ...(f.offer === undefined ? {} : { offer: f.offer }), ...(f.teams === undefined ? {} : { teams: f.teams }), ...(f.clouds === undefined ? {} : { clouds: f.clouds }) });
+        ...(f.teams === undefined ? {} : { teams: f.teams }), ...(f.clouds === undefined ? {} : { clouds: f.clouds }) });
     }
     send(404, { error: "not_found" });
   });

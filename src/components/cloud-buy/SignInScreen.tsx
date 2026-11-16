@@ -4,7 +4,7 @@ import { Check, ExternalLink, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { CloudSignInPhase, CloudSignInProblem } from "@/lib/cloud-plan";
 import { t } from "@/lib/i18n";
-import { ACTIONS, BackLink, FIELD, Heading, LINK, PRIMARY, PRIMARY_WIDE, QUIET, SCREEN } from "./parts";
+import { BackLink, FIELD, Heading, LINK, PRIMARY, PRIMARY_WIDE, QUIET, SCREEN } from "./parts";
 
 const DIGITS = 8;
 const BROWSER_PROBLEMS: ReadonlySet<CloudSignInProblem> = new Set(["sso", "two-factor", "browser"]);
@@ -37,7 +37,7 @@ export function SignInScreen({ phase, email, code, profileEmail, busy, now, onBa
 }) {
   const problem = phase.step === "done" ? null : phase.problem;
   const browser = problem !== null && BROWSER_PROBLEMS.has(problem);
-  const title = phase.intent ? t("cloudBuy.signIn.title") : t("cloudBuy.signIn.titlePlain");
+  const title = t("cloudBuy.signIn.titlePlain");
   const focusBox = (from: HTMLElement, index: number) => from.parentElement?.querySelectorAll<HTMLInputElement>("input")[index]?.focus();
   const typeDigit = (index: number, value: string, target: HTMLInputElement) => {
     const typed = codeDigits(value);
@@ -61,7 +61,7 @@ export function SignInScreen({ phase, email, code, profileEmail, busy, now, onBa
   const submit = (event: FormEvent) => { event.preventDefault(); if (!busy) onSend(); };
   return <div data-cloud-add={`sign-in-${phase.step}`} className={SCREEN}>
     <div className="flex flex-col gap-3">
-      <BackLink label={t("cloudBuy.back")} onClick={onBack} />
+      <BackLink label={t("rail.back")} onClick={onBack} />
       <Heading title={title} sub={t("cloudBuy.signIn.sub")} />
     </div>
     {phase.step === "email" && <form className="flex flex-col gap-1.5" onSubmit={submit} noValidate>
@@ -96,7 +96,7 @@ export function SignInScreen({ phase, email, code, profileEmail, busy, now, onBa
     </div>}
     {phase.step === "done" && <p role="status" className="flex items-center gap-2 text-[14px] leading-5 text-ink">
       <span aria-hidden="true" className="grid size-5 shrink-0 place-items-center rounded-full bg-ink text-app"><Check size={12} strokeWidth={2.4} /></span>
-      {phase.intent ? t("cloudBuy.signIn.done") : t("cloudBuy.signIn.donePlain")}
+      {t("cloudBuy.signIn.donePlain")}
     </p>}
     {problem && <div id="cloud-add-problem" role="alert" className="flex flex-col items-start gap-3 rounded-[12px] bg-ink/[0.04] px-4 py-3 text-[13px] leading-[18px] text-ink">
       <p>{problemLine(problem, phase.step === "code" ? phase.triesLeft : null)}</p>
@@ -105,23 +105,5 @@ export function SignInScreen({ phase, email, code, profileEmail, busy, now, onBa
     </div>}
     {phase.step !== "done" && !browser && <p className="text-[13px] leading-[18px] text-ink-tertiary">{t("cloudBuy.signIn.ssoHint")}{" "}
       <button type="button" className={LINK} onClick={onBrowser}>{t("cloudBuy.signIn.continueBrowser")}</button></p>}
-  </div>;
-}
-
-/** The browser approval (single sign-on, two-step, or an older Cloud): the code to check, and the browser again. */
-export function BrowserSignInScreen({ code, checkout, trial, busy, onReopen, onCancel }: {
-  code: string | null; checkout: boolean; trial: boolean; busy: boolean; onReopen: () => void; onCancel: () => void;
-}) {
-  return <div data-cloud-add="signing-in" className={SCREEN}>
-    <Heading title={t("cloudAdd.browserTitle")} />
-    {code ? <ol className="flex list-decimal flex-col gap-1.5 ps-5 text-[14px] leading-5 text-ink marker:text-ink-tertiary">
-      <li>{t("cloudAdd.signInStep1")}</li>
-      <li>{t("cloudAccount.codeCheck")}<code dir="ltr" className="mt-1.5 block w-fit select-all rounded-[8px] bg-ink/[0.05] px-3 py-1.5 font-mono text-[17px] font-medium tracking-[0.12em]">{code}</code></li>
-      <li>{t(!checkout ? "cloudAdd.signInStep3Connect" : trial ? "cloudAdd.signInStep3Trial" : "cloudAdd.signInStep3")}</li>
-    </ol> : <p role="status" className="flex items-center gap-2 text-[13px] text-ink-secondary"><Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />{t("cloudAdd.opening")}</p>}
-    <div className={ACTIONS}>
-      <button type="button" className={QUIET} disabled={busy} onClick={onCancel}>{t("cloudAdd.cancel")}</button>
-      <button type="button" className={PRIMARY} disabled={busy || !code} onClick={onReopen}>{t("cloudAdd.reopenBrowser")}<ExternalLink size={14} aria-hidden="true" /></button>
-    </div>
   </div>;
 }

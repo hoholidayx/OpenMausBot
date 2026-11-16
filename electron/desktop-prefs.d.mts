@@ -5,19 +5,11 @@ export interface DesktopNoticesState {
    * record counts too (an earlier close of the What's new popup). */
   seen: string[];
   /** This desktop sells MausBot Cloud: the installed app, not a branded build, not connected to another computer. */
-  cloud: boolean;
 }
 /** On every page this desktop's window shows: this computer's, My Cloud's or another saved server's. */
 export interface DesktopNoticesBridge {
   state(): Promise<DesktopNoticesState>;
   seen(id: string): Promise<void>;
-}
-/** The desktop's own switch, the same on every port its page is served from. */
-export interface DesktopAnalyticsBridge {
-  /** null until a choice is saved; a server's page is told only false, when this desktop turned analytics off. */
-  enabled(): boolean | null;
-  /** This computer's page only. */
-  set?(enabled: boolean): Promise<void>;
 }
 /** The app's language on this computer, one pick for every page its window shows; main draws its menus, tray, dialogs and
  * notifications in it too. */
@@ -32,19 +24,11 @@ export interface DesktopLanguageBridge {
 }
 export interface DesktopPrefs {
   seen(): string[];
-  /** One of DESKTOP_NOTICES, or an announcement card's mark (`announcement:<id>`, `announcement-sponsor:<day>`); anything
-   * else is not kept. */
+  /** One of DESKTOP_NOTICES. */
   markSeen(id: string): void;
-  analytics(): boolean | null;
-  setAnalytics(enabled: boolean): void;
   language(): string | null;
   /** False for anything that is not a locale code or "". */
   setLanguage(language: unknown): boolean;
-  /** Random, made and saved on first use. */
-  installId(): string;
-  updatesConsent(): import("./updates-consent.mjs").UpdatesConsentRecord | null;
-  /** False, and nothing saved, for a record updates-consent.mjs would not read back. */
-  setUpdatesConsent(value: unknown): boolean;
   /** True until switched off. */
   talkShortcut(): boolean;
   setTalkShortcut(enabled: boolean): void;
@@ -92,8 +76,6 @@ export declare function registerDesktopPrefs(options: {
   read?(): unknown;
   write?(value: unknown): void;
   page(event: unknown): "local" | "cloud" | "server" | null;
-  cloudOffered(): Promise<boolean>;
-  localConfig?(): unknown;
   languageChanged?(language: string, sender: unknown): void;
   /** The pick changed: main redraws its own words in it ("" for the system's). */
   onLanguage?(language: string): void;
@@ -102,8 +84,5 @@ export declare function registerDesktopPrefs(options: {
   /** The window's frame: `made()`, the frame the window was made with (null before it is); `restarts`, a change waits for
    * the app to start again; `changed()`, the pages hear it. */
   frame?: { made(): boolean | null; restarts: boolean; changed(): void } | null;
-  /** The MausBot Cloud sign-in client: with it, the product-updates question is asked and its answer kept here. */
-  cloudAccount?(): import("./updates-consent.mjs").UpdatesConsentClient | null;
-  now?: () => number;
   systemName?(): Promise<string | null>;
-}): import("./updates-consent.mjs").UpdatesConsent | null;
+}): void;

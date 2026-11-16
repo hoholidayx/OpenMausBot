@@ -3,7 +3,6 @@ import { ActivitySection } from "../../ActivitySection";
 import { AdminOnly } from "../../AdminOnly";
 import { AttachmentStorageSettings } from "../../AttachmentStorageSettings";
 import { AccessOverview } from "../../bot-access/AccessOverview";
-import { CompanyBackupSettings } from "../../CompanyBackupSettings";
 import { ImportSettings } from "../../ImportSettings";
 import { PeopleSection } from "../../PeopleSection";
 import { SettingsGroup, SettingsRows } from "../../SettingsPrimitives";
@@ -31,7 +30,6 @@ export function ImportExportPage() {
       </SettingsGroup>
       <SettingsGroup label={t("settings.data.takeOut")} block="take-out">
         <SettingsRows>{exportRow}</SettingsRows>
-        <CompanyBackupSettings />
       </SettingsGroup>
       <MoveSection />
     </>} />

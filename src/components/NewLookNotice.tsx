@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
-import { track } from "@/lib/analytics";
 import { t } from "@/lib/i18n";
 import { markAdvancedBackSeen, markNewLookSeen } from "@/lib/new-look";
 import { markSimpleModePromptSeen } from "@/lib/simple-mode-prompt";
@@ -8,9 +7,7 @@ import { markSimpleModePromptSeen } from "@/lib/simple-mode-prompt";
 export const NEW_LOOK_NOTICE = "[data-new-look-notice]";
 const TITLE = "new-look-notice-title";
 
-export function reportNewLook(action: "shown" | "closed", back = false): void {
-  if (back) track("advanced_back_notice", { action });
-  else track("new_look_notice", { action });
+export function reportNewLook(_action: "shown" | "closed", _back = false): void {
 }
 
 /** Once, where Advanced mode was on before Simple became the only mode; with back, once where that browser was put back on

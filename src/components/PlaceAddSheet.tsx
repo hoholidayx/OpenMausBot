@@ -1,21 +1,15 @@
-// ＋ at the end of the rail: one sheet of choices. A new workspace on this computer (named here, then main opens it), a new
-// organization on the Team plan the person pays for (when they run one), buy a Cloud (the buying sheet: another Cloud right
-// here, or the first one on this computer's own sheet), or connect to a server of the person's own.
 import { useEffect, useEffectEvent, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Building2, Cloud, Laptop, Loader2, Server, UserRound, X } from "lucide-react";
+import { Laptop, Loader2, Server, X } from "lucide-react";
 import type { CloudSwatch } from "../../electron/cloud-list.mjs";
 import type { RailAddChoices, RailPlace } from "../../electron/cloud-rail.mjs";
 import { EXAMPLE_ADDRESS, parseServerInput } from "../../electron/server-address.mjs";
 import { CONNECT_PROBLEM_KEYS, type ServerProbe, type ServerProbeProblem } from "../../electron/server-probe.mjs";
-import { track } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { CLOUD_LIST_NAME_LIMIT, CLOUD_SWATCH_ORDER, SWATCH_COLOR, swatchFill } from "@/lib/cloud-extra";
 import { useCopyFeedback } from "@/lib/copy-text";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { computerName, createLocal, placeInitials, suggestedLocalName } from "@/lib/places";
-import { AddCloudFlow } from "./cloud-buy/AddCloudFlow";
-import { NewOrganization } from "./cloud-buy/NewOrganization";
 import { BackLink, FIELD, Heading, PRIMARY_WIDE } from "./cloud-buy/parts";
 import { Layer, useIsTopLayer } from "./Layer";
 import { SwatchRadios } from "./SwatchRadios";
@@ -90,7 +84,6 @@ export function OwnServerLink({ onBack, onConnected, connect = null, start = nul
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!address.trim() || busy || (canProbe && !found)) return;
-    track("rail_add", { step: "link" });
     setBusy(true);
     setFailure(null);
     try {
@@ -146,7 +139,7 @@ function Choice({ icon, title, sub, onClick, kind }: { icon: ReactNode; title: s
 
 const FOCUSABLE = "button:not([disabled]):not([tabindex='-1']), input:not([disabled]):not([tabindex='-1']), [href], [tabindex='0']";
 
-/** The sheet over the app, like the buying sheet's: Escape and Close close it, Tab stays in it, focus goes back after. */
+/** The sheet over the app: Escape and Close close it, Tab stays in it, focus goes back after. */
 export function RailSheet(props: { wide?: boolean; focusKey: string; onClose: () => void; children: ReactNode }) {
   return <Layer modal><RailSheetCard {...props} /></Layer>;
 }
@@ -177,7 +170,7 @@ function RailSheetCard({ wide = false, focusKey, onClose, children }: { wide?: b
   return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 sm:p-6" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <div ref={sheet} role="dialog" aria-modal="true" aria-labelledby="cloud-add-title" data-place-add-sheet tabIndex={-1}
       className={cn("animate-pop-in relative max-h-full w-full overflow-y-auto overscroll-contain rounded-2xl border border-hairline/70 bg-panel shadow-2xl outline-none", wide ? "max-w-[900px]" : "max-w-[560px]")}>
-      <button type="button" onClick={onClose} aria-label={t("cloudAdd.close")} className="ui-icon-button absolute end-3.5 top-3.5 z-10"><X size={18} /></button>
+      <button type="button" onClick={onClose} aria-label={t("common.close")} className="ui-icon-button absolute end-3.5 top-3.5 z-10"><X size={18} /></button>
       {children}
     </div>
   </div>;
@@ -204,7 +197,7 @@ export function NewLocalWorkspace({ places, onBack, onDone }: { places: readonly
     setBusy(true); setProblem(null);
     const outcome = await createLocal(shown, color === "slate" ? null : color);
     setBusy(false);
-    if (outcome === "made") { track("rail_add", { step: "local" }); onDone(); return; }
+    if (outcome === "made") {  onDone(); return; }
     setProblem(outcome === "taken" ? "taken" : "failed");
   };
   return <form data-place-add="local" className="flex flex-col gap-4 px-[30px] pb-[26px] pt-7" onSubmit={(event) => { event.preventDefault(); void create(); }}>
@@ -246,31 +239,17 @@ export function NewLocalFromMenu() {
   </RailSheet>;
 }
 
-export function PlaceAddSheet({ choices, places = [], connect = null, onClose, onAccount }: { choices: RailAddChoices; places?: readonly RailPlace[]; connect?: { name: string } | null; onClose: () => void; onAccount?: () => void }) {
-  const server = choices.link, organization = choices.organization === true, account = choices.account === true && Boolean(onAccount), local = choices.local === true;
-  const several = [local, organization, choices.cloud, server, account].filter(Boolean).length > 1;
-  const [view, setView] = useState<"choose" | "local" | "cloud" | "server" | "organization">(connect ? "server" : several ? "choose" : local ? "local" : organization ? "organization" : choices.cloud ? "cloud" : "server");
-  const [wide, setWide] = useState(false);
-  const workspaces = window.ogb?.workspaces;
-  const firstCloud = () => {
-    track("rail_add", { step: "cloud" });
-    onClose();
-    void workspaces?.add?.("cloud").catch(() => {});
-  };
-  return <RailSheet wide={view === "cloud" && wide} focusKey={view} onClose={onClose}>
+export function PlaceAddSheet({ choices, places = [], connect = null, onClose }: { choices: RailAddChoices; places?: readonly RailPlace[]; connect?: { name: string } | null; onClose: () => void }) {
+  const local = choices.local === true, server = choices.link;
+  const several = local && server;
+  const [view, setView] = useState<"choose" | "local" | "server">(connect ? "server" : several ? "choose" : local ? "local" : "server");
+  return <RailSheet focusKey={view} onClose={onClose}>
     {view === "choose" && <div data-place-add="choose" className="flex flex-col gap-5 px-[30px] pb-[26px] pt-7">
       <Heading title={t(local ? "rail.addAny" : "rail.add")} />
       {local && <Choice kind="local" icon={<Laptop size={19} />} title={t("rail.local")} sub={t("rail.localSub")} onClick={() => setView("local")} />}
-      <div className="flex flex-col gap-3 sm:flex-row">
-        {organization && <Choice kind="organization" icon={<Building2 size={19} />} title={t("rail.org")} sub={t("rail.orgSub")} onClick={() => setView("organization")} />}
-        {choices.cloud && <Choice kind="cloud" icon={<Cloud size={19} />} title={t("rail.buy")} sub={t("rail.buySub")} onClick={() => setView("cloud")} />}
-        {server && <Choice kind="server" icon={<Server size={19} />} title={t("connect.title")} sub={t("connect.choiceSub")} onClick={() => setView("server")} />}
-        {account && <Choice kind="account" icon={<UserRound size={19} />} title={t("accounts.add")} sub={t("rail.accountSub")} onClick={() => onAccount!()} />}
-      </div>
+      {server && <Choice kind="server" icon={<Server size={19} />} title={t("connect.title")} sub={t("connect.choiceSub")} onClick={() => setView("server")} />}
     </div>}
     {view === "local" && <NewLocalWorkspace places={places} onBack={several ? () => setView("choose") : null} onDone={onClose} />}
     {view === "server" && <OwnServerLink onBack={several && !connect ? () => setView("choose") : null} onConnected={onClose} connect={connect} />}
-    {view === "cloud" && <AddCloudFlow onClose={onClose} onFirstCloud={firstCloud} onWide={setWide} onBack={several ? () => setView("choose") : null} />}
-    {view === "organization" && <NewOrganization onClose={onClose} onBack={several ? () => setView("choose") : null} />}
   </RailSheet>;
 }

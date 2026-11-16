@@ -12,7 +12,6 @@ import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as Rea
 import { Cloud, House, Laptop, Loader2, MoreHorizontal, Plus, Search, Server, UserRound } from "lucide-react";
 import type { CloudSwatch } from "../../electron/cloud-list.mjs";
 import type { PlaceColorOutcome } from "../../electron/place-look.mjs";
-import { track } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { cloudColor, cloudColorFill } from "@/lib/cloud-look";
 import { activeLocale, t } from "@/lib/i18n";
@@ -433,7 +432,6 @@ export function PlacesRail({ chrome = false }: { chrome?: boolean }) {
     const mine = ++clicks.current;
     click({ id: place.id, from: onScreen });
     const done = () => { if (mine === clicks.current) click(null); };
-    track("rail_place_opened", { kind: place.kind });
     void Promise.resolve(bridge?.open?.(place.id)).then((said) => {
       done();
       if (!said) return;
@@ -452,7 +450,7 @@ export function PlacesRail({ chrome = false }: { chrome?: boolean }) {
   const noDrag = draggable ? ({ WebkitAppRegion: "no-drag" } as CSSProperties) : undefined;
   const places = markingClicked(state.places, clicked?.id ?? null);
   const shown = shownPlaces(places);
-  const canPair = state.add.link || state.add.address, canAdd = state.add.cloud || canPair || state.add.organization === true || state.add.account === true || state.add.local === true;
+  const canPair = state.add.link || state.add.address, canAdd = canPair || state.add.organization === true || state.add.account === true || state.add.local === true;
   const addLabel = t(state.add.local ? "rail.addAny" : "rail.add");
   // The menu opens next to the tile or row it was asked from (measured now, while that row is there), within the rail.
   const openMenu = ({ place, from }: MenuAt) => {
@@ -477,7 +475,7 @@ export function PlacesRail({ chrome = false }: { chrome?: boolean }) {
         <MoreHorizontal size={13} aria-hidden="true" />
       </button>}
       {more && <MorePlaces places={places} canPair={canPair} onOpen={open} onMenu={openMenu} onClose={() => setMore(false)} />}
-      {canAdd && <button type="button" aria-label={addLabel} title={addLabel} aria-haspopup="dialog" data-rail-add onClick={() => { track("rail_add", { step: "opened" }); setAdding(true); }}
+      {canAdd && <button type="button" aria-label={addLabel} title={addLabel} aria-haspopup="dialog" data-rail-add onClick={() => {  setAdding(true); }}
         className="grid size-6 place-items-center rounded-[8px] border border-dashed border-ink/25 text-ink-secondary hover:border-ink/40 hover:bg-ink/[0.04] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
         <Plus size={13} aria-hidden="true" />
       </button>}
@@ -486,7 +484,7 @@ export function PlacesRail({ chrome = false }: { chrome?: boolean }) {
     {menu && <div ref={menuRef} style={noDrag}>
       <PlaceMenu key={menu.place.id} place={state.places.find((entry) => entry.id === menu.place.id) ?? menu.place} top={menu.top} onClose={() => setMenu(null)} />
     </div>}
-    {adding && <PlaceAddSheet choices={state.add} places={state.places} onClose={() => setAdding(false)} onAccount={() => { setAdding(false); setAccounts({ adding: "", note: null }); }} />}
+    {adding && <PlaceAddSheet choices={state.add} places={state.places} onClose={() => setAdding(false)} />}
     {accounts && <AccountsSheet adding={accounts.adding} note={accounts.note} onClose={() => setAccounts(null)} />}
     {connecting !== null && <PlaceAddSheet choices={state.add} connect={{ name: connecting }} onClose={() => setConnecting(null)} />}
     {veil && <div role="status" data-rail-veil style={drag} className="absolute inset-y-0 left-full z-40 flex w-[calc(100vw-2.25rem)] flex-col items-center justify-center gap-3 bg-panel text-[13px] text-ink-secondary">

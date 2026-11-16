@@ -51,7 +51,7 @@ export function createStarterCaps(deps: {
         if (deps.awake.isPaused(botId)) {
           const name = deps.botName(botId) ?? "That bot";
           return refuse("paused", `@${name} is paused: this Cloud's Starter plan keeps ${deps.awake.limit()} bots awake, so nothing was handed to it. `
-            + "Tell the person in one line: they can swap which bots are awake, or upgrade this Cloud to wake them all. Do not retry, and do not hand this to another bot to work around it.");
+            + "Tell the person in one line: they can swap which bots are awake. Do not retry, and do not hand this to another bot to work around it.");
         }
         if (open() < STARTER_RUNNING_TURNS + STARTER_WAITING_HANDOFFS) return null;
         return refuse("tasks", `This Cloud's Starter plan runs ${STARTER_RUNNING_TURNS} tasks at once and holds ${STARTER_WAITING_HANDOFFS} more waiting, and that is full, so nothing was handed out. `
@@ -62,7 +62,7 @@ export function createStarterCaps(deps: {
     createdPaused(botId) {
       if (!deps.starter() || !deps.awake.isPaused(botId)) return null;
       return `@${deps.botName(botId) ?? "The new bot"} was created, and is paused: this Cloud's Starter plan keeps ${deps.awake.limit()} bots awake, so it takes no work yet. `
-        + "Tell the person in one line: they can choose which bots stay awake, or upgrade this Cloud to wake them all. Do not hand it work until then.";
+        + "Tell the person in one line: they can choose which bots stay awake. Do not hand it work until then.";
     },
     pausedText(botId, language) {
       return deps.starter() && deps.awake.isPaused(botId) ? deps.pausedLine(language, deps.awake.limit() ?? 0) : null;

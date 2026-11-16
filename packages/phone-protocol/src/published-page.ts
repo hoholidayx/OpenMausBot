@@ -2,7 +2,7 @@
  * says the same in words, with the link, for every client that does not draw the card. */
 export interface PublishedPageCard {
   /** live: the link works, or may work when `uncertain` is true. unpublished: its owner took it down. limit: the plan's
-   * pages are used up, so nothing was published; `message` says so and `upgrade` offers a bigger plan. */
+   * pages are used up, so nothing was published; `message` explains the limit. */
   state: "live" | "unpublished" | "limit";
   /** The upload's answer was lost. The page may be live and can still be unpublished. */
   uncertain?: boolean;
@@ -12,7 +12,6 @@ export interface PublishedPageCard {
   /** This account's pages and its plan's limit after this publish, as "3 of 5 pages". */
   usage?: { pages: number; limit: number };
   message?: string;
-  upgrade?: boolean;
   /** limit cards: "free" (signed in, no Cloud) or the Cloud plan's tier. */
   plan?: string;
 }

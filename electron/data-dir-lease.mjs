@@ -566,8 +566,7 @@ export function acquireDataDirLease(dataDir, options = {}) {
 }
 
 /**
- * For a data directory only one machine or container uses at a time (a Cloud home's volume, which its launcher holds
- * locked: server/cloud-home-start.ts), where a record another one wrote can never belong to a live process: removes every
+ * For a data directory only one machine or container uses at a time, where a record another one wrote can never belong to a live process: removes every
  * lease, delegated-child lease and recovery record held by another machine or container and returns their holders.
  * Records from this one are left as they are: acquireDataDirLease() refuses a live one and recovers a dead one. Never
  * for a folder several computers share.

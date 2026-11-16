@@ -22,7 +22,7 @@ export type SendOutcome =
 
 /** OMB_BUG_REPORT_URL (an https address, or http on this machine's loopback, for fixtures), else a Cloud home's own
  * Admin origin, else the staging or production Cloud. */
-export function bugReportEndpoint(env: NodeJS.ProcessEnv, cloudOrigin?: string | null): string {
+export function bugReportEndpoint(env: NodeJS.ProcessEnv, _cloudOrigin?: string | null): string | null {
   const explicit = env.OMB_BUG_REPORT_URL?.trim();
   if (explicit) {
     try {
@@ -31,8 +31,7 @@ export function bugReportEndpoint(env: NodeJS.ProcessEnv, cloudOrigin?: string |
       if ((url.protocol === "https:" || loopback) && !url.username && !url.password) return url.href;
     } catch { /* not an address: the default below */ }
   }
-  const origin = cloudOrigin ?? (env.OMB_CLOUD_STAGING === "1" ? STAGING_CLOUD_ORIGIN : PRODUCTION_CLOUD_ORIGIN);
-  return `${origin.replace(/\/+$/, "")}${BUG_REPORT_PATH}`;
+  return null;
 }
 
 async function boundedJson(response: Response): Promise<Record<string, unknown>> {
@@ -72,7 +71,8 @@ async function post(endpoint: string, payload: DevsReportPayload, fetcher: typeo
   }
 }
 
-export const devsReportSender = (endpoint: string, fetcher: typeof fetch = fetch) => (payload: DevsReportPayload) => sendDevsReport(endpoint, payload, fetcher);
+export const devsReportSender = (endpoint: string | null, fetcher: typeof fetch = fetch) => (payload: DevsReportPayload): Promise<SendOutcome> => endpoint
+  ? sendDevsReport(endpoint, payload, fetcher) : Promise.resolve({ ok: false, retry: false, why: "refused", detail: "No report endpoint is configured on this server." });
 
 export async function sendDevsReport(endpoint: string, payload: DevsReportPayload, fetcher: typeof fetch = fetch): Promise<SendOutcome> {
   let answer = await post(endpoint, payload, fetcher);
@@ -137,5 +137,5 @@ export async function askReportStatus(endpoint: string, question: ReportStatusQu
   }
 }
 
-export const devsStatusAsker = (reportEndpoint: string, home: ReportStatusHome | null, fetcher: typeof fetch = fetch) =>
-  (question: ReportStatusQuestion) => askReportStatus(bugReportStatusEndpoint(reportEndpoint), question, home, fetcher);
+export const devsStatusAsker = (reportEndpoint: string | null, home: ReportStatusHome | null, fetcher: typeof fetch = fetch) =>
+  (question: ReportStatusQuestion) => reportEndpoint ? askReportStatus(bugReportStatusEndpoint(reportEndpoint), question, home, fetcher) : Promise.resolve(null);

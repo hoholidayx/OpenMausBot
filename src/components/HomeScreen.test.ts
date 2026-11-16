@@ -19,7 +19,7 @@ it("names a team's Cloud on every screen that waits on it, and keeps My Cloud's 
     const told = homeScreenText({ screen: "plan", machine, name: "Acme", member: true });
     expect(told, "a team's User asks its owner, and has nothing to press").toMatchObject({ title: "Acme isn't running", body: "Ask its owner to start it again. Its files are kept for a while.", action: null });
   }
-  expect(homeScreenText({ screen: "plan", machine: "stopped", name: "Acme" }).body, "whoever pays is told how").toContain("Subscribe again on your Plan page");
+  expect(homeScreenText({ screen: "plan", machine: "stopped", name: "Acme" }).body).toContain("Its files are kept for a while");
   expect(homeScreenText({ screen: "plan", machine: "payment-problem", name: "Acme" }).action).toBe("manage");
   expect(homeScreenText({ screen: "plan", machine: "failed", name: "Acme", member: true }).body, "a failed machine isn't anyone's plan").not.toContain("owner");
   expect(homeScreenText({ screen: "waking", name: "Acme" }).title, "only My Cloud is woken").toBe("Waking My Cloud…");
@@ -49,13 +49,13 @@ it("says why My Cloud can't be reached in the app's language, and keeps the Admi
 it("a Cloud that isn't running says what it is in plain words with its one action; one that doesn't answer says Try again, with no endless spinner", () => {
   const now = new Date(2026, 9, 30, 12).getTime(), day = new Date(2026, 10, 1, 9).getTime();
   expect(homeScreenText({ screen: "ended", name: "My Cloud", deleteAt: day }, now))
-    .toEqual({ title: "My Cloud has ended.", body: "Its files are deleted on November 1.", reason: null, action: "buy", busy: false });
+    .toEqual({ title: "My Cloud has ended.", body: "Its files are deleted on November 1.", reason: null, action: null, busy: false });
   expect(homeScreenText({ screen: "ended" }).title).toBe("This Cloud has ended.");
   expect(homeScreenText({ screen: "ended", name: "Old" }).body, "its files' day only when the Admin names it").toBeNull();
-  expect(homeScreenText({ screen: "checkout", name: "Client B" })).toEqual({ title: "The checkout for Client B wasn't finished.", body: null, reason: null, action: "continue", busy: false });
+  expect(homeScreenText({ screen: "checkout", name: "Client B" })).toEqual({ title: "The checkout for Client B wasn't finished.", body: null, reason: null, action: null, busy: false });
   expect(homeScreenText({ screen: "checkout" }).title).toBe("This checkout wasn't finished.");
   expect(homeScreenText({ screen: "payment", name: "Client B" }))
-    .toEqual({ title: "The payment for Client B didn't go through.", body: "Update your card to keep using it.", reason: null, action: "card", busy: false });
+    .toEqual({ title: "The payment for Client B didn't go through.", body: "Update your card to keep using it.", reason: null, action: "manage", busy: false });
   expect(homeScreenText({ screen: "offline", name: "Acme" })).toMatchObject({ title: "Can't reach Acme right now.", action: "retry", busy: false });
   expect(homeScreenText({ screen: "offline" })).toMatchObject({ title: "Can't reach My Cloud right now.", action: "retry", busy: false });
   expect(homeDay(new Date(2027, 0, 5).getTime(), now), "another year is named").toBe("January 5, 2027");

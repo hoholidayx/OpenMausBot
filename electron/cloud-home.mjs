@@ -105,18 +105,13 @@ export function parseCloudPurchase(input) {
 export const CLOUD_TRIAL_STATES = Object.freeze(["active", "ending", "processing", "late", "ended"]);
 const TRIAL_KEEP = Object.freeze(["none", "portal", "checkout"]);
 const at = value => moment(value) ? value : null;
-const PLAN_TIERS = Object.freeze(["starter", "personal", "pro", "max"]);
 /** Wording only, never an entitlement. Amounts are US cents before tax. */
 export function parseCloudTrial(input) {
   if (!record(input) || !CLOUD_TRIAL_STATES.includes(input.state) || !moment(input.endsAt) || !TRIAL_KEEP.includes(input.keep)) return null;
   const tier = typeof input.tier === "string" && TIER.test(input.tier) ? input.tier : null;
   const cents = value => Number.isSafeInteger(value) && value >= 0 && value <= 10_000_000 ? value : null;
-  const amount = cents(input.amount), personal = cents(input.personalAmount);
-  const switchTo = record(input.switchTo) && PLAN_TIERS.includes(input.switchTo.tier) && cents(input.switchTo.amount)
-    ? { tier: input.switchTo.tier, amount: input.switchTo.amount } : null;
-  return { state: input.state, ...(tier ? { tier } : {}), endsAt: input.endsAt, amount,
-    chargeAt: at(input.chargeAt), holdUntil: at(input.holdUntil), deleteAt: at(input.deleteAt), keep: input.keep, ...(personal ? { personalAmount: personal } : {}),
-    ...(switchTo ? { switchTo } : {}) };
+  return { state: input.state, ...(tier ? { tier } : {}), endsAt: input.endsAt, amount: cents(input.amount),
+    chargeAt: at(input.chargeAt), holdUntil: at(input.holdUntil), deleteAt: at(input.deleteAt), keep: input.keep };
 }
 
 const dollars = value => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 10_000;
@@ -135,88 +130,20 @@ export function parseCloudUsage(input) {
   const meters = input.meters.slice(0, 20).flatMap(meter => record(meter) && CLOUD_USAGE_KINDS.includes(meter.kind) && amount(meter.used) && amount(meter.max) && meter.max > 0
     ? [{ kind: meter.kind, used: meter.used, max: meter.max, ...(meter.usedUp === true ? { usedUp: true } : {}) }] : []);
   const kinds = new Set(), unique = meters.filter(meter => !kinds.has(meter.kind) && kinds.add(meter.kind));
-  const upgrades = (Array.isArray(input.upgrades) ? input.upgrades.slice(0, 10) : []).flatMap(plan => record(plan) && PLAN_TIERS.includes(plan.tier) && plan.tier !== input.tier
-    && Number.isSafeInteger(plan.amount) && plan.amount >= 1 && plan.amount <= 10_000_000 ? [{ tier: plan.tier, amount: plan.amount }] : []);
-  return { tier: input.tier, resetsAt: input.resetsAt, ...(moment(input.trialEndsAt) ? { trialEndsAt: input.trialEndsAt } : {}), meters: unique, upgrades };
+  return { tier: input.tier, resetsAt: input.resetsAt, ...(moment(input.trialEndsAt) ? { trialEndsAt: input.trialEndsAt } : {}), meters: unique };
 }
 
 const ROOM_ID = /^[A-Za-z0-9-]{1,64}$/;
 const whole = (value, max) => Number.isSafeInteger(value) && value >= 0 && value <= max;
-/** The session's `cloud.room` (contract v1, additive): the Cloud this account pays for is short on room. Display only: the
- * plan it names is moved to through the usual upgrade, which main allows only for a plan `usage` lists. */
+/** The session's `cloud.room` (contract v1): resource pressure on the account's Cloud. */
 export function parseCloudRoom(input) {
   if (!record(input) || typeof input.id !== "string" || !ROOM_ID.test(input.id) || !record(input.cause)) return null;
   const { cause } = input;
   const memory = cause.kind === "memory" && whole(cause.waits, 1e6) && whole(cause.waitMinutes, 1e6) && whole(cause.stopped, 1e6);
   const disk = cause.kind === "disk" && amount(cause.usedGb) && whole(cause.capGb, 1e5) && cause.capGb > 0;
   if (!memory && !disk) return null;
-  const plan = input.plan, sizes = record(plan) && ["memoryMb", "fromMemoryMb", "diskGb", "fromDiskGb"].every(key => whole(plan[key], 1e7));
-  const offered = sizes && PLAN_TIERS.includes(plan.tier) && Number.isSafeInteger(plan.amount) && plan.amount >= 1 && plan.amount <= 10_000_000
-    ? { tier: plan.tier, amount: plan.amount, memoryMb: plan.memoryMb, fromMemoryMb: plan.fromMemoryMb, diskGb: plan.diskGb, fromDiskGb: plan.fromDiskGb } : null;
-  if (!offered && input.tip !== true) return null;
   return { id: input.id, cause: memory ? { kind: "memory", waits: cause.waits, waitMinutes: cause.waitMinutes, stopped: cause.stopped }
-    : { kind: "disk", usedGb: cause.usedGb, capGb: cause.capGb }, ...(offered ? { plan: offered } : { tip: true }) };
-}
-
-const days = (value, max) => Number.isSafeInteger(value) && value >= 1 && value <= max ? value : null;
-const count = value => Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000_000;
-// oxlint-disable-next-line no-control-regex
-const label = value => typeof value === "string" && value.trim().length > 0 && value.length <= 40 && !/[\x00-\x1f\x7f<>]/.test(value) ? value.trim() : null;
-function planAllowances(input) {
-  if (!record(input) || !["cpus", "memoryMb", "diskGb", "maxDiskGb", "computers", "computerHours", "voiceCharacters"].every(key => count(input[key]))) return null;
-  return { cpus: input.cpus, ...(["shared", "performance"].includes(input.cpuKind) ? { cpuKind: input.cpuKind } : {}), memoryMb: input.memoryMb, diskGb: input.diskGb, maxDiskGb: Math.max(input.maxDiskGb, input.diskGb),
-    computers: input.computers, computerHours: input.computerHours, voiceCharacters: input.voiceCharacters, ...(input.sleeps === true ? { sleeps: true } : {}),
-    ...(count(input.swapMb) && input.swapMb > 0 ? { swapMb: input.swapMb } : {}), ...(days(input.snapshotDays, 365) ? { snapshotDays: input.snapshotDays } : {}),
-    ...(days(input.seats, 1_000) ? { seats: input.seats } : {}) };
-}
-/** Monthly price before tax in US cents; a plan without one is not sold here. */
-function offerPlan(input) {
-  if (!record(input) || typeof input.tier !== "string" || !TIER.test(input.tier) || !record(input.price)) return null;
-  const { price } = input;
-  if (price.currency !== "USD" || price.interval !== "month" || !Number.isSafeInteger(price.amount) || price.amount < 1 || price.amount > 10_000_000) return null;
-  const allowances = planAllowances(input.allowances), trial = days(input.trialDays, 30);
-  return { tier: input.tier, ...(label(input.label) ? { label: label(input.label) } : {}), amount: price.amount,
-    ...(allowances ? { allowances } : {}), ...(trial ? { trialDays: trial } : {}) };
-}
-/** An Admin older than this app may still list these; their subscribers keep them, but nobody new buys them here. */
-const NOT_SOLD = Object.freeze(["personal"]);
-function offerPlans(input, allDays) {
-  const plans = [];
-  for (const entry of Array.isArray(input) ? input.slice(0, 10) : []) {
-    const plan = offerPlan(entry);
-    if (plan && !NOT_SOLD.includes(plan.tier) && !plans.some(known => known.tier === plan.tier)) plans.push(plan);
-  }
-  if (allDays && !plans.some(plan => plan.trialDays)) return plans.map(plan => ({ ...plan, trialDays: allDays }));
-  return plans;
-}
-function offerOf(plans, { recommended, creditUsd, reminderDays, refundDays }) {
-  if (!plans.length) return null;
-  const trial = plans.some(plan => plan.trialDays);
-  const preselected = plans.find(plan => plan.tier === recommended) ?? plans.find(plan => plan.tier === "pro") ?? plans[0];
-  const credit = trial && typeof creditUsd === "number" && Number.isFinite(creditUsd) && creditUsd > 0 && creditUsd <= 100 ? creditUsd : null;
-  const reminder = trial ? days(reminderDays, 30) : null, refund = days(refundDays, 90);
-  return { plans, recommended: preselected.tier, ...(credit ? { creditUsd: credit } : {}), ...(reminder ? { reminderDays: reminder } : {}), ...(refund ? { refundDays: refund } : {}) };
-}
-
-export function parseCloudOffer(input) {
-  if (!record(input)) return null;
-  const offer = offerOf(offerPlans(input.plans, days(input.trialDays, 30)), input);
-  if (!offer) return null;
-  const open = record(input.checkout) && offer.plans.some(plan => plan.tier === input.checkout.plan) && moment(input.checkout.openUntil)
-    ? { plan: input.checkout.plan, openUntil: input.checkout.openUntil } : null;
-  return { ...offer, ...(open ? { checkout: open } : {}) };
-}
-
-export function parsePublicOffer(config) {
-  if (!record(config)) return null;
-  const trial = record(config.trial) ? config.trial : {};
-  return offerOf(offerPlans(config.plans, days(trial.days, 30)), { creditUsd: trial.creditUsd, reminderDays: trial.reminderDays, refundDays: config.refundDays });
-}
-
-export function withoutTrial(offer) {
-  if (!offer) return null;
-  const { creditUsd: _credit, reminderDays: _reminder, checkout: _checkout, ...rest } = offer;
-  return { ...rest, plans: offer.plans.map(({ trialDays: _days, ...plan }) => plan) };
+    : { kind: "disk", usedGb: cause.usedGb, capGb: cause.capGb } };
 }
 
 const LARGEST_TIER = "max";

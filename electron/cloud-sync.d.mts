@@ -48,7 +48,6 @@ export interface CloudFilesBridge {
   setOutputs(enabled: boolean): Promise<CloudFilesState>;
   open(target: { folderId: string } | { outputs: true }): Promise<void>;
   /** Opens where the person gets more space for My Cloud. */
-  moreSpace(): Promise<void>;
 }
 export declare function createCloudFilesService(options: Record<string, unknown>): {
   start(): void;

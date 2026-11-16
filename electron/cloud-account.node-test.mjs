@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import nativeText from "./native-text.cjs";
 import { accessToken, fixture, until } from "./fixtures/cloud-account.mjs";
-import { cancelSurvey, CHECKOUT_SOURCES, checkoutDestination, cloudMenuSublabel, createCloudAccountStore, cloudOrigin, cloudPlanSnapshot, CLOUD_ORIGIN } from "./cloud-account.mjs";
+import { cancelSurvey, cloudMenuSublabel, createCloudAccountStore, cloudOrigin, cloudPlanSnapshot, CLOUD_ORIGIN } from "./cloud-account.mjs";
 
 
 test("Cloud origin is fixed; only explicit fixtures can use loopback", () => {
@@ -28,7 +28,7 @@ test("fresh startup stays local with no enrollment, browser, or network; explici
   assert.equal(f.requests.find(row => row.route.endsWith("/session")).token, `Bearer ${accessToken}`);
 });
 
-test("checkout/browser return cannot activate Pro; only refreshed server state can, and revocation removes it", async t => {
+test("a browser return cannot activate Pro; only refreshed server state can, and revocation removes it", async t => {
   const f = await fixture(t); await f.connect();
   await f.client.openDashboard("https://attacker.example.test?paid=true");
   assert.equal(f.browsers.at(-1), `${f.origin}/cloud`); assert.equal(f.client.state().entitlement.plan, "free");
@@ -160,194 +160,18 @@ test("a free trial and its AI credit come with a verified session, for display o
   assert.deepEqual(cloudPlanSnapshot({ status: "connected", entitlement: { plan: "free", status: "inactive", expiresAt: null, version: 1 } }, { notice: "ended" }), { status: "none" });
 });
 
-const plans = () => [
-  { tier: "starter", label: "Starter", price: { currency: "USD", amount: 1500, interval: "month" }, allowances: null },
-  { tier: "pro", label: "Pro", price: { currency: "USD", amount: 4900, interval: "month" }, allowances: null },
-];
-test("what this person may buy: the session's own offer when signed in, else the public plans, read with no sign-in or cookie at most every 10 minutes", async t => {
-  const f = await fixture(t);
-  const asked = () => f.requests.filter(row => row.route === "/api/public/config");
-  assert.equal(await f.client.offer(), null); assert.equal(asked().length, 1);
-  assert.equal(await f.client.offer(), null); assert.equal(asked().length, 1, "a failed ask counts for 30 seconds");
-  f.now += 30_000; f.publicConfig = { status: 200, body: { name: "OpenMausBot", surface: "cloud", plans: plans(), trial: { days: 7, holdDays: 3, creditUsd: 5 }, refundDays: 14 } };
-  const [first, second] = await Promise.all([f.client.offer(), f.client.offer()]);
-  assert.deepEqual(first.plans.map(plan => [plan.tier, plan.amount, plan.trialDays]), [["starter", 1500, 7], ["pro", 4900, 7]]);
-  assert.deepEqual([first.recommended, first.creditUsd, first.refundDays], ["pro", 5, 14]);
-  assert.deepEqual(second, first); assert.equal(asked().length, 2, "one ask at a time");
-  f.now += 9 * 60_000; await f.client.offer(); assert.equal(asked().length, 2, "an answer counts for 10 minutes");
-  assert.ok(asked().every(row => row.token === undefined && row.cookie === undefined && row.method === "GET" && row.version === undefined));
-  for (const publicConfig of [{ status: 200, body: { plans: "pro" } }, { status: 503, body: { error: "down" } }, { status: 403, body: "<!doctype html>Just a moment" }]) {
-    f.now += 10 * 60_000; f.publicConfig = publicConfig;
-    assert.equal(await f.client.offer(), null, JSON.stringify(publicConfig));
-  }
-  assert.equal(f.client.state().status, "signed-out"); assert.deepEqual(f.browsers, []);
-  f.now += 10 * 60_000; f.publicConfig = { status: 200, body: { plans: plans(), trial: { days: 7 }, refundDays: 14 } };
-  f.offer = { plans: plans(), recommended: "pro", refundDays: 14 };
-  await f.connect();
-  const session = await f.client.offer();
-  assert.deepEqual(session.plans.map(plan => plan.trialDays ?? null), [null, null], "this account's own: no trial, whatever the public config says");
-  assert.deepEqual(f.client.state().offer, session);
-  f.offer = undefined; await f.client.refresh();
-  assert.equal(f.client.state().offer, undefined);
-  const fallback = await f.client.offer();
-  assert.deepEqual(fallback.plans.map(plan => plan.trialDays ?? null), [null, null]); assert.equal(fallback.refundDays, 14);
-});
 
-test("Dodo's own checkout page is the only checkout address ever opened", () => {
-  assert.equal(checkoutDestination("https://checkout.dodopayments.com/session/cks_123?x=1"), "https://checkout.dodopayments.com/session/cks_123?x=1");
-  for (const url of ["https://test.checkout.dodopayments.com/session/cks_123", "http://checkout.dodopayments.com/session/1", "https://checkout.dodopayments.com.evil.test/session/1",
-    "https://user:pw@checkout.dodopayments.com/session/1", "https://checkout.dodopayments.com/session/1#x", "https://checkout.dodopayments.com/session/1#",
-    "javascript:alert(1)", "file:///etc/passwd", "openmausbot://cloud", "https://evil.example.test/", "", 42, null, `https://checkout.dodopayments.com/${"x".repeat(2100)}`]) {
-    assert.equal(checkoutDestination(url), null, String(url));
-  }
-  assert.equal(checkoutDestination("https://test.checkout.dodopayments.com/session/cks_123", { fixture: true }), "https://test.checkout.dodopayments.com/session/cks_123");
-  assert.deepEqual([...CHECKOUT_SOURCES], ["app_card", "app_howto", "app_menu", "app_settings", "app_routines", "app_pages", "app_whats_new_pro", "app_whats_new_team", "app_onboarding"]);
-});
 
-test("signed in, a checkout is the Admin's for this account, opened in the browser only when it is Dodo's; then the session is asked every 3 seconds for 30 minutes", async t => {
-  const f = await fixture(t); await f.connect(); f.browsers = [];
-  const DODO = "https://test.checkout.dodopayments.com/session/cks_fixture";
-  f.checkout = { status: 200, body: { cloudContractVersion: 1, url: DODO } };
-  await assert.rejects(f.client.checkout("pro", "app_website"), /Invalid Cloud checkout/);
-  await assert.rejects(f.client.checkout("Pro <b>", "app_menu"), /Invalid Cloud checkout/);
-  assert.ok(!f.requests.some(row => row.route.endsWith("/checkout")), "nothing is asked for a refused plan or source");
-  const result = await f.client.checkout("pro", "app_menu");
-  assert.equal(result.outcome, "opened"); assert.deepEqual(f.browsers, [DODO]);
-  const request = f.requests.findLast(row => row.route === "/api/cloud/desktop/checkout");
-  assert.deepEqual(JSON.parse(request.body), { plan: "pro", source: "app_menu" });
-  assert.equal(request.token, `Bearer ${accessToken}`); assert.equal(request.version, "0.1.fixture");
-  assert.deepEqual(result.state.checkout, { plan: "pro", startedAt: f.now, link: true }, "main keeps the page; the state only says so");
-  assert.ok(!JSON.stringify(f.states).includes("cks_fixture"), "the checkout page never reaches a published state");
-  assert.equal(f.client.checkoutLink(), DODO);
-  assert.equal(f.client.checkoutPending(), true); assert.equal(f.delay, 3_000);
-  f.tick(); await until(() => f.delay !== null && f.requests.filter(row => row.route === "/api/cloud/desktop/session").length >= 2);
-  assert.equal(f.delay, 3_000, "still free: asked again in 3 seconds");
-  const asked = f.requests.filter(row => row.route === "/api/cloud/desktop/checkout").length;
-  for (let i = 0; i < 12; i++) assert.equal((await f.client.reopenCheckout()).outcome, "opened");
-  assert.equal(f.requests.filter(row => row.route === "/api/cloud/desktop/checkout").length, asked, "Reopen checkout never asks the Admin for another");
-  assert.deepEqual(f.browsers, Array(13).fill(DODO), "the same page each time");
-  f.now += 30 * 60_000; assert.equal(f.client.checkoutPending(), false);
-  await f.client.refresh(); assert.equal(f.delay, 60_000);
-  assert.deepEqual(f.client.state().checkout, { plan: "pro", startedAt: f.now - 30 * 60_000, link: true });
-  await f.client.reopenCheckout(); assert.equal(f.browsers.at(-1), DODO);
-  assert.equal(f.client.checkoutPending(), true, "reopened after 30 minutes: watched again"); assert.equal(f.delay, 3_000);
-  f.entitlement = { plan: "pro", tier: "pro", status: "active", expiresAt: f.now + 3 * 86400_000, version: 1 };
-  f.cloud = { state: "setting_up", setup: { step: "storage" } };
-  await f.client.refresh(); assert.equal(f.delay, 3_000, "paid and setting up, still watched: every 3 seconds");
-  f.cloud = { state: "ready", origin: "https://home-7f3k2.fly.dev" };
-  await f.client.refresh(); assert.equal(f.delay, 60_000, "ready: back to every minute");
-  f.entitlement = { plan: "free", status: "inactive", expiresAt: null, version: 2 }; f.cloud = undefined; await f.client.refresh();
-  for (const url of ["https://evil.example.test/pay", "https://user:pw@test.checkout.dodopayments.com/s", `${DODO}#token`]) {
-    f.checkout = { status: 200, body: { cloudContractVersion: 1, url } }; f.browsers = [];
-    assert.equal((await f.client.checkout("pro", "app_menu")).outcome, "failed", url); assert.deepEqual(f.browsers, []);
-  }
-  f.checkout = { status: 200, body: { url: DODO } };
-  assert.equal((await f.client.checkout("pro", "app_menu")).outcome, "failed", "no contract version");
-  f.checkout = { status: 409, body: { error: "already_subscribed" } }; const sessions = f.requests.filter(row => row.route === "/api/cloud/desktop/session").length;
-  assert.equal((await f.client.checkout("pro", "app_menu")).outcome, "conflict");
-  assert.equal(f.requests.filter(row => row.route === "/api/cloud/desktop/session").length, sessions + 1);
-  f.checkout = { status: 429, body: { error: "rate_limited", interval: 600 } };
-  assert.equal((await f.client.checkout("pro", "app_menu")).outcome, "rate-limited");
-  for (const status of [502, 503]) { f.checkout = { status, body: { error: "unavailable" } }; assert.equal((await f.client.checkout("pro", "app_menu")).outcome, "failed"); }
-  f.checkout = { status: 409, body: "<!doctype html>Conflict page" };
-  assert.equal((await f.client.checkout("pro", "app_menu")).outcome, "failed", "a page from in between is not the Admin's 409");
-  assert.deepEqual(f.browsers, []);
-  f.checkout = { status: 404, body: "<!doctype html>not here" };
-  assert.equal((await f.client.checkout("max", "app_card")).outcome, "opened");
-  assert.deepEqual(f.browsers, [`${f.origin}/cloud?checkout=start&plan=max&src=app_card`]);
-  f.now += 24 * 3600_000; assert.equal(f.client.state().checkout, undefined); assert.equal(f.client.checkoutLink(), null);
-});
 
-test("the purchase is over once its Cloud was opened, announced or shown ready: the checkout says done, once", async t => {
-  const f = await fixture(t); await f.connect();
-  f.checkout = { status: 200, body: { cloudContractVersion: 1, url: "https://test.checkout.dodopayments.com/session/cks_done" } };
-  await f.client.checkout("pro", "app_menu");
-  const published = f.states.length;
-  f.client.checkoutDone();
-  assert.deepEqual(f.client.state().checkout, { plan: "pro", startedAt: f.now, link: true, done: true });
-  assert.equal(f.states.length, published + 1, "the page hears it");
-  f.client.checkoutDone(); assert.equal(f.states.length, published + 1, "once");
-  const none = await fixture(t); none.client.checkoutDone(); assert.equal(none.client.state().checkout, undefined, "nothing to end");
-});
 
-test("after a restart mid-checkout, the checkout the Admin still holds is watched from first sight like this app's own", async t => {
-  const f = await fixture(t); await f.connect();
-  f.offer = { plans: plans(), recommended: "pro", trialDays: 7, checkout: { plan: "starter", openUntil: f.now + 3600_000 } };
-  const seen = await f.client.refresh();
-  assert.deepEqual(seen.checkout, { plan: "starter", startedAt: f.now }, "no page is kept: no link");
-  assert.equal(f.client.checkoutPending(), true, "watched: focus reads the session at once");
-  assert.equal(f.delay, 3_000, "every 3 seconds");
-  f.now += 10 * 60_000; await f.client.refresh();
-  assert.equal(f.client.state().checkout.startedAt, f.now - 10 * 60_000, "first sight, not every sight");
-  f.now += 20 * 60_000; await f.client.refresh();
-  assert.equal(f.client.checkoutPending(), false, "30 minutes at most"); assert.equal(f.delay, 60_000);
-  f.browsers = []; const DODO = "https://test.checkout.dodopayments.com/session/cks_held";
-  f.checkout = { status: 200, body: { cloudContractVersion: 1, url: DODO } };
-  assert.equal((await f.client.reopenCheckout("pro", "app_card")).outcome, "opened");
-  assert.deepEqual(JSON.parse(f.requests.findLast(row => row.route === "/api/cloud/desktop/checkout").body), { plan: "starter", source: "app_card" },
-    "the plan the Admin holds, under the page's source");
-  assert.deepEqual(f.browsers, [DODO]);
-  const paid = await fixture(t); await paid.connect();
-  paid.entitlement = { plan: "pro", tier: "pro", status: "active", expiresAt: paid.now + 86400_000, version: 1 };
-  paid.offer = { plans: plans(), recommended: "pro", checkout: { plan: "pro", openUntil: paid.now + 3600_000 } };
-  assert.equal((await paid.client.refresh()).checkout, undefined, "nothing to watch once paid");
-});
 
-test("Reopen checkout with no page kept (the browser sign-in led to checkout) asks the Admin once, then keeps its page", async t => {
-  const f = await fixture(t);
-  const DODO = "https://test.checkout.dodopayments.com/session/cks_reopened";
-  f.checkout = { status: 200, body: { cloudContractVersion: 1, url: DODO } }; f.offer = { plans: plans(), recommended: "pro", trialDays: 7 };
-  await f.client.checkout("pro", "app_card");
-  f.approved = true; f.tick(); await until(() => f.client.state().status === "connected");
-  assert.equal(f.client.checkoutLink(), null); assert.equal(f.client.state().checkout.link, undefined);
-  f.browsers = [];
-  assert.equal((await f.client.reopenCheckout("max", "app_menu")).outcome, "opened");
-  assert.deepEqual(JSON.parse(f.requests.findLast(row => row.route === "/api/cloud/desktop/checkout").body), { plan: "pro", source: "app_card" }, "the plan chosen here, not the page's word");
-  await f.client.reopenCheckout("max", "app_menu");
-  assert.equal(f.requests.filter(row => row.route === "/api/cloud/desktop/checkout").length, 1);
-  assert.deepEqual(f.browsers, [DODO, DODO]);
-});
 
-test("signed out, a checkout is a sign-in first: the verified link only gains the intent, and a failed sign-in forgets it", async t => {
-  const f = await fixture(t);
-  f.offer = { plans: plans(), recommended: "pro", trialDays: 7 };
-  const result = await f.client.checkout("pro", "app_card");
-  assert.equal(result.outcome, "signing-in"); assert.equal(result.state.status, "connecting");
-  assert.deepEqual(f.browsers, [`${f.origin}/cloud/desktop?code=ABCDE-FGHJK&next=checkout&plan=pro&src=app_card`]);
-  assert.deepEqual(result.state.checkout, { plan: "pro", startedAt: f.now, signIn: true });
-  assert.ok(!f.requests.some(row => row.route.endsWith("/checkout")), "no checkout before the sign-in");
-  await f.client.reopen(); assert.equal(f.browsers.at(-1), f.browsers[0]);
-  f.approved = true; f.tick(); await until(() => f.client.state().status === "connected");
-  assert.deepEqual(f.client.state().checkout, { plan: "pro", startedAt: result.state.checkout.startedAt, signIn: true });
-  assert.equal(f.browsers.length, 2, "nothing more is opened: the approved page leads to checkout");
-  assert.ok(!f.requests.some(row => row.route.endsWith("/checkout")));
-  await f.client.signOut(); assert.equal(f.client.state().checkout, undefined, "signing out forgets it");
-  const old = await fixture(t);
-  await old.client.checkout("max", "app_menu");
-  old.approved = true; old.tick(); await until(() => old.browsers.length === 2);
-  assert.deepEqual(old.browsers, [`${old.origin}/cloud/desktop?code=ABCDE-FGHJK&next=checkout&plan=max&src=app_menu`, `${old.origin}/cloud?checkout=start&plan=max&src=app_menu`]);
-  const payer = await fixture(t);
-  payer.entitlement = { plan: "pro", tier: "pro", status: "active", expiresAt: payer.now + 30 * 86400_000, version: 1 };
-  await payer.client.checkout("pro", "app_card");
-  payer.approved = true; payer.tick(); await until(() => payer.client.state().status === "connected");
-  assert.equal(payer.browsers.length, 1);
-  assert.equal(payer.client.state().checkout, undefined);
-  const bad = await fixture(t); bad.badUrl = true;
-  assert.equal((await bad.client.checkout("pro", "app_card")).state.status, "signed-out");
-  assert.deepEqual(bad.browsers, []); assert.equal(bad.client.state().checkout, undefined);
-});
 
-test("this app's version rides on every signed-in request, and interest is one POST for this account", async t => {
+test("this app's version rides on every signed-in request", async t => {
   const f = await fixture(t); await f.connect();
   assert.equal(JSON.parse(f.requests.find(row => row.route.endsWith("/authorize")).body).appVersion, "0.1.fixture");
   assert.ok(f.requests.filter(row => row.route.endsWith("/session")).every(row => row.version === "0.1.fixture"));
   assert.ok(f.requests.filter(row => !row.token).every(row => row.version === undefined), "never on a request without the sign-in");
-  await f.client.interest("another_cloud");
-  const interest = f.requests.find(row => row.route.endsWith("/interest"));
-  assert.deepEqual(JSON.parse(interest.body), { kind: "another_cloud" }); assert.equal(interest.token, `Bearer ${accessToken}`);
-  await assert.rejects(f.client.interest("something_else"), /Invalid Cloud interest/);
-  f.interest = { status: 503, body: { error: "unavailable" } };
-  await assert.rejects(f.client.interest("another_cloud"));
 });
 
 test("active Pro requires a future expiry and free+active is never accepted", async t => {
@@ -747,72 +571,18 @@ test("connecting before My Cloud is ready is refused in the app's language", asy
   await assert.rejects(translated.client.pairHome(), { message: "Ainda não é possível se conectar ao Cloud." });
 });
 
-test("usage meter: the session's usage reaches the state and the Cloud page's snapshot, checked; Upgrade sends a change only with this app's own preview", async t => {
+test("usage meter: the session's usage reaches the state and the Cloud page's snapshot, checked", async t => {
   const f = await fixture(t);
   f.entitlement = { plan: "pro", tier: "pro", status: "active", expiresAt: f.now + 30 * 86400_000, version: 1 };
-  const resetsAt = f.now + 7 * 86400_000, nextBillingAt = f.now + 20 * 86400_000;
+  const resetsAt = f.now + 7 * 86400_000;
   f.cloud = { state: "ready", origin: "https://cloud-home.example.test", pairingAvailable: true, usage: { tier: "pro", resetsAt,
     meters: [{ kind: "computerHours", used: 250, max: 300 }, { kind: "tokens", used: 1, max: 2 }, { kind: "voice", used: 5, max: 0 }, { kind: "x", used: 5_000, max: 5_000, usedUp: true }],
     upgrades: [{ tier: "max", amount: 9900 }, { tier: "gold", amount: 1 }, { tier: "pro", amount: 4900 }] } };
   await f.connect();
-  const usage = { tier: "pro", resetsAt, meters: [{ kind: "computerHours", used: 250, max: 300 }, { kind: "x", used: 5_000, max: 5_000, usedUp: true }], upgrades: [{ tier: "max", amount: 9900 }] };
+  const usage = { tier: "pro", resetsAt, meters: [{ kind: "computerHours", used: 250, max: 300 }, { kind: "x", used: 5_000, max: 5_000, usedUp: true }] };
   assert.deepEqual(f.client.state().usage, usage);
   assert.deepEqual(cloudPlanSnapshot(f.client.state()).usage, usage);
-  const upgrades = () => f.requests.filter(request => request.route === "/api/cloud/desktop/upgrade");
-  // Without this app's own preview, nothing is sent.
-  assert.deepEqual(await f.client.upgrade("max", "app_usage"), { outcome: "refused", code: "confirmation_required" });
-  assert.equal(upgrades().length, 0);
-  await assert.rejects(f.client.upgradePreview("gold", "app_usage"));
-  await assert.rejects(f.client.upgradePreview("max", "somewhere"));
-  // The preview: the Admin's numbers come back; its confirmation stays here.
-  const confirmation = "C".repeat(43), expiresAt = f.now + 600_000;
-  f.upgradePreview = { status: 200, body: { cloudContractVersion: 1, tier: "max", from: "pro", trial: false, price: 9900, chargeNow: 3300, tax: 0, currency: "USD", nextBillingAt, confirmation, expiresAt } };
-  const shown = await f.client.upgradePreview("max", "app_usage");
-  assert.deepEqual(shown, { outcome: "preview", preview: { plan: "max", from: "pro", trial: false, price: 9900, chargeNow: 3300, tax: 0, nextBillingAt, expiresAt } });
-  assert.ok(!JSON.stringify(shown).includes(confirmation) && !JSON.stringify(f.client.state()).includes(confirmation));
-  assert.deepEqual(JSON.parse(f.requests.findLast(request => request.route === "/api/cloud/desktop/upgrade/preview").body), { plan: "max", source: "app_usage" });
-  // The change carries it, once.
-  f.upgrade = { status: 200, body: { cloudContractVersion: 1, status: "upgraded", tier: "max", trial: false } };
-  assert.deepEqual(await f.client.upgrade("max", "app_usage"), { outcome: "upgraded", tier: "max" });
-  assert.deepEqual(upgrades().map(request => JSON.parse(request.body)), [{ plan: "max", confirmation, source: "app_usage" }]);
-  assert.deepEqual(await f.client.upgrade("max", "app_usage"), { outcome: "refused", code: "confirmation_required" });
-  assert.equal(upgrades().length, 1);
-  // A preview for another plan, or one ten minutes old, sends nothing either.
-  await f.client.upgradePreview("max", "app_usage");
-  assert.deepEqual(await f.client.upgrade("pro", "app_usage"), { outcome: "refused", code: "confirmation_required" });
-  await f.client.upgradePreview("max", "app_usage");
-  f.now += 600_001;
-  assert.deepEqual(await f.client.upgrade("max", "app_usage"), { outcome: "refused", code: "confirmation_required" });
-  assert.equal(upgrades().length, 1);
-  // The Admin's answers, in the app's words: a refusal by its code, Dodo still taking the payment, a declined card.
-  f.upgradePreview = { status: 409, body: { cloudContractVersion: 1, error: "price_changed", errorDescription: "The price changed." } };
-  assert.deepEqual(await f.client.upgradePreview("max", "app_settings"), { outcome: "refused", code: "price_changed" });
-  f.upgradePreview = { status: 202, body: { cloudContractVersion: 1, status: "pending", tier: "pro", trial: false } };
-  assert.deepEqual(await f.client.upgradePreview("max", "app_settings"), { outcome: "settled", status: "pending", tier: "pro" });
-  f.upgradePreview = { status: 200, body: { cloudContractVersion: 1, tier: "max", from: "pro", trial: false, price: 9900, chargeNow: 3300, tax: 0, currency: "USD", confirmation, expiresAt: f.now + 600_000 } };
-  await f.client.upgradePreview("max", "app_settings");
-  f.upgrade = { status: 402, body: { cloudContractVersion: 1, error: "payment_failed", errorDescription: "Your payment didn't go through." } };
-  assert.deepEqual(await f.client.upgrade("max", "app_settings"), { outcome: "refused", code: "payment_failed" });
-  // A gateway's own error page, or one that timed out, says nothing about the change: the session will.
-  for (const answer of [{ status: 502, body: "<!doctype html>Bad gateway" }, { status: 504, body: { error: "timeout" } }]) {
-    await f.client.upgradePreview("max", "app_settings");
-    f.upgrade = answer;
-    assert.deepEqual(await f.client.upgrade("max", "app_settings"), { outcome: "unconfirmed" });
-  }
-  // The Admin's own word that nothing changed is just that.
-  await f.client.upgradePreview("max", "app_settings");
-  f.upgrade = { status: 502, body: { cloudContractVersion: 1, error: "provider_error", errorDescription: "Nothing was changed." } };
-  assert.deepEqual(await f.client.upgrade("max", "app_settings"), { outcome: "failed" });
-  // An Admin that can't change plans from the app (off, or older): the Cloud page opens instead.
-  for (const answer of [{ status: 503, body: { cloudContractVersion: 1, error: "temporarily_unavailable", errorDescription: "Off." } }, { status: 404, body: { error: "not_found" } }]) {
-    f.upgradePreview = answer;
-    const opened = f.browsers.length;
-    assert.deepEqual(await f.client.upgradePreview("max", "app_usage"), { outcome: "browser" });
-    assert.deepEqual(f.browsers.slice(opened), [`${f.origin}/cloud`]);
-  }
-  // A preview that doesn't add up is never shown.
-  f.upgradePreview = { status: 200, body: { cloudContractVersion: 1, tier: "pro", trial: false, price: 9900, chargeNow: 3300, tax: 0, currency: "USD", confirmation, expiresAt: f.now + 600_000 } };
-  assert.deepEqual(await f.client.upgradePreview("max", "app_usage"), { outcome: "failed" });
+
 });
 
 test("usage meter: no usage without an active plan, and none from a malformed answer", async t => {

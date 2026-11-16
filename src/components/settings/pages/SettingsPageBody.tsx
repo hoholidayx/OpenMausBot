@@ -1,5 +1,5 @@
 import type { SettingsPageId } from "../settings-index";
-import { AccountPage, PlanPage } from "./AccountPages";
+import { AccountPage } from "./AccountPages";
 import { AppPage, AppearancePage, GeneralPage } from "./AppPages";
 import { DataPage, ImportExportPage, InstallationsPage, PeoplePage, SpendingPage, VaultPage } from "./DataPages";
 import { PhonePage } from "./PhonePage";
@@ -18,7 +18,7 @@ const PAGES: Record<SettingsPageId, () => React.ReactNode> = {
   people: PeoplePage,
   installations: InstallationsPage,
   account: AccountPage,
-  plan: PlanPage,
+  plan: AccountPage,
   app: AppPage,
   general: GeneralPage,
   appearance: AppearancePage,

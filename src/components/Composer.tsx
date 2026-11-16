@@ -1,4 +1,3 @@
-import { directMessageSent, roomMessageSent } from "@/lib/product-events";
 import { TeamAudienceLabel } from "./TeamSideSwitch";
 import { useComposerDictation } from "@/lib/use-composer-dictation";
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
@@ -586,7 +585,6 @@ export function Composer({
         ...(points ? { pointed: points.pointed } : {}),
         onError: () => { points?.restore(); restoreDraft(sentDraft); },
       });
-      roomMessageSent(effectiveChannelMode, busy);
     } else if (bot) {
       const points = effectiveChannelMode === "goal" ? null : takePointedChips(threadId);
       const page = effectiveChannelMode === "goal" ? undefined : openPageFor(threadId);
@@ -595,7 +593,6 @@ export function Composer({
         ...(points ? { pointed: points.pointed } : {}), ...(page ? { openPage: page } : {}), ...(followUp ? { followUp } : {}),
         onError: () => { points?.restore(); restoreDraft(sentDraft); },
       });
-      directMessageSent(state.instances, bot.modelSelection?.instanceId, busy && followUp !== "steer");
     }
     setText("");
     setAttachments([]); picks.clear();
@@ -758,7 +755,6 @@ export function Composer({
         <QueuedComposerMessages
           items={queuedMessages}
           oneThreadPerBot={state.config?.cloudStarter === true}
-          onSeePlans={() => dispatch({ type: "toggleAppSettings", open: true, section: "cloudAccount" })}
           onSteer={canSteerQueued ? steerQueued : undefined}
           steerInterrupts={!canSteer}
           steerMode={group ? "next" : "all"}

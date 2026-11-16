@@ -4,7 +4,6 @@ import {
   aiWorks,
   beatsFor,
   cloudSignInDue,
-  companyModelCount,
   completionPatch,
   EMPTY_ONBOARDING,
   firstRunPatch,
@@ -14,12 +13,7 @@ import {
   hintSeenPatch,
   LOCAL_VIEWER,
   MET_CHIEF_HINT,
-  onboardingCloudOffered,
-  ONBOARDING_CLOUD_HINT,
-  organisationSignIn,
   resumeBeat,
-  showWelcome,
-  welcomeOnScreen,
   welcomeAi,
   welcomeDue,
   welcomeViewer,
@@ -130,29 +124,6 @@ describe("first run on an OMB Cloud home", () => {
   });
 });
 
-describe("organisation sign-in in the engines beat", () => {
-  const bridge = { begin: () => {} };
-
-  it("is offered only by the packaged local desktop", () => {
-    expect(organisationSignIn({ organization: bridge }, { hosted: false })).toBe(bridge);
-    expect(organisationSignIn(undefined, { hosted: false })).toBeUndefined();
-    expect(organisationSignIn({}, { hosted: false })).toBeUndefined();
-    expect(organisationSignIn({ organization: bridge, remoteClient: { active: true } }, { hosted: false })).toBeUndefined();
-    expect(organisationSignIn({ organization: bridge }, { hosted: true })).toBeUndefined();
-    expect(organisationSignIn({ organization: bridge, remoteClient: { active: false } }, { hosted: false })).toBe(bridge);
-  });
-
-  it("counts the models the organisation approved", () => {
-    expect(companyModelCount(null)).toBe(0);
-    expect(companyModelCount({})).toBe(0);
-    expect(companyModelCount({ providers: [
-      { configured: true, models: ["a", "b"] },
-      { configured: false, models: ["c"] },
-      { configured: true, models: ["d"] },
-    ] })).toBe(3);
-  });
-});
-
 describe("connecting an AI in the welcome", () => {
   type Row = { id: string; driverKind: string; access?: string; readOnly?: boolean };
   const row = (id: string, driverKind: string, extra: Partial<Row> = {}): Row => ({ id, driverKind, ...extra });
@@ -231,7 +202,6 @@ describe("persistence patches", () => {
   it("marks a first run as the one that met the Chief, keeping every hint already seen", () => {
     const now = new Date("2026-10-27T12:00:00.000Z");
     expect(firstRunPatch(undefined, now)).toEqual({ onboarding: { completedAt: now.toISOString(), version: WELCOME_VERSION, hintsSeen: [MET_CHIEF_HINT] } });
-    expect(firstRunPatch({ ...EMPTY_ONBOARDING, hintsSeen: [ONBOARDING_CLOUD_HINT] }, now).onboarding.hintsSeen).toEqual([ONBOARDING_CLOUD_HINT, MET_CHIEF_HINT]);
     expect(firstRunPatch({ ...EMPTY_ONBOARDING, hintsSeen: [MET_CHIEF_HINT] }, now).onboarding, "already met").toEqual({ completedAt: now.toISOString(), version: WELCOME_VERSION });
     expect(completionPatch(now).onboarding, "a replay says nothing about a first chat").not.toHaveProperty("hintsSeen");
   });
@@ -255,26 +225,7 @@ describe("the first run's screens", () => {
   });
 });
 
-describe("the onboarding record's Cloud mark", () => {
-  it("still tells a later Cloud pitch that an earlier welcome offered the Cloud", () => {
-    expect(ONBOARDING_CLOUD_HINT).toBe("onboarding-cloud-v1");
-    expect(onboardingCloudOffered(undefined)).toBe(false);
-    expect(onboardingCloudOffered({ ...done, hintsSeen: ["tour-switcher"] })).toBe(false);
-    expect(onboardingCloudOffered({ ...done, hintsSeen: ["tour-switcher", ONBOARDING_CLOUD_HINT] })).toBe(true);
-  });
-});
 
-describe("welcomeOnScreen", () => {
-  it("knows while the welcome is on screen, however often it mounts and unmounts", () => {
-    expect(welcomeOnScreen()).toBe(false);
-    const first = showWelcome(), second = showWelcome();
-    expect(welcomeOnScreen()).toBe(true);
-    first(); first();
-    expect(welcomeOnScreen(), "a second hide of the same mount changes nothing").toBe(true);
-    second();
-    expect(welcomeOnScreen()).toBe(false);
-  });
-});
 
 describe("welcomeFinishedThisLaunch", () => {
   afterEach(() => vi.unstubAllGlobals());

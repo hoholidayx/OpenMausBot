@@ -88,18 +88,14 @@ jobs:
           set -euo pipefail
           digest_of() { docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -er .digest; }
           docker buildx imagetools inspect --raw "$IMAGE:v$VERSION" > "$RUNNER_TEMP/server-index.json"
-          docker buildx imagetools inspect --raw "$IMAGE-cloud-home:v$VERSION" > "$RUNNER_TEMP/home-index.json"
           node scripts/stable-channel.mjs check-image --index "$RUNNER_TEMP/server-index.json" --platforms linux/amd64,linux/arm64 --name "$IMAGE:v$VERSION"
-          node scripts/stable-channel.mjs check-image --index "$RUNNER_TEMP/home-index.json" --platforms linux/amd64 --name "$IMAGE-cloud-home:v$VERSION"
           echo "server=$IMAGE@$(digest_of "$IMAGE:v$VERSION")" >> "$GITHUB_OUTPUT"
-          echo "home=$IMAGE-cloud-home@$(digest_of "$IMAGE-cloud-home:v$VERSION")" >> "$GITHUB_OUTPUT"
 
       - name: Write the record, refusing to move stable back
         id: record
         env:
           VERSION: ${{ steps.release.outputs.version }}
           SERVER: ${{ steps.images.outputs.server }}
-          HOME_IMAGE: ${{ steps.images.outputs.home }}
         run: |
           set -euo pipefail
           # Only a branch that is not there means "no record yet". Anything else that goes wrong while reading it stops
@@ -111,7 +107,6 @@ jobs:
             current=(--current "$RUNNER_TEMP/current.json")
             # Where the tags go back to if the record cannot be published after they moved.
             echo "previous_server=$(jq -er .image "$RUNNER_TEMP/current.json")" >> "$GITHUB_OUTPUT"
-            echo "previous_home=$(jq -er .cloudHomeImage "$RUNNER_TEMP/current.json")" >> "$GITHUB_OUTPUT"
           else
             status=$?
             if [ "$status" != 2 ]; then
@@ -121,7 +116,7 @@ jobs:
             echo "There is no channels branch yet: this is the first promotion."
           fi
           echo "first=$([ ${#current[@]} = 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          node scripts/stable-channel.mjs record --version "$VERSION" --image "$SERVER" --cloud-home "$HOME_IMAGE" \
+          node scripts/stable-channel.mjs record --version "$VERSION" --image "$SERVER" \
             --release "$RUNNER_TEMP/release.json" "${current[@]}" $([ "$ALLOW_OLDER" = "true" ] && echo --allow-older) > "$RUNNER_TEMP/stable.json"
           cat "$RUNNER_TEMP/stable.json"
 
@@ -133,14 +128,11 @@ jobs:
         env:
           IMAGE: ${{ steps.release.outputs.image }}
           SERVER: ${{ steps.images.outputs.server }}
-          HOME_IMAGE: ${{ steps.images.outputs.home }}
         run: |
           set -euo pipefail
           digest_of() { docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -er .digest; }
           docker buildx imagetools create --tag "$IMAGE:stable" "$SERVER"
-          docker buildx imagetools create --tag "$IMAGE-cloud-home:stable" "$HOME_IMAGE"
           test "$IMAGE@$(digest_of "$IMAGE:stable")" = "$SERVER"
-          test "$IMAGE-cloud-home@$(digest_of "$IMAGE-cloud-home:stable")" = "$HOME_IMAGE"
 
       - name: Publish the record on the channels branch
         id: publish
@@ -175,26 +167,22 @@ jobs:
         env:
           IMAGE: ${{ steps.release.outputs.image }}
           PREVIOUS_SERVER: ${{ steps.record.outputs.previous_server }}
-          PREVIOUS_HOME: ${{ steps.record.outputs.previous_home }}
         run: |
           set -euo pipefail
-          if [ -z "$PREVIOUS_SERVER" ] || [ -z "$PREVIOUS_HOME" ]; then
+          if [ -z "$PREVIOUS_SERVER" ]; then
             echo "::warning::There is no earlier record to put the stable tags back to. They may name the new version while no record does; run this again to publish the record."
             exit 0
           fi
           docker buildx imagetools create --tag "$IMAGE:stable" "$PREVIOUS_SERVER"
-          docker buildx imagetools create --tag "$IMAGE-cloud-home:stable" "$PREVIOUS_HOME"
-          echo "::warning::The record was not published, so the stable tags were put back to $PREVIOUS_SERVER and $PREVIOUS_HOME."
+          echo "::warning::The record was not published, so the stable tags were put back to $PREVIOUS_SERVER."
 
       - name: Summary
         env:
           VERSION: ${{ steps.release.outputs.version }}
           SERVER: ${{ steps.images.outputs.server }}
-          HOME_IMAGE: ${{ steps.images.outputs.home }}
         run: |
           {
             echo "### Stable is now $VERSION"
             echo "- Server image: \`$SERVER\`"
-            echo "- Cloud home image: \`$HOME_IMAGE\`"
             echo "- Record: https://raw.githubusercontent.com/$GITHUB_REPOSITORY/channels/stable.json"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -154,7 +154,7 @@ export function createPagePublisher(deps: {
       }
       if (pending) store.forget(pending);
       if (result.reason === "limit") {
-        const card: PublishedPageCard = { state: "limit", title, message: result.message, ...(result.usage ? { usage: result.usage } : {}), ...(result.upgrade ? { upgrade: true } : {}),
+        const card: PublishedPageCard = { state: "limit", title, message: result.message, ...(result.usage ? { usage: result.usage } : {}),
           ...(result.plan ? { plan: result.plan } : {}) };
         input.post(cardText(card), card);
         return { status: 402, text: `${result.message} Tell the person this in your reply.`, card };

@@ -7,7 +7,6 @@ import { createCloudAccountClient } from "./cloud-account.mjs";
 const accessToken = `omc_${"T".repeat(43)}`;
 const NOW = 1_800_000_000_000;
 const HOME = "https://omb-u-1a2b3c4d5e6f.fly.dev", CLIENT_A = "https://omb-c-a.fly.dev", TEAM = "https://omb-t-acme.fly.dev";
-const CHECKOUT = "https://test.checkout.dodopayments.com/session/cks_new";
 const entry = (over = {}) => ({ id: "c-a", name: "Client A", color: "green", role: "owner", tier: "pro", runsOn: "cloud", status: "ready", origin: CLIENT_A,
   teamId: null, seats: null, renewsAt: null, cancelAtPeriodEnd: false, primary: false, ...over });
 const PRIMARY = entry({ id: "c-home", name: "My Cloud", color: null, origin: HOME, primary: true });
@@ -59,7 +58,6 @@ test("an Admin without the list of Clouds: the session reads exactly as before, 
   assert.equal(f.requests.some(row => row.route.endsWith("/pairing")), false, "never asked");
   assert.deepEqual(await f.client.pairHome(), { origin: HOME, code: "ABCD-EFGH-JK23", expiresAt: NOW + 60_000 });
   assert.deepEqual(f.requests.at(-1).body, {}, "My Cloud's pairing sends the same empty body an older Admin knows");
-  assert.deepEqual(await f.client.addCloud({ tier: "pro", name: "Client B" }), { outcome: "unsupported" });
   assert.equal(f.requests.some(row => row.route.endsWith("/clouds")), false);
 });
 
@@ -68,7 +66,6 @@ test("the session's Clouds: each other own Cloud pairs with its id, and only a g
   f.session = { ...f.session, clouds: [PRIMARY, entry(), entry({ id: "c-team", name: "Acme", teamId: "team-acme", role: "member", origin: TEAM })], canAdd: true };
   const state = await f.client.start();
   assert.deepEqual(state.clouds.map(cloud => cloud.id), ["c-home", "c-a", "c-team"]);
-  assert.deepEqual(state.addCloud, { canAdd: true });
   assert.equal(state.latestVersion, undefined, "no newest release named: none");
   f.session = { ...f.session, latestVersion: "0.1.130" };
   assert.equal((await f.client.refresh()).latestVersion, "0.1.130");
@@ -103,95 +100,9 @@ test("the Admin's word on each of the person's Clouds by its address: My Cloud's
   assert.equal(f.client.powerOf(""), null);
 });
 
-test("buying another Cloud: the plan, the name and the swatch go to the Admin, its own checkout opens, and the session is followed every 3 s", async t => {
-  const f = await admin(t);
-  f.session = { ...f.session, clouds: [PRIMARY] };
-  await f.client.start();
-  await assert.rejects(f.client.addCloud({ tier: "pro", name: "" }), /Invalid Cloud/);
-  await assert.rejects(f.client.addCloud({ tier: "pro", name: "Client B", color: "url(x)" }), /Invalid Cloud/);
-  await assert.rejects(f.client.addCloud({ tier: "pro", interval: "week", name: "Client B" }), /Invalid Cloud/);
-  await assert.rejects(f.client.addCloud({ tier: "pro", name: "Client B", source: "https://evil.example.test" }), /Invalid Cloud/, "a source is one of the app's own");
-  f.add = () => [200, { cloudId: "c-b", checkoutUrl: "https://evil.example.test/pay" }];
-  assert.deepEqual(await f.client.addCloud({ tier: "pro", name: "Client B", color: "rose" }), { outcome: "failed" }, "only Dodo's own checkout ever opens");
-  assert.deepEqual(f.browsers, []);
-  f.add = () => [200, { cloudContractVersion: 1, cloudId: "c-b", checkoutUrl: CHECKOUT }];
-  const opened = await f.client.addCloud({ tier: "pro", name: "  Client   B ", color: "rose" });
-  assert.equal(opened.outcome, "opened");
-  assert.deepEqual(f.requests.at(-1).body, { tier: "pro", interval: "month", name: "Client B", color: "rose" });
-  assert.deepEqual(f.browsers, [CHECKOUT]);
-  assert.deepEqual(opened.state.adding, { cloudId: "c-b", name: "Client B", color: "rose", tier: "pro", startedAt: NOW, link: true });
-  assert.equal(JSON.stringify(opened.state).includes(CHECKOUT), false, "the checkout page stays in main");
-  assert.equal(f.client.addLink(), CHECKOUT);
-  assert.equal(f.delay, 3_000);
-  f.add = () => [409, { error: "checkout_conflict", addBlocked: "cap" }];
-  await f.client.addCloud({ tier: "pro", name: "Client C", source: "app_whats_new_team" });
-  assert.deepEqual(f.requests.at(-1).body, { tier: "pro", interval: "month", name: "Client C", source: "app_whats_new_team" }, "where the person started, for the Admin's funnel");
-  f.session = { ...f.session, clouds: [PRIMARY, entry({ id: "c-b", name: "Client B", status: "checkout", origin: null })] };
-  f.timer(); await new Promise(resolve => setTimeout(resolve, 50));
-  assert.equal(f.delay, 3_000, "still waiting for the payment");
-  f.session = { ...f.session, clouds: [PRIMARY, entry({ id: "c-b", name: "Client B", status: "setting_up", origin: null })] };
-  await f.client.refresh();
-  assert.equal(f.delay, 15_000, "paid: setting up");
-  assert.equal(await f.client.reopenAdd(), true);
-  assert.deepEqual(f.browsers, [CHECKOUT, CHECKOUT], "Reopen opens the same page, never a new one");
-  f.client.addDone();
-  assert.equal(f.client.state().adding.done, true);
-});
 
-test("the Admin's word on adding: a cap or another open checkout, too many at once, or an Admin without the route", async t => {
-  const f = await admin(t);
-  f.session = { ...f.session, clouds: [PRIMARY], canAdd: false, addBlocked: "cap" };
-  await f.client.start();
-  assert.deepEqual(f.client.state().addCloud, { canAdd: false, blocked: "cap" });
-  assert.deepEqual(await f.client.addCloud({ tier: "pro", name: "Client B" }), { outcome: "blocked", blocked: "cap" }, "the session's word: nothing is asked");
-  assert.equal(f.requests.some(row => row.route.endsWith("/clouds")), false);
-  f.session = { ...f.session, canAdd: undefined, addBlocked: undefined };
-  await f.client.refresh();
-  for (const [answer, outcome] of [
-    [[409, { error: "checkout_conflict", addBlocked: "cap" }], { outcome: "blocked", blocked: "cap" }],
-    [[503, { error: "temporarily_unavailable", addBlocked: "signups_closed", interval: 60 }], { outcome: "blocked", blocked: "signups_closed" }],
-    [[429, { error: "rate_limited", addBlocked: "rate", interval: 600 }], { outcome: "blocked", blocked: "rate" }],
-    [[409, { error: "blocked", addBlocked: "mystery" }], { outcome: "blocked", blocked: "cap" }],
-    [[429, { error: "rate_limited" }], { outcome: "blocked", blocked: "rate" }],
-    [[503, { error: "temporarily_unavailable" }], { outcome: "failed" }],
-    [[404, { error: "not_found" }], { outcome: "unsupported" }],
-    [[500, { error: "oops" }], { outcome: "failed" }],
-  ]) {
-    f.add = () => answer;
-    assert.deepEqual(await f.client.addCloud({ tier: "pro", name: "Client B" }), outcome, JSON.stringify(answer));
-  }
-  assert.deepEqual(f.browsers, []);
-  assert.equal(f.client.state().adding, undefined, "no checkout kept from a refusal that names none");
-});
 
-test("another Cloud's checkout still open: the Admin's page for it is kept here to reopen or copy, never opened by itself", async t => {
-  const f = await admin(t);
-  f.session = { ...f.session, clouds: [PRIMARY, entry({ id: "c-b", name: "Client B", status: "checkout", origin: null, color: "violet" })] };
-  await f.client.start();
-  assert.equal(await f.client.reopenAdd(), false, "watched, with no page of its own yet");
-  f.add = () => [409, { error: "checkout_conflict", addBlocked: "checkout_open", checkoutUrl: CHECKOUT }];
-  assert.deepEqual(await f.client.addCloud({ tier: "max", name: "Client C" }), { outcome: "blocked", blocked: "checkout_open" });
-  assert.deepEqual(f.browsers, [], "the person asked for another Cloud, not this one: nothing opens by itself");
-  assert.deepEqual(f.client.state().adding, { cloudId: "c-b", name: "Client B", color: "violet", tier: "pro", startedAt: NOW, link: true });
-  assert.equal(f.client.addLink(), CHECKOUT);
-  assert.equal(await f.client.reopenAdd(), true);
-  assert.deepEqual(f.browsers, [CHECKOUT]);
-  const fresh = await admin(t);
-  fresh.session = { ...fresh.session, clouds: [PRIMARY] };
-  await fresh.client.start();
-  fresh.add = () => [409, { error: "checkout_conflict", addBlocked: "checkout_open", checkoutUrl: "https://evil.example.test/pay" }];
-  assert.deepEqual(await fresh.client.addCloud({ tier: "pro", name: "Client B" }), { outcome: "blocked", blocked: "checkout_open" });
-  assert.equal(fresh.client.state().adding, undefined, "only Dodo's own checkout page is ever kept");
-});
 
-test("a Cloud waiting at checkout that this app did not open (it restarted mid-checkout) is followed as its own, at the usual pace", async t => {
-  const f = await admin(t);
-  f.session = { ...f.session, clouds: [PRIMARY, entry({ id: "c-b", name: "Client B", status: "checkout", origin: null, color: "violet" })] };
-  const state = await f.client.start();
-  assert.deepEqual(state.adding, { cloudId: "c-b", name: "Client B", color: "violet", tier: "pro", startedAt: NOW });
-  assert.equal(f.delay, 60_000, "a checkout this app did not open is not polled every few seconds");
-  assert.equal(await f.client.reopenAdd(), false, "no page kept here to reopen");
-});
 
 test("a Cloud's colour is the Admin's: PATCH with the swatch, then the session read again; someone else's say, an older Admin and a signed-in server are said plainly", async t => {
   const f = await admin(t);

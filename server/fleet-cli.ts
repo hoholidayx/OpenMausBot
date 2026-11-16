@@ -47,8 +47,6 @@ export interface FleetInput {
   openrouterModels?: string[];
   openrouterDefault?: boolean;
   portalUrl?: string;
-  cap?: number;
-  licenseKey?: string;
   memory?: string;
   dryRun: boolean;
   yes: boolean;
@@ -332,8 +330,7 @@ export function planFleetAction(input: FleetInput, deps: FleetDeps): FleetStep[]
       return createPlan({
         registry,
         slug: input.slug,
-        seed: { admins: input.admins, members: input.members, ...(anthropicKey ? { anthropicKey } : {}), ...(input.anthropicUrl ? { anthropicUrl: input.anthropicUrl } : {}), ...(input.portalUrl ? { portalUrl: input.portalUrl } : {}), ...(input.cap !== undefined ? { monthlyCapUsd: input.cap } : {}), ...(brandJson ? { brandJson } : {}), openrouterKey: input.openrouterKey, openrouterUrl: input.openrouterUrl, openrouterModels: input.openrouterModels, openrouterDefault: input.openrouterDefault },
-        ...(input.licenseKey ? { licenseKey: input.licenseKey } : {}),
+        seed: { admins: input.admins, members: input.members, ...(anthropicKey ? { anthropicKey } : {}), ...(input.anthropicUrl ? { anthropicUrl: input.anthropicUrl } : {}), ...(input.portalUrl ? { portalUrl: input.portalUrl } : {}), ...(brandJson ? { brandJson } : {}), openrouterKey: input.openrouterKey, openrouterUrl: input.openrouterUrl, openrouterModels: input.openrouterModels, openrouterDefault: input.openrouterDefault },
         ...(input.memory ? { memoryMax: input.memory } : {}),
         layout,
       }).steps;

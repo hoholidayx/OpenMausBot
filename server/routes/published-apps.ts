@@ -34,8 +34,8 @@ export function createPublishedAppsRoutes(deps: PublishedAppsRouteDeps): RouteHa
   const framing = deps.framing ?? checkFraming;
   return async ({ req, res, url, path, method, auth, json, readBody }) => {
     if (path === "/api/published-apps" && method === "GET") {
-      const [apps, included] = await Promise.all([deps.apps.list(deps.visibleFor(auth), auth), deps.apps.allowance()]);
-      return json(res, 200, { apps, ...(included ? { included } : {}) } satisfies PublishedAppsList);
+      const apps = await deps.apps.list(deps.visibleFor(auth), auth);
+      return json(res, 200, { apps } satisfies PublishedAppsList);
     }
     if (path === "/api/published-apps/framing" && method === "GET") {
       const page = url.searchParams.get("url"), origin = url.searchParams.get("origin");

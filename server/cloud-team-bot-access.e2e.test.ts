@@ -252,7 +252,7 @@ describe("a team bot shared with a level per person", () => {
     expect((await as("ada", "GET", "/api/config")).body).toMatchObject({ cloudStarter: true });
     const refused = await send();
     expect(refused.status).toBe(403);
-    expect(await refused.json()).toEqual({ error: "Bot API comes with a higher plan. Upgrade this Cloud to use it." });
+    expect(await refused.json()).toEqual({ error: "Bot API is unavailable on this Cloud." });
     expect((await as("ada", "POST", `${path}/new-key`)).status).toBe(403);
 
     expect((await team.signed("POST", "/api/cloud/plan", { v: 1, tier: "pro" })).status).toBe(200);

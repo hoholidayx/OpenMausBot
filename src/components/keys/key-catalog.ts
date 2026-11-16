@@ -1,10 +1,9 @@
-import { AudioLines, Blocks, CalendarClock, Fingerprint, Image, LockKeyhole, Monitor, Phone, Search, Server, Zap, type LucideIcon } from "lucide-react";
+import { AudioLines, Blocks, CalendarClock, Fingerprint, Image, LockKeyhole, Phone, Search, Server, Zap, type LucideIcon } from "lucide-react";
 import type { AppSettingsSection, ConfigStatus } from "@/state/store";
 import type { SavedKey } from "@/state/config-status";
 import type { KeyProvider } from "@/lib/analytics-allowlist";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
-import { reportModelgoOffer } from "@/lib/modelgo-offer";
 import type { ProviderIconPreset } from "../../../shared/provider-icon";
 import { MODELGO_URL } from "../../../shared/modelgo";
 
@@ -40,8 +39,6 @@ export interface KeyTarget {
   shape?: RegExp;
   warningKey?: LocaleKey;
   noteKey?: LocaleKey;
-  /** A sponsor's row: the Settings page's own uses of it, for its product event. */
-  settingsEvent?: (action: "get_key" | "add_key") => void;
 }
 
 export type KeyId =
@@ -109,9 +106,8 @@ export const KEY_CATALOG: readonly KeyEntry[] = [
     words: ["greenference", "green", "open models"], mark: provider("greenference"), kind: "key",
     target: providerKey("greenference", { slot: "greenferenceApiKey", placeholder: "…", placeholderKey: "keys.greenference.placeholder", href: "https://greenference.com/dashboard/tokens", test: "greenference", analytics: "greenference" }) },
   { id: "modelgo", section: "ai", labelKey: "keys.modelgo.label", purposeKey: "keys.purpose.modelgo", name: "ModelGo", env: ["OMB_MODELGO_API_KEY"],
-    words: ["modelgo", "model go", "one key", "sponsor"], mark: provider("modelgo"), kind: "key",
-    target: providerKey("modelgo", { slot: "modelgoApiKey", placeholder: "…", placeholderKey: "keys.modelgo.placeholder", href: MODELGO_URL, test: "modelgo", analytics: "modelgo", noteKey: "keys.modelgo.note",
-      settingsEvent: (action) => reportModelgoOffer(action, "settings") }) },
+    words: ["modelgo", "model go", "model go"], mark: provider("modelgo"), kind: "key",
+    target: providerKey("modelgo", { slot: "modelgoApiKey", placeholder: "…", placeholderKey: "keys.modelgo.placeholder", href: MODELGO_URL, test: "modelgo", analytics: "modelgo" }) },
   { id: "meta", section: "ai", labelKey: "keys.meta.label", purposeKey: "keys.purpose.meta", name: "Meta", env: ["OMB_META_API_KEY"],
     words: ["meta", "muse", "llama"], mark: provider("meta", "meta"), kind: "key",
     target: providerKey("meta", { slot: "metaApiKey", placeholder: "LLM|…", href: "https://dev.meta.ai/docs/authentication", test: "meta", analytics: "meta", shape: /^LLM\|/ }) },
@@ -156,11 +152,6 @@ export const KEY_CATALOG: readonly KeyEntry[] = [
     target: { patch: (value) => ({ tts: { fishKey: value } }), slot: "fishAudioKey", verifiedOnSave: true,
       saved: (config) => flag(config.savedKeys?.fishAudioKey ?? { configured: config.tts?.provider === "fish" && config.tts.configured }),
       placeholder: "…", placeholderKey: "voice.fish.keyPlaceholder", href: "https://fish.audio/app/api-keys/", analytics: "fish_audio" } },
-  { id: "box", section: "computers", labelKey: "keys.boat.label", purposeKey: "keys.purpose.box", name: "boat.dev", env: ["BOX_TOKEN"],
-    words: ["boat", "box", "cloud desktop", "cloud computer", "computer", "sandbox"], mark: { icon: Monitor }, kind: "key",
-    target: { patch: (value) => ({ box: { token: value } }), slot: "boxToken", verifiedOnSave: true,
-      saved: (config) => ({ ...flag(config.box?.included ? undefined : config.box), ...(config.box?.included ? { included: true } : {}) }),
-      placeholder: "boat_…", href: "https://docs.boat.dev/api-keys", analytics: "boat", shape: /^(boat|box)_/, warningKey: "keys.boat.warning" } },
   { id: "vps", section: "computers", labelKey: "keys.vps.label", purposeKey: "keys.purpose.vps", name: "VPS", env: [],
     words: ["vps", "ssh", "server", "self-hosted", "computer", "docker"], mark: { icon: Server }, kind: "panel",
     status: (config) => ({ configured: config.vps?.configured === true }) },

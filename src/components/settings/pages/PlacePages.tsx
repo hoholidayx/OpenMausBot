@@ -10,7 +10,6 @@ import { AwayEmailsSetting } from "../../AwayEmailsSetting";
 import { PausedBotsButton } from "../../AwakeBotsPicker";
 import { BrowserProxyRow, BuiltInBrowserRow, NewBrowserSettings, ServerSitesRow } from "../../BrowserSettingsRows";
 import { CacheKeepWarmSettings } from "../../CacheKeepWarmSettings";
-import { TeamPeopleCard } from "../../CloudAccountSettings";
 import { CloudKeepHere } from "../../CloudKeepHere";
 import { CustomDomainSettings } from "../../CustomDomainSettings";
 import { preloadConnectedApps } from "@/lib/connected-apps";
@@ -67,7 +66,6 @@ export function OverviewPage() {
   const { state, dispatch } = useStore();
   const [note, dismiss] = useGroupedNote();
   const phone = usePhonePlaceState(!ctx.client);
-  const team = state.config?.team;
   const phoneValue = phone.kind === "paired" || phone.kind === "attention" ? t("settings.glance.phonePaired", { count: phone.count })
     : phone.kind === "none" ? t("settings.glance.notSetUp") : undefined;
   const engines = state.instances.filter((instance) => instance.snapshot.state === "available").length;
@@ -96,7 +94,6 @@ export function OverviewPage() {
     <SettingsGroup label={t("settings.overview.sidebar")} block="sidebar">
       <SettingsRows><PlaceLookRows /><DefaultBotSidebarRow simple /></SettingsRows>
     </SettingsGroup>
-    {ctx.desktop && ctx.cloud && team && team.cloudPage && <div data-settings-block="people-and-plan"><TeamPeopleCard team={team} /></div>}
     {/* Address: a self-hosted server's own web address, Advanced only. A Cloud's address is MausBot's to manage, so it
         has none here (no administrator or proxy steps for a person who has no server to set up). */}
     {place.kind === "server" && !ctx.client && ctx.advanced && <CustomDomainSettings />}

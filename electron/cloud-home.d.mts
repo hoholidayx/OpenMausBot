@@ -50,12 +50,7 @@ export interface CloudTrial {
    * billing portal (`portal`: turn renewal back on, update the card) or a new
    * subscription (`checkout`, once it has ended). */
   keep: "none" | "portal" | "checkout";
-  /** While it runs on a plan above Personal and Personal is the way down: Personal's price before tax, in US cents. An
-   * older Admin's only word for the way down; `switchTo` wins over it. */
-  personalAmount?: number;
-  /** The plan this trial can switch to from its Plan page, and its price before tax in US cents, only while a switch is
-   * the way down. */
-  switchTo?: { tier: CloudPlanTier; amount: number };
+
 }
 /** The trial's AI credit, in US dollars. */
 export interface CloudCredit { grantedUsd: number; remainingUsd: number; state: "active" | "used_up" }
@@ -64,58 +59,18 @@ export interface CloudCredit { grantedUsd: number; remainingUsd: number; state: 
 export type CloudUsageKind = "computerHours" | "voice" | "decisions" | "x" | "research" | "storage";
 export interface CloudUsageMeter { kind: CloudUsageKind; used: number; max: number; usedUp?: true }
 /** The plan's allowances and their use (the session's `cloud.usage`): display only. `resetsAt`: when the monthly ones start
- * over; `trialEndsAt`: a free trial's share until its first payment; `upgrades`: the bigger plans the app can move to
- * itself now, cheapest first (empty: none, so Upgrade opens the Cloud page). */
+ * over; `trialEndsAt`: a free trial's share until its first payment. */
 export interface CloudUsage {
   tier: string; resetsAt: number; trialEndsAt?: number; meters: CloudUsageMeter[];
-  upgrades: { tier: "starter" | "personal" | "pro" | "max"; amount: number }[];
 }
 /** Why the Cloud is short on room over the last day: tasks that waited for memory and the minutes they waited in all, tasks
  * stopped for it; or its disk, in GB of the most its plan grows it to. */
 export type CloudRoomCause = { kind: "memory"; waits: number; waitMinutes: number; stopped: number } | { kind: "disk"; usedGb: number; capGb: number };
-/** The session's `cloud.room`: the Cloud this account pays for is short on room. `plan`: the next plan up that fixes it, its
- * price (US cents a month before tax) and its memory (MB) and disk cap (GB) against this plan's; `tip`: on the top plan, a
- * tip instead. `id` names the offer for Not now. */
+/** The session's `cloud.room`: the Cloud is short on resources. */
 export interface CloudRoom {
   id: string; cause: CloudRoomCause;
-  plan?: { tier: "starter" | "personal" | "pro" | "max"; amount: number; memoryMb: number; fromMemoryMb: number; diskGb: number; fromDiskGb: number };
-  tip?: true;
 }
 /** What a plan includes, as the Admin's catalog says. */
-export interface CloudPlanAllowances {
-  cpus: number; memoryMb: number;
-  /** The kind of CPUs, when the Admin says. */
-  cpuKind?: "shared" | "performance";
-  /** The disk it starts with, and the most it grows to (the same when it doesn't grow). */
-  diskGb: number; maxDiskGb: number;
-  /** Cloud computers at once, and cloud computer hours and voice characters a month. */
-  computers: number; computerHours: number; voiceCharacters: number;
-  /** It sleeps when idle and wakes when someone or a schedule needs it. */
-  sleeps?: true;
-  /** Swap on its machine, when the Admin says and it has some. */
-  swapMb?: number;
-  /** How many days its daily backups are kept, when the Admin says. */
-  snapshotDays?: number;
-  /** A team plan's most people, its owner included. */
-  seats?: number;
-}
-/** One plan OpenMausBot Cloud sells: its monthly price before tax in US cents,
- * and its free trial's days when it comes with one. */
-export interface CloudOfferPlan { tier: string; label?: string; amount: number; allowances?: CloudPlanAllowances; trialDays?: number }
-/** What someone may buy now: the session's `offer` (signed in), or the public
- * config (signed out). The trial's extras come only with a trial; money-back
- * only when the Admin offers it to this person. */
-export interface CloudOffer {
-  plans: CloudOfferPlan[];
-  /** The plan preselected (a tier in `plans`). */
-  recommended: string;
-  creditUsd?: number;
-  /** Days before a trial ends that its reminder email goes out, while the Admin sends one. */
-  reminderDays?: number;
-  refundDays?: number;
-  /** Signed in: a checkout of theirs still open, and until when. */
-  checkout?: { plan: string; openUntil: number };
-}
 export interface CloudHomeGrant { origin: string; code: string; expiresAt: number }
 export interface CloudHomeTarget { origin: string; grant: CloudHomeGrant | null }
 /** `largest`: the top plan, so nobody is pointed at a larger one. */
@@ -147,9 +102,6 @@ export declare function parseCloudCredit(input: unknown): CloudCredit | null;
 export declare const CLOUD_USAGE_KINDS: readonly CloudUsageKind[];
 export declare function parseCloudUsage(input: unknown): CloudUsage | null;
 export declare function parseCloudRoom(input: unknown): CloudRoom | null;
-export declare function parseCloudOffer(input: unknown): CloudOffer | null;
-export declare function parsePublicOffer(config: unknown): CloudOffer | null;
-export declare function withoutTrial(offer: CloudOffer | null): CloudOffer | null;
 export declare function cloudPlanDisk(state: unknown): CloudPlanDisk | null;
 export declare function readyCloudOrigin(state: unknown): string | null;
 export declare function machineSetup(machine: CloudMachine | null | undefined): { step?: CloudSetupStep; slow?: true } | null;

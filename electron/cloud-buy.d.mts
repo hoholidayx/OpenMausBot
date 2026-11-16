@@ -16,17 +16,6 @@ export declare function createCloudLook(options: {
 }): { pending(): { name: string; color: CloudColor } | null; current(): { name: string; color: CloudColor }; save(name: string, color: string): { name: string; color: CloudColor } };
 export declare function createCloudReadyNotice(options: {
   Notification: { isSupported(): boolean; new (options: { title: string; body: string }): { on(event: "click", listener: () => void): void; show(): void } };
-  focused(): boolean; sheetOpen(): boolean; name(): string; open(): void;
-  /** Told once the notification is shown (main marks the checkout done). */
-  shown?(): void;
+  name(): string; open(): void;
   t?(key: string, params?: Record<string, string | number>): string;
 }): (state: unknown) => boolean;
-export declare function installCloudBuy(options: {
-  ipcMain: { handle(channel: string, handler: (...args: any[]) => unknown): void };
-  guard(channel: string, handler: (...args: any[]) => unknown): (...args: any[]) => unknown;
-  client(): import("./cloud-account.mjs").CloudAccountClient;
-  offersReady(): Promise<boolean>;
-  clipboard: { writeText(text: string): void };
-  look: { current(): { name: string; color: CloudColor }; save(name: string, color: string): { name: string; color: CloudColor } };
-}): { sheetOpen(): boolean };
-export declare function cloudLinkOpensSheet(state: import("./cloud-account.mjs").CloudAccountState | null | undefined): boolean;
