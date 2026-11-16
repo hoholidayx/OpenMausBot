@@ -408,7 +408,7 @@ const Bubble = memo(function Bubble({
   const togglePin = () =>
     dispatch({ type: "updateTask", botId, threadId, patch: { pinnedMessageId: pinned ? "" : message.id } });
   const botActions = !user && (
-    <MessageActions side="bot" forceOpen={viewRaw || speaking} menu={simple ? [...replyAndCopy(() => onReply(message), text), ...botMenu, ...forkAction] : [...botMenu, ...forkAction]} contextItems={simple ? undefined : replyAndCopy(() => onReply(message), text)}>
+    <MessageActions side="bot" className="chat-message-actions" forceOpen={viewRaw || speaking} menu={simple ? [...replyAndCopy(() => onReply(message), text), ...botMenu, ...forkAction] : [...botMenu, ...forkAction]} contextItems={simple ? undefined : replyAndCopy(() => onReply(message), text)}>
       {!simple && <ReplyAction onReply={() => onReply(message)} />}
       {canReact && !peer && <ReactAction threadId={threadId} message={message} />}
       {!simple && text && <CopyButton text={text} className={messageActionClass} />}
@@ -421,10 +421,10 @@ const Bubble = memo(function Bubble({
     <div {...{ [MESSAGE_ROW]: "" }} data-look={user ? "message-user" : "message-bot"} className={cn("group flex w-full flex-col", user ? "animate-msg-in items-end" : "items-start", simple && join?.above && SIMPLE_STACKED)}>
       {message.relay ? <RelayLabel message={message} /> : peer && <PeerLabel peer={peer} />}
       {speaker && <div className="mb-0.5 px-1 text-right text-[13px] [overflow-wrap:anywhere] font-semibold text-ink-secondary">{speaker}</div>}
-      <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
+      <div className={cn("chat-message-line flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
           <MessageActions
-            side="user" contextItems={simple ? undefined : replyAndCopy(() => onReply(message), visibleText)}
+            side="user" className="chat-message-actions" contextItems={simple ? undefined : replyAndCopy(() => onReply(message), visibleText)}
             menu={[
               ...(simple ? replyAndCopy(() => onReply(message), visibleText) : []),
               ...userMessageMenu({
@@ -554,7 +554,7 @@ const Bubble = memo(function Bubble({
         {!tabled && botActions}
         <span
           className={cn(
-            "self-end pb-1 text-[11px] tabular-nums text-ink-tertiary opacity-0 transition-opacity group-hover:opacity-100",
+            "chat-message-time self-end pb-1 text-[11px] tabular-nums text-ink-tertiary opacity-0 transition-opacity group-hover:opacity-100",
             user ? "order-first mr-2" : "ml-2",
           )}
         >

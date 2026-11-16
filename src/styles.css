@@ -2012,6 +2012,33 @@ body {
   margin-inline: auto;
   max-width: calc(var(--chat-column-max) + 2.5rem);
 }
+@media (max-width: 767.98px), (pointer: coarse) {
+  :root:not([data-chat-width]) .chat-message-line {
+    --chat-bubble-pct: 92%;
+  }
+  .chat-message-line {
+    --chat-bubble-gutter: 0px;
+    flex-direction: column;
+    align-items: inherit;
+    gap: 0;
+  }
+  .chat-message-line > .chat-message-actions {
+    order: 1;
+    align-self: auto;
+  }
+  .chat-message-line > .chat-message-actions[data-shown="true"] {
+    margin-block-start: 4px;
+  }
+  /* Clipping preserves the tray's tab stops so keyboard focus can reveal it. */
+  .chat-message-line > .chat-message-actions:not([data-shown="true"]) {
+    block-size: 0;
+    overflow: clip;
+    padding-block-end: 0;
+  }
+  .chat-message-line > .chat-message-time {
+    display: none;
+  }
+}
 @media (prefers-reduced-transparency: reduce) {
   .glass-bar::before {
     background: var(--glass-tint, var(--color-panel));
