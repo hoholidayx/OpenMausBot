@@ -16,7 +16,7 @@ let fx: OwnHomeFixture;
 let garage: OwnServer, family: OwnServer;
 
 beforeAll(async () => {
-  fx = await launchOwnHomeFixture();
+  fx = await launchOwnHomeFixture({ env: { OMB_LEGACY_MEMORY: "1" } });
   garage = await fx.addServer("Garage server");
   family = await fx.addServer("Family server", { OMB_SIGNIN_MEMBER_EMAILS: "friend@example.test" });
 }, hostTimeout(120_000));

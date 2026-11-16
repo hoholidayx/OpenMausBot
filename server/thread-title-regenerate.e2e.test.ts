@@ -149,12 +149,14 @@ describe("Regenerate title", { timeout: 60_000 }, () => {
     expect((await api("POST", `/api/bots/${botId}/tasks/no-such-thread/title`)).status).toBe(404);
   });
 
-  it("is refused once generated titles are switched off", async () => {
+  it("refuses a manual title request when generated titles are switched off", async () => {
     expect((await api("PATCH", "/api/config", { features: { llmThreadTitles: false } })).status).toBe(200);
     expect((await api("GET", "/api/config")).body.features.llmThreadTitles).toBe(false);
     writeFileSync(titleFile, "Anything at all");
-    const off = await api("POST", `/api/bots/${botId}/tasks/${threadId}/title`);
-    expect(off.status).toBe(409);
-    expect(await taskTitle(botId, threadId)).toBe("Session expiry login hang");
+    const before = await taskTitle(botId, threadId);
+    const asked = await api("POST", `/api/bots/${botId}/tasks/${threadId}/title`);
+    expect(asked.status).toBe(409);
+    expect(asked.body.error).toMatch(/generated thread titles are turned off/);
+    expect(await taskTitle(botId, threadId)).toBe(before);
   });
 });

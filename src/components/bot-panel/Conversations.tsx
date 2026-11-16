@@ -65,8 +65,8 @@ export function BotConversations({ bot }: { bot: Bot }) {
   const [showArchived, setShowArchived] = useState(false);
   const generatedTitles = llmThreadTitlesEnabled(state.config);
   const actions = useMemo(() => {
-    const { onRename, onRegenerateTitle, onDelete, onMove, onPin, onArchive } = threadRowActions(bot.id, dispatch, generatedTitles);
-    return { onRename, onRegenerateTitle, onDelete, onMove, onPin, onArchive };
+    const { onRename, onRegenerateTitle, onDelete, onMove, onPin, onArchive } = threadRowActions(bot.id, dispatch);
+    return { onRename, onRegenerateTitle: generatedTitles ? onRegenerateTitle : undefined, onDelete, onMove, onPin, onArchive };
   }, [bot.id, dispatch, generatedTitles]);
 
   const side = useConversationSide(bot);
