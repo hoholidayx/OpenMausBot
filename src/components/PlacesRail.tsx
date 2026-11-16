@@ -19,7 +19,6 @@ import { localizedRelativeTime } from "@/lib/relative-time";
 import { useAdvancedMode } from "@/lib/interface-mode";
 import { useBesideFramed } from "@/lib/chrome-rail";
 import { computerName, editLocal, makeHome, placeInitials, recolorPlace, removeLocal, removePlace, usePlaces, type RailPlace } from "@/lib/places";
-import { AccountsSheet, switchNote } from "./AccountMenu";
 import { useDesktopCapabilities, windowFramed } from "./DesktopCapabilities";
 import { MENU_ROW, MENU_SHEET } from "./menu-recipe";
 import { PlaceAddSheet } from "./PlaceAddSheet";
@@ -396,7 +395,6 @@ export function PlacesRail({ chrome = false }: { chrome?: boolean }) {
   const [adding, setAdding] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ place: RailPlace; top: number } | null>(null);
-  const [accounts, setAccounts] = useState<{ adding: string | null; note: string | null } | null>(null);
   const moreRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   // The place last clicked and the one on screen when it was, from the click until main is done with it: another click
@@ -420,7 +418,7 @@ export function PlacesRail({ chrome = false }: { chrome?: boolean }) {
   }, [more, menu]);
   const going = clicked && clicked.id !== clicked.from ? state.places.find((place) => place.id === clicked.id) ?? null : null;
   const veil = chrome && going?.settling === undefined ? going : null;
-  const covering = more || adding || connecting !== null || menu !== null || accounts !== null || veil !== null;
+  const covering = more || adding || connecting !== null || menu !== null || veil !== null;
   useEffect(() => { if (chrome) void window.ogb?.rail?.expand?.(covering)?.catch(() => {}); }, [chrome, covering]);
   if (!state.places.length) return null;
   const bridge = window.ogb?.workspaces;
@@ -432,12 +430,7 @@ export function PlacesRail({ chrome = false }: { chrome?: boolean }) {
     const mine = ++clicks.current;
     click({ id: place.id, from: onScreen });
     const done = () => { if (mine === clicks.current) click(null); };
-    void Promise.resolve(bridge?.open?.(place.id)).then((said) => {
-      done();
-      if (!said) return;
-      if (said.outcome === "sign-in") setAccounts({ adding: said.email ?? place.email ?? "", note: null });
-      else { const note = switchNote(said); if (note) setAccounts({ adding: null, note }); }
-    }, done);
+    void Promise.resolve(bridge?.open?.(place.id)).then(done, done);
   };
   const framed = windowFramed(capabilities), draggable = capabilities.windowChrome !== "native";
   // In a framed window the rail is part of the frame: the window's own rail runs the full height, its top in the frame's
@@ -485,7 +478,6 @@ export function PlacesRail({ chrome = false }: { chrome?: boolean }) {
       <PlaceMenu key={menu.place.id} place={state.places.find((entry) => entry.id === menu.place.id) ?? menu.place} top={menu.top} onClose={() => setMenu(null)} />
     </div>}
     {adding && <PlaceAddSheet choices={state.add} places={state.places} onClose={() => setAdding(false)} />}
-    {accounts && <AccountsSheet adding={accounts.adding} note={accounts.note} onClose={() => setAccounts(null)} />}
     {connecting !== null && <PlaceAddSheet choices={state.add} connect={{ name: connecting }} onClose={() => setConnecting(null)} />}
     {veil && <div role="status" data-rail-veil style={drag} className="absolute inset-y-0 left-full z-40 flex w-[calc(100vw-2.25rem)] flex-col items-center justify-center gap-3 bg-panel text-[13px] text-ink-secondary">
       <PlaceMark place={veil} size={40} />

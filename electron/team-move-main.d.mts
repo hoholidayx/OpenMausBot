@@ -11,7 +11,8 @@ export function installTeamMove(deps: {
   pageOrigin?(event: unknown): string | null;
   confirmMove?(words: { message: string; detail: string; buttons: string[] }): Promise<boolean>;
   home(): { origin: string; grant(): Promise<{ origin: string; code: string }> } | null;
-  account(): { state(): any; pairTeam(teamId: string): Promise<{ origin: string; code: string }> } | null;
+  account(): { state(): any } | null;
+  teamGrant?(teamId: string): Promise<{ origin: string; code: string }>;
   file(): string;
   journalFile(): string;
   openTeam?(team: { id: string; name: string }): void;

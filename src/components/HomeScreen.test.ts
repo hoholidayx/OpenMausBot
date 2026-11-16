@@ -12,7 +12,7 @@ it("names a team's Cloud on every screen that waits on it, and keeps My Cloud's 
   expect(homeScreenText({ screen: "offline" }).title).toBe("Can't reach My Cloud right now.");
   expect(homeScreenText({ screen: "opening", name: "Acme" }).title).toBe("Opening Acme…");
   expect(homeScreenText({ screen: "opening" }).title).toBe("Opening My Cloud…");
-  expect(homeScreenText({ screen: "signin", name: "Acme" })).toMatchObject({ title: "Sign in to open Acme", action: "sign-in" });
+  expect(homeScreenText({ screen: "signin", name: "Acme" })).toMatchObject({ title: "Sign in to open Acme", action: null });
   expect(homeScreenText({ screen: "plan", machine: "stopped", name: "Acme" })).toMatchObject({ title: "Acme isn't running", action: "manage" });
   expect(homeScreenText({ screen: "plan", machine: "stopped" }).title).toBe("My Cloud isn't running");
   for (const machine of ["stopped", "payment-problem"] as const) {

@@ -100,7 +100,8 @@ function bearerSession(origin, token, fetchImpl) {
  *   pageOrigin?(event: unknown): string | null,
  *   confirmMove?(words: { message: string, detail: string, buttons: string[] }): Promise<boolean>,
  *   home(): { origin: string, grant(): Promise<{ origin: string, code: string }> } | null,
- *   account(): { state(): any, pairTeam(teamId: string): Promise<{ origin: string, code: string }> } | null,
+ *   account(): { state(): any } | null,
+ *   teamGrant?(teamId: string): Promise<{ origin: string, code: string }>,
  *   file(): string,
  *   journalFile(): string,
  *   openTeam?(team: { id: string, name: string }): void,
@@ -114,7 +115,7 @@ function bearerSession(origin, token, fetchImpl) {
  * `pageOrigin`: the origin of the page asking, when it is this window's active server's main frame. `confirmMove`: asks
  * the person outside any page.
  */
-export function installTeamMove({ ipcMain, cloudPage, pageOrigin = () => null, confirmMove = async () => false, home, account, file, journalFile, openTeam, onChange = () => {}, fetch: fetchImpl = globalThis.fetch, journal, log = () => {}, t = nativeText.englishText.t }) {
+export function installTeamMove({ ipcMain, cloudPage, pageOrigin = () => null, confirmMove = async () => false, home, account, teamGrant, file, journalFile, openTeam, onChange = () => {}, fetch: fetchImpl = globalThis.fetch, journal, log = () => {}, t = nativeText.englishText.t }) {
   const teams = () => moveTeams(account()?.state());
   const teamOf = (id) => teams().find((team) => team.id === id) ?? null;
   const sendStore = jsonFile(file);
@@ -131,9 +132,8 @@ export function installTeamMove({ ipcMain, cloudPage, pageOrigin = () => null, c
     const target = lazy(async () => {
       const team = teamOf(move.team.id);
       if (!team) throw new Error(`You're no longer in ${move.team.name}.`);
-      const client = account();
-      if (!client) throw new Error("Sign in to MausBot Cloud first.");
-      const member = await openOwnerSession({ origin: team.origin, grant: () => client.pairTeam(team.id) }, fetchImpl, { label, background: false });
+      if (!teamGrant) throw new Error("The destination server is unavailable.");
+      const member = await openOwnerSession({ origin: team.origin, grant: () => teamGrant(team.id) }, fetchImpl, { label, background: false });
       try {
         const asked = await member.call("POST", "/api/team-move-in", { v: 1, bot: { id: move.bot.id, name: move.bot.name, ...(facts.threadId ? { threadId: facts.threadId } : {}) },
           ...(facts.label ? { label: facts.label } : {}) });

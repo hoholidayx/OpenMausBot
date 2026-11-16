@@ -97,14 +97,6 @@ test("a launch while the sign-in is still being read never opens it", async () =
   assert.equal(w.home.view().screen, "signin");
 });
 
-test("a sign-in that ended keeps today's Sign in screen: that person didn't choose to leave, and their bots are one sign-in away", async () => {
-  const clean = cleanSide(), w = world({ clean, state: { status: "reauth-required", account: ACCOUNT } });
-  w.cloud.signedIn = false;
-  await w.home.show();
-  assert.equal(clean.enters, 0);
-  assert.equal(w.home.view().screen, "signin");
-});
-
 test("the clean workspace that can't start is the sign-in screen, as before", async () => {
   const clean = cleanSide(), w = world({ clean, state: other() });
   clean.fails = true;
@@ -147,17 +139,6 @@ test("from the clean workspace, another Cloud of this account's own, or a team, 
   assert.equal(w.went.at(-1)?.[1], CLIENT);
   assert.equal(clean.on, true);
   assert.equal(clean.leaves, 0);
-});
-
-test("the Sign in that switches account ends this sign-in first, as the screen's did", async () => {
-  const clean = cleanSide(), w = world({ clean, state: other() });
-  await w.home.show();
-  await w.home.signIn();
-  assert.deepEqual(w.signIns, ["out", "begin"]);
-  w.signIns.length = 0;
-  const owner = world({ clean: cleanSide(), state: connected() });
-  await owner.home.signIn();
-  assert.deepEqual(owner.signIns, [], "still good: it only looks again");
 });
 
 test("signing out of a moved computer's Cloud leaves it for the clean workspace at once", async () => {

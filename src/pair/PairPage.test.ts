@@ -6,9 +6,8 @@ const f = vi.hoisted(() => ({ effects: [] as EffectCallback[], pair: vi.fn() }))
 vi.mock("react", async original => ({ ...await original<typeof import("react")>(), useEffect: (effect: EffectCallback) => { f.effects.push(effect); } }));
 vi.mock("../lib/session", async original => ({ ...await original<typeof import("../lib/session")>(), pairWithCode: f.pair, readSessionState: vi.fn().mockResolvedValue({ kind: "unauthenticated", error: "" }) }));
 vi.mock("../components/DesktopWorkspaceSwitcher", () => ({ DesktopWorkspaceSwitcher: () => null }));
-import { codeProblem, codeReady, openInAppLink, PairPage, pairIntro, pairsAutomatically, pairTitle, TeamLeftPage, teamPage, unencryptedPublic } from "./PairPage";
+import { codeProblem, codeReady, openInAppLink, PairPage, pairIntro, pairsAutomatically, pairTitle, unencryptedPublic } from "./PairPage";
 import en from "../locales/en.json";
-import type { EnvironmentDescriptor } from "../lib/session";
 
 const code = "ABCD-EFGH-JK23";
 const render = (initialCode: string | null) => { f.effects = []; return renderToStaticMarkup(createElement(PairPage, { initialCode })); };
@@ -27,7 +26,7 @@ it("in the desktop app, a code the link carried connects at once; a browser stil
   expect(pairsAutomatically(null, true)).toBe(false);
 });
 
-it("opening My Cloud from the app needs no click and no code to type", async () => {
+it("a self-hosted pairing link opens in the desktop app without another click", async () => {
   vi.stubGlobal("window", { ogb: { workspaces: {} } });
   f.pair.mockResolvedValue({ ok: true });
   const html = render(code);
@@ -52,21 +51,10 @@ it("a browser keeps the code in the form for the person to confirm", () => {
   f.effects[0]?.(); expect(f.pair).not.toHaveBeenCalled();
 });
 
-it("My Cloud says where its connection starts, never 'the code shown on the server'", () => {
-  const cloud = pairIntro({ mode: "code", sent: false, email: "", cloudHome: true });
-  expect(cloud).toContain(`choose ${en["cloudHome.connect"]} in the MausBot app`);
-  expect(cloud).toContain(`Settings → ${en["settings.section.cloudAccount"]}`);
-  expect(cloud).toContain("on your Plan page");
-  expect(cloud).not.toContain("from the server");
-  expect(pairIntro({ mode: "code", sent: false, email: "", cloudHome: false })).toContain("from the server");
-  expect(pairIntro({ mode: "email", sent: true, email: "a@b.test", cloudHome: false })).toContain("a@b.test");
-});
-
-it("a team's Cloud is called by the team's name, a person's own Cloud My Cloud", () => {
-  const descriptor = (capabilities: Record<string, unknown>) => ({ environmentId: "e", label: "Acme Labs", platform: "linux", version: "1", capabilities: { remoteSessions: true as const, selfUpdate: "operator" as const, ...capabilities } });
-  expect(pairTitle(descriptor({ cloudHome: true, cloudTeam: true }), "code")).toBe("Acme Labs");
-  expect(pairTitle(descriptor({ cloudHome: true }), "code")).toBe("My Cloud");
-  expect(pairTitle(descriptor({}), "email")).toBe("Sign in to Acme Labs");
+it("explains how to pair with this server", () => {
+  expect(pairIntro({ mode: "code", sent: false, email: "" })).toContain("from the server");
+  expect(pairIntro({ mode: "email", sent: true, email: "a@b.test" })).toContain("a@b.test");
+  expect(pairTitle({ environmentId: "e", label: "Acme Labs", platform: "linux", version: "1", capabilities: { remoteSessions: true, selfUpdate: "operator" } }, "email")).toBe("Sign in to Acme Labs");
   expect(pairTitle(null, "code")).toBe("Connect to this MausBot");
 });
 
@@ -100,19 +88,4 @@ it("asks for the code first, with email sign-in as a link below, and says how to
   expect(html).toContain("openmausbot://pair?address=http%3A%2F%2F203.0.113.9%3A8799&amp;code=ABCD-EFGH-JK23");
   expect(html).toContain("npx openmausbot pair");
   expect(html.indexOf("<form")).toBeLessThan(html.indexOf(en["pair.code"]));
-});
-
-it("a team's Cloud whose session ended offers the way back through MausBot Cloud, as the signed-in session told this browser, and only to an https page", () => {
-  const team = { environmentId: "e", label: "Acme", platform: "linux", version: "1", capabilities: { remoteSessions: true as const, cloudHome: true as const, cloudTeam: true as const } } as unknown as EnvironmentDescriptor;
-  expect(teamPage(team, "https://cloud.openmausbot.com/cloud/team/t1")).toBe("https://cloud.openmausbot.com/cloud/team/t1");
-  expect(teamPage(team, null), "never told before sign-in").toBeNull();
-  for (const bad of ["javascript:alert(1)", "http://evil.example/cloud", "https://u:p@cloud.example/x", "https://cloud.example/x#signin=1", "nope"]) expect(teamPage(team, bad)).toBeNull();
-  expect(teamPage({ ...team, capabilities: { remoteSessions: true, cloudHome: true } } as unknown as EnvironmentDescriptor, "https://cloud.openmausbot.com/cloud/team/t1"), "a My Cloud has no team page").toBeNull();
-  expect(en["pair.team.open"].replace("{team}", "Acme")).toBe("Open Acme with MausBot Cloud");
-});
-
-it("a team's page whose person is no longer in the team says so in one sentence, with nothing to sign in to", () => {
-  const html = renderToStaticMarkup(createElement(TeamLeftPage, { team: "Acme" }));
-  expect(html).toContain("You&#x27;re no longer in Acme.");
-  expect(html).not.toMatch(/<(input|button|a) /);
 });

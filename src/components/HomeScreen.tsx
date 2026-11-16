@@ -11,7 +11,7 @@ const MACHINE: Record<string, LocaleKey> = {
 };
 const UNREACHABLE: Record<string, LocaleKey> = { host: "cloudHome.unreachableHost", no_answer: "cloudHome.unreachable" };
 
-export type HomeAction = "sign-in" | "manage" | "retry";
+export type HomeAction = "manage" | "retry";
 
 /** A day as this person reads it: "November 1", with the year once it isn't this one. */
 export function homeDay(at: number, now = Date.now()): string {
@@ -26,7 +26,7 @@ export function homeScreenText(view: HomeView | null, now = Date.now()): { title
   const named = (plain: LocaleKey, withName: LocaleKey) => (name ? t(withName, { name }) : t(plain));
   if (view?.screen === "setup") return { title: named("homeScreen.setup", "homeScreen.setupNamed"), body: t(view.slow ? "cloudHome.slow" : "homeScreen.setupBody"), reason: null, action: null, busy: true };
   if (view?.screen === "offline") return { title: named("homeScreen.offline", "homeScreen.offlineNamed"), body: t("homeScreen.offlineBack"), reason: view.cause && Object.hasOwn(UNREACHABLE, view.cause) ? t(UNREACHABLE[view.cause]!) : view.reason ?? null, action: "retry", busy: false };
-  if (view?.screen === "signin") return { title: named("homeScreen.signIn", "homeScreen.signInNamed"), body: t(view.other ? "homeScreen.signInOther" : "homeScreen.signInEnded"), reason: null, action: "sign-in", busy: false };
+  if (view?.screen === "signin") return { title: named("homeScreen.signIn", "homeScreen.signInNamed"), body: t(view.other ? "homeScreen.signInOther" : "homeScreen.signInEnded"), reason: null, action: null, busy: false };
   if (view?.screen === "plan" && view.member && view.machine !== "failed") return { title: named("homeScreen.plan", "homeScreen.planNamed"), body: t("cloudHome.stoppedMember"), reason: null, action: null, busy: false };
   if (view?.screen === "plan") return { title: named("homeScreen.plan", "homeScreen.planNamed"), body: t(MACHINE[view.machine] ?? "cloudHome.failed"), reason: null, action: view.machine === "failed" ? null : "manage", busy: false };
   // A Cloud the Admin's list says isn't running: what it is in plain words, with its one fitting action.
@@ -96,26 +96,12 @@ export function HomeScreen({ bridge, manage }: { bridge: HomeBridge; manage?: ()
         {text.body && <p className="text-[14px] leading-relaxed text-ink-secondary">{text.body}</p>}
         {view?.screen === "setup" && <CloudSetupSteps step={view.step ?? "reserving"} />}
         {text.reason && <p data-home-reason className="text-[13px] leading-relaxed text-ink-secondary">{text.reason}</p>}
-        {text.action === "sign-in" && <button type="button" className="ui-button ui-button-primary mt-2" onClick={() => act(() => bridge.signIn())}>{t("homeScreen.signInButton")}</button>}
         {text.action === "manage" && manage && <button type="button" className="ui-button mt-2" onClick={() => act(manage)}>{t("cloudAccount.manageInBrowser")}</button>}
         {text.action === "retry" && <button type="button" data-home-action="retry" className="ui-button mt-2"
           onClick={() => act(() => bridge.retry().then(setView))}>{t("cloudHome.tryAgain")}</button>}
         {removable && <RemoveFromList name={view.name ?? t("cloudSetup.myCloud")} remove={() => bridge.remove!()} />}
         {failed && <p role="alert" className="text-[13px] text-danger">{t("cloudAccount.actionFailed")}</p>}
       </div>
-    </main>
-  );
-}
-
-/** My Cloud's own page in the desktop window, once its session there ended: the app signs it in again by itself, so
- * the page never asks for a code. Anywhere else (a browser, another server) the sign-in page shows as before. */
-export function SignedOutAtHome({ bridge, fallback }: { bridge: Pick<HomeBridge, "repair">; fallback: React.ReactNode }) {
-  const [refused, setRefused] = useState(false);
-  useEffect(() => { void bridge.repair().catch(() => setRefused(true)); }, [bridge]);
-  if (refused) return <>{fallback}</>;
-  return (
-    <main data-home-screen="opening" className="flex min-h-screen items-center justify-center bg-app px-6 text-ink">
-      <p role="status" className="w-full max-w-[420px] text-[20px] font-semibold">{t("homeScreen.opening")}</p>
     </main>
   );
 }

@@ -107,7 +107,7 @@ async function answer(response) {
 /**
  * @param {Omit<Parameters<typeof installCloudSend>[0], "local" | "move"> & {
  *   localRequest(route: string, init?: RequestInit): Promise<Response>,
- *   account(): { state(): any, pairHome(): Promise<{ origin: string, code: string }>, exportHome(): Promise<any> } | null,
+ *   account(): { state(): any, exportHome(): Promise<any> } | null,
  *   journalFile(): string,
  *   tempRoot(): string,
  *   lend?(projects: string[]): Promise<unknown>,
@@ -195,9 +195,10 @@ export function installOneHome({ localRequest: anyServer, clean = null, account,
     return known;
   };
   const target = () => {
-    const client = account(), origin = cloudOrigin() ?? oneHomeCloud(client?.state())?.origin;
-    if (!client || !origin) throw new Error("This computer has no My Cloud yet.");
-    return { origin, grant: () => client.pairHome() };
+    const target = sendDeps.home();
+    const origin = cloudOrigin();
+    if (!target || (origin && target.origin !== origin)) throw new Error("The destination server is unavailable.");
+    return target;
   };
 
   const backupLocal = {

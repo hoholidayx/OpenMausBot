@@ -26,7 +26,6 @@ import {
   Zap,
 } from "lucide-react";
 
-import { accountMenuItems, AccountsSheet, useAccounts } from "./AccountMenu";
 import { accountLine, useAccountSummary } from "./settings/account-summary";
 import { usePhonePlaceState, type PhonePlaceState } from "./settings/phone-status";
 import { useSettingsPlace } from "./settings/settings-place";
@@ -43,9 +42,8 @@ import { useAdvancedMode } from "@/lib/interface-mode";
 import { useAutomationsNeedYou } from "./SidebarFooterNav";
 import { useCloudFilesReady } from "@/lib/cloud-files";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
-import { api, useStore, type Action, type AppSettingsSection } from "@/state/store";
+import { api, useStore, type AppSettingsSection } from "@/state/store";
 import { serverCheckPhase, serverUpdateRow, type ServerUpdateCheck, type ServerUpdatePhase } from "@/lib/server-update";
-import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
 import { updaterMessage, useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { productName } from "../lib/brand";
 import { cloudColor } from "@/lib/cloud-look";
@@ -60,10 +58,7 @@ import { shortcutLabel } from "./ShortcutHint";
 import { useOtherServerName } from "@/lib/other-server";
 import { isOwnerOrAdmin, profileForSession, readSessionState, type SessionState } from "@/lib/session";
 import {
-  cloudPhoneDestination,
   phonePairingSettingsAction,
-  type CloudPhoneDestination,
-  type PhoneDestination,
 } from "@/lib/phone-pairing";
 
 export function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -262,27 +257,6 @@ export function useServerUpdateItem(enabled: boolean): UpdateEntry | null {
   };
 }
 
-export function useCloudPhoneDestination(enabled: boolean): { cloud: CloudPhoneDestination; bridge?: CloudAccountBridge } {
-  const bridge = enabled && !window.ogb?.remoteClient?.active ? window.ogb?.cloudAccount : undefined;
-  const [account, setAccount] = useState<CloudAccountState | null>(null);
-  useEffect(() => {
-    if (!bridge) return;
-    let active = true, updated = false;
-    const unsubscribe = bridge.onState((next) => { updated = true; if (active) setAccount(next); });
-    void bridge.state().then((next) => { if (active && !updated) setAccount(next); }).catch(() => {});
-    return () => { active = false; unsubscribe(); };
-  }, [bridge]);
-  return bridge ? { cloud: cloudPhoneDestination(account), bridge } : { cloud: null };
-}
-
-export function selectPhoneDestination(destination: PhoneDestination, { bridge, dispatch }: { bridge?: Pick<CloudAccountBridge, "connectHomeForPhone">; dispatch: (action: Action) => void }): void {
-  if (destination.id !== "cloud" || !bridge) {
-    dispatch(phonePairingSettingsAction());
-    return;
-  }
-  void bridge.connectHomeForPhone().catch(() => dispatch({ type: "toggleAppSettings", open: true, section: "cloudAccount" }));
-}
-
 /** The menu row's line under Phone & devices: where a phone goes and how it is doing there, in a few words. */
 export function phoneDevicesSubtitle(state: PhonePlaceState, place: string): string {
   switch (state.kind) {
@@ -424,7 +398,7 @@ export interface AccountHeader {
 }
 
 /** One menu for Simple, Advanced and phone width: your account, Phone & devices and Settings, Simple's own places to go,
- * then Plan & billing and Help, with any other accounts and Sign out last. A ready update is raised to the top. */
+ * then Plan & billing and Help, with Sign out last. A ready update is raised to the top. */
 export function profileMenuItems({
   phone,
   update,
@@ -433,7 +407,6 @@ export function profileMenuItems({
   header,
   plan = null,
   switchPlace = null,
-  accounts = [],
   simple,
   onSettings,
   onShortcuts,
@@ -486,12 +459,11 @@ export function profileMenuItems({
   const settings: SidebarMenuItem = { key: "settings", label: t("sidebar.menu.settings"), icon: <SettingsIcon size={16} />, trailing: settingsKeyHint(), onSelect: onSettings };
   const support: SidebarMenuItem = { key: "support", label: t("sidebar.menu.helpShort"), icon: <LifeBuoy size={16} />, submenu: help, onSelect: () => {} };
   const present = (...items: Array<SidebarMenuItem | null | false>) => items.filter((item): item is SidebarMenuItem => Boolean(item));
-  const out: SidebarMenuItem[] = [...accounts.filter((item) => item.key !== "accounts-sign-out"),
-    ...(signOut ? [{ key: "sign-out", label: t("accounts.signOut"), icon: <LogOut size={16} />, onSelect: signOut }]
+  const out: SidebarMenuItem[] = signOut ? [{ key: "sign-out", label: t("accounts.signOut"), icon: <LogOut size={16} />, onSelect: signOut }]
       // The full words, as on Your account; a sentence this long wraps rather than being cut short.
       : signOutElsewhere ? [{ key: "sign-out", label: t("settings.account.fromHere", { place: signOutElsewhere.place }), wrap: true, icon: <LogOut size={16} />,
         trailing: <ArrowUpRight size={12} aria-hidden="true" className="text-ink-tertiary" />, onSelect: signOutElsewhere.open }]
-      : accounts.filter((item) => item.key === "accounts-sign-out"))];
+      : [];
   // Plan & billing follows Settings (Simple's own places sit between them); both modes end with Help, then Sign out.
   const groups = simple
     ? [move, present(raised), [account], present(phone, settings), simple.tools, present(plan, switchPlace), [support], out]
@@ -541,7 +513,7 @@ export function SidebarProfileMenu({ iconOnly = false, rail = false, circle = fa
   } : null;
   const update = desktopUpdate ?? elsewhereUpdate ?? serverUpdate;
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState<"desktop" | "browser" | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
   const [session, setSession] = useState<SessionState | null>(null);
   const triggerRef = useRef<HTMLSpanElement>(null);
 
@@ -563,7 +535,6 @@ export function SidebarProfileMenu({ iconOnly = false, rail = false, circle = fa
     : state.config?.cloudHome === true && !state.config?.team && isOwnerOrAdmin(session));
   const openSettings = (section: AppSettingsSection) => dispatch({ type: "toggleAppSettings", open: true, section });
   const move = useAccountMove(state.config?.cloudHome === true, { onOpen: () => openSettings("plan"), onPairPhone: () => dispatch(phonePairingSettingsAction()) });
-  const accounts = useAccounts();
   const openSource = desktop && !window.ogb?.cloudAccount && !window.ogb?.cloudPlan;
   const planLine = !desktop ? undefined : cloudUsage ? t("sidebar.menu.plan.used", { plan: summary.plan ?? cloudPlanLabel(planSnapshot?.tier), percent: cloudUsage.value.replace(/\D+/g, "") })
     : summary.signedIn === false || summary.plan === t("settings.account.free") ? undefined : summary.plan ?? undefined;
@@ -582,7 +553,6 @@ export function SidebarProfileMenu({ iconOnly = false, rail = false, circle = fa
     plan: planHere ? { key: "plan", label: t("settings.page.plan"), ...(planLine ? { subtitle: planLine } : {}), icon: <CreditCard size={16} />, onSelect: () => openSettings("plan") } : null,
     switchPlace: !besideRail && desktop && !remote && window.ogb?.workspaces && account?.place.switchable
       ? { key: "switch-place", label: t("sidebar.menu.switchPlace"), icon: <ArrowLeftRight size={16} />, chevron: true, onSelect: account.place.openMenu } : null,
-    accounts: accountMenuItems(accounts),
     // Simple's own places to go, at every width: the phone's round avatar has them too.
     ...(account || (circle && !advancedMode) ? { simple: {
       tools: toolMenuItems({
@@ -605,10 +575,7 @@ export function SidebarProfileMenu({ iconOnly = false, rail = false, circle = fa
     onFeedback: () => void openExternalLink(FEEDBACK_URL),
     onWhatsNew: () => void openExternalLink(RELEASES_URL),
     // Every Sign out asks first: "Sign out of MausBot?" and what keeps running.
-    signOut: accounts.view?.active ? null
-      : !desktop && session?.kind === "session" ? () => setSigningOut("browser")
-      : desktop && !remote && window.ogb?.cloudAccount && summary.signedIn ? () => setSigningOut("desktop")
-      : null,
+    signOut: !desktop && session?.kind === "session" ? () => setSigningOut(true) : null,
     signOutElsewhere: desktop && !remote && !here && !window.ogb?.cloudAccount && summary.signedIn && openComputer
       ? { place: t("rail.thisComputer"), open: () => void openComputer("account").catch(() => {}) } : null,
   });
@@ -686,12 +653,8 @@ export function SidebarProfileMenu({ iconOnly = false, rail = false, circle = fa
         )}
       />
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
-      {signingOut && <SignOutConfirm browser={signingOut === "browser"} here={signingOut === "browser" ? place.name : t("rail.thisComputer")}
-        cloud={signingOut === "desktop" && summary.plan ? t("cloudSetup.myCloud") : null} onClose={() => setSigningOut(null)}
-        onConfirm={() => signingOut === "browser"
-          ? api("/api/auth/logout", { method: "POST" }).finally(() => location.reload())
-          : window.ogb?.cloudAccount?.signOut()} />}
-      {accounts.sheet && <AccountsSheet adding={accounts.sheet.email} note={accounts.sheet.note} onClose={accounts.closeSheet} />}
+      {signingOut && <SignOutConfirm browser here={place.name} cloud={null} onClose={() => setSigningOut(false)}
+        onConfirm={() => api("/api/auth/logout", { method: "POST" }).finally(() => location.reload())} />}
     </>
   );
 }

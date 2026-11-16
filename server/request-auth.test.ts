@@ -492,20 +492,15 @@ describe("resolveRequestAuth", () => {
 
   it("takes a moved Cloud home's configured former address as its own, and no other, whatever X-Forwarded-Host says", () => {
     const token = pairedToken();
-    const { credential } = sessions.openPairing({ browser: true, owner: "ada@example.test" });
-    const browser = sessions.exchange({ code: credential, label: "Chrome on Mac", source: "1.2.3.4", browser: true });
-    if (!browser.ok) throw new Error(browser.error);
     // What the old address's forwarder sends: Host rewritten to this home's name, the page's own Origin kept.
     const forwarded = (origin: string, cookie = token, extra: Record<string, string> = {}) => ({
       host: "omb-u-1.homes.example", "x-forwarded-proto": "https", "x-forwarded-for": "203.0.113.9", "x-forwarded-host": "omb-u-1.fly.dev",
       cookie: `${cookieName}=${cookie}`, origin, ...extra,
     });
-    const page = { "sec-fetch-site": "same-origin", "sec-fetch-dest": "empty" };
     try {
       acceptLegacyOrigins(["https://omb-u-1.fly.dev"]);
       expect(resolve(forwarded("https://omb-u-1.fly.dev"), "/api/bots", "POST").auth?.kind).toBe("session");
       expect(resolve(forwarded("https://OMB-U-1.fly.dev "), "/api/bots", "POST").auth?.kind).toBe("session");
-      expect(resolve(forwarded("https://omb-u-1.fly.dev", browser.token, page), "/api/bots", "POST").auth?.kind).toBe("session");
       expect(resolve(forwarded("https://omb-u-1.fly.dev"), "/api/events").auth?.kind).toBe("session");
       expect(isSameOrigin(request({ host: "omb-u-1.homes.example", "x-forwarded-proto": "https", origin: "https://omb-u-1.fly.dev", upgrade: "websocket" }))).toBe(true);
       expect(provesSameOrigin(request({ host: "omb-u-1.homes.example", "x-forwarded-proto": "https", origin: "https://omb-u-1.fly.dev" }))).toBe(true);
@@ -526,10 +521,11 @@ describe("resolveRequestAuth", () => {
   });
 
   it("lets a browser sign-in's session make changes only when the browser says the request is its own page's", () => {
-    const { credential } = sessions.openPairing({ browser: true, owner: "ada@example.test" });
-    const signedIn = sessions.exchange({ code: credential, label: "Chrome on Mac", source: "1.2.3.4", browser: true });
-    if (!signedIn.ok) throw new Error(signedIn.error);
-    const cookie = `${cookieName}=${signedIn.token}`;
+    const token = pairedToken();
+    const session = sessions.authenticate(token);
+    if (!session) throw new Error("fixture did not pair");
+    session.cookieOnly = true;
+    const cookie = `${cookieName}=${token}`;
     const cloud = { host: "omb-u-0123456789ab.fly.dev", "x-forwarded-proto": "https", cookie };
     expect(resolve(cloud).auth?.kind).toBe("session");
     expect(resolve({ ...cloud, origin: "https://omb-u-0123456789ab.fly.dev" }, "/api/bots", "POST").auth?.kind).toBe("session");

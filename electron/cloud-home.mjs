@@ -13,8 +13,6 @@ export const CLOUD_MACHINE_CONNECTABLE = Object.freeze(["ready"]);
 const ADMIN_STATES = Object.freeze({
   setting_up: "provisioning", ready: "ready", stopped: "stopped", payment_problem: "payment-problem", failed: "failed",
 });
-const CODE = /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/;
-const MAX_GRANT_MS = 10 * 60_000;
 
 export function homeOrigin(value) {
   if (typeof value !== "string" || value.length > 300) return null;
@@ -183,22 +181,6 @@ export function rememberedCloudHome(previous, state) {
   return previous?.accountId === accountId ? previous : null;
 }
 
-/** Signs this app back in to the person's own Cloud when its session there has ended (unused for a month, or signed out
- * there), so lending resumes by itself: a fresh one-time code from the Admin for the Cloud it verified, redeemed into the
- * window's own cookie, as opening My Cloud does. Never for any other origin. */
-export async function signInCloudSession({ origin, mine, pair, fetch: fetchImpl }) {
-  if (!origin || origin !== mine) return false;
-  try {
-    const grant = await pair();
-    if (grant?.origin !== origin || typeof grant.code !== "string") return false;
-    const response = await fetchImpl(`${origin}/api/auth/pair`, {
-      method: "POST", credentials: "include", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(15_000),
-      headers: { "content-type": "application/json", origin }, body: JSON.stringify({ code: grant.code, cookie: true, label: "OpenMausBot app (lending)" }),
-    });
-    return response.ok;
-  } catch { return false; }
-}
-
 /** The one rule for "this page is my Cloud".
  *
  * @param {{ account: { homeTarget(): { origin: string } | null, state(): { account?: { id: string } } } | null,
@@ -251,13 +233,6 @@ export function parseCloudLanding(input, teams) {
   return teamId && teams.some((team) => team.id === teamId) ? { teamId } : null;
 }
 
-export function parsePairingGrant(input, origin, now) {
-  if (!input || typeof input !== "object" || input.cloudContractVersion !== 1 || input.origin !== origin) return null;
-  if (typeof input.code !== "string" || !CODE.test(input.code)) return null;
-  if (!Number.isSafeInteger(input.expiresAt) || input.expiresAt <= now || input.expiresAt > now + MAX_GRANT_MS) return null;
-  return { origin, code: input.code, expiresAt: input.expiresAt };
-}
-
 /** Listed once, under the name and colour its owner chose while it was set up (`look`), else My Cloud; never renamed here after. */
 export function withCloudHome(state, machine, makeId, look = null) {
   if (!machine?.origin || machine.status === "provisioning") return state;
@@ -265,19 +240,6 @@ export function withCloudHome(state, machine, makeId, look = null) {
   const added = environments.withEnvironment(state, { origin: machine.origin, name: look?.name || CLOUD_HOME_NAME }, makeId);
   const color = environments.ENTRY_COLORS.includes(look?.color) ? look.color : null;
   return { ...added, environments: added.environments.map((entry) => entry.origin === machine.origin ? { ...entry, ...(color ? { color } : {}), home: true } : entry) };
-}
-
-/** The one-time code goes in the hash, never a query. `route`: a path of the Cloud's own to land on after signing in. */
-export function cloudHomeConnectUrl(target, now, open = null, route = null) {
-  const params = new URLSearchParams(open === "phone" ? { "desktop-settings": "phone", pair: "open" } : {});
-  const back = typeof route === "string" && /^\/(?!\/)/.test(route) ? route : null;
-  if (target.grant && target.grant.origin === target.origin && target.grant.expiresAt > now) {
-    if (back) params.set("next", back);
-    const query = params.size ? `?${params}` : "";
-    return `${target.origin}/pair${query}#code=${target.grant.code}`;
-  }
-  if (back) return `${target.origin}${back}`;
-  return params.size ? `${target.origin}/?${params}` : target.origin;
 }
 
 /** Only the verified Cloud, open as this window's active server, in the main window's main frame. */

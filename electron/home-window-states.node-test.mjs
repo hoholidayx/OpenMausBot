@@ -144,23 +144,6 @@ test("My Cloud ending sends home only a computer that moved to that Cloud", asyn
   assert.deepEqual(unnamed.home.current(), { kind: "computer" }, "a hold that names no address is taken for the Cloud moved to");
 });
 
-test("Sign in never dead-ends: another account's sign-in ends first, then the browser signs in; one still good only looks again; one open in the browser opens again", async () => {
-  const other = world({ state: { ...connected(), account: { id: "acct-2", email: "else@example.test" } } });
-  await other.home.show();
-  assert.deepEqual(other.home.view(), { screen: "signin", other: true });
-  await other.home.signIn();
-  assert.deepEqual(other.signIns, ["out", "begin"]);
-  const good = world({ journal: null, marker: { frozen: true, cloud: MOVED_TO }, state: { ...connected(), clouds: [] } });
-  await good.home.show();
-  good.state = { ...good.state, clouds: [{ ...CLIENT_A, origin: MOVED_TO }] };
-  await good.home.signIn();
-  assert.deepEqual(good.signIns, [], "the same account never signs out");
-  assert.deepEqual(good.home.current(), { kind: "cloud", origin: MOVED_TO }, "it looked again");
-  const opening = world({ state: { status: "connecting", account: null } });
-  await opening.home.signIn();
-  assert.deepEqual(opening.signIns, ["reopen"]);
-});
-
 test("what a launch may open now, by the session's word alone: a running Cloud or team yes; one ended, set up, held, gone or without an address no; nothing while signed out", async () => {
   const w = world({ state: { ...connected(), teams: [ACME], clouds: [CLIENT_A, { ...CLIENT_A, id: "c-ended", status: "ended" }, { ...CLIENT_A, id: "c-setup", status: "setting_up", origin: null, setup: { step: "starting" } }] } });
   await w.home.refresh();

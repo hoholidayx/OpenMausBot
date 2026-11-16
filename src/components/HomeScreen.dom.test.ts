@@ -10,7 +10,7 @@ import { HomeScreen } from "./HomeScreen";
 let host: HTMLDivElement, root: Root | null = null;
 const settle = () => act(async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); });
 function bridgeOf(view: HomeView, remove?: HomeBridge["remove"]) {
-  return { state: vi.fn(async () => view), onState: vi.fn(() => () => {}), retry: vi.fn(async () => view), signIn: vi.fn(async () => {}), repair: vi.fn(async () => {}),
+  return { state: vi.fn(async () => view), onState: vi.fn(() => () => {}), retry: vi.fn(async () => view),
     ...(remove ? { remove } : {}) } satisfies HomeBridge;
 }
 async function mount(bridge: HomeBridge, manage?: () => Promise<void>) {

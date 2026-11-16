@@ -1,4 +1,16 @@
-import { cloudPlanSnapshot } from "./cloud-account.mjs";
+/** What the person's own Cloud page may show of the plan: never the account, a credential or an address. */
+export function cloudPlanSnapshot(state, { notice = null } = {}) {
+  const tier = state?.status === "connected" ? state.entitlement?.tier : state?.lastPlan?.tier;
+  const named = typeof tier === "string" ? { tier } : {};
+  const trial = state?.status === "connected"
+    ? { ...(state.trial ? { trial: state.trial } : {}), ...(state.credit ? { credit: state.credit } : {}), ...(notice && state.trial ? { notice } : {}),
+      ...(state.machine?.power?.sleeps ? { sleeps: true } : {}), ...(state.usage ? { usage: state.usage } : {}), ...(state.room ? { room: state.room } : {}),
+      ...(state.renewal ? { renewal: state.renewal } : {}) } : {};
+  if (state?.status === "connected" && state.entitlement?.plan === "pro") return { status: state.entitlement.status === "active" ? "paid" : "attention", ...named, ...trial };
+  if (state?.status === "reauth-required") return { status: "signin", ...(state.lastPlan ? { tier: state.lastPlan.tier ?? "pro" } : {}) };
+  if (state?.status !== "connected" && state?.lastPlan) return { status: "checking", ...named };
+  return { status: "none", ...trial };
+}
 
 /** Another Cloud of the person's own, as its page may see its plan: its tier and whether it runs, from the session's list. */
 export function otherCloudSnapshot(cloud) {

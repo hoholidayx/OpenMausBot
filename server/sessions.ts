@@ -117,9 +117,6 @@ export interface PairingCode {
   label: string;
   createdAt: number;
   expiresAt: number;
-  /** Only a browser sign-in redeems it, only by its credential, and a browser sign-in redeems no other window. */
-  browser?: true;
-  owner?: string;
   /** A Team Cloud's pairing: the Admin's signed member claim, bound to the session it opens. */
   member?: TeamMember;
   /** A code a member made from their own session: when the Admin last vouched for them. Absent on the Admin's own. */
@@ -237,7 +234,7 @@ export class SessionRegistry {
   private tickets = new Map<string, { sessionId: string; expiresAt: number }>();
   private failures: Failures = new Map();
   private codeFailures: Failures = new Map();
-  private replays: Array<{ codeHash: string; attemptId: string; browser: boolean; result: ExchangeResult; expiresAt: number }> = [];
+  private replays: Array<{ codeHash: string; attemptId: string; result: ExchangeResult; expiresAt: number }> = [];
   private readonly onRevoked = new Set<(sessionId: string) => void>();
   private readonly onIssued = new Set<(session: Pick<SessionRecord, "id" | "scopes" | "email" | "teamRole" | "membershipAuthority">) => void>();
   private lastSeenWrites = new Map<string, number>();
@@ -364,7 +361,7 @@ export class SessionRegistry {
     }
   }
 
-  openPairing(input: { scopes?: Scope[]; label?: string; ttlMs?: number; tokenTtlMs?: number; browser?: boolean; owner?: string; member?: TeamMember; memberCheckedAt?: number } = {}): { id: string; code: string; credential: string; expiresAt: number } {
+  openPairing(input: { scopes?: Scope[]; label?: string; ttlMs?: number; tokenTtlMs?: number; member?: TeamMember; memberCheckedAt?: number } = {}): { id: string; code: string; credential: string; expiresAt: number } {
     this.prune();
     const now = this.now();
     const code = generatePairingCode();
@@ -379,9 +376,8 @@ export class SessionRegistry {
       label: (input.label ?? "").trim().slice(0, 80),
       createdAt: now,
       expiresAt: now + (input.ttlMs ?? PAIRING_CODE_TTL_MS),
-      ...(input.browser ? { browser: true as const, ...(input.owner ? { owner: input.owner } : {}) } : {}),
       ...(input.member ? { member: input.member, ...(input.memberCheckedAt !== undefined ? { memberCheckedAt: input.memberCheckedAt } : {}) } : {}),
-      ...(input.tokenTtlMs !== undefined && !input.browser && !input.member ? { tokenTtlMs: input.tokenTtlMs } : {}),
+      ...(input.tokenTtlMs !== undefined && !input.member ? { tokenTtlMs: input.tokenTtlMs } : {}),
     };
     this.pairings.push(pairing);
     return { id: pairing.id, code, credential, expiresAt: pairing.expiresAt };
@@ -390,15 +386,6 @@ export class SessionRegistry {
   openPairings(): PublicPairing[] {
     this.prune();
     return this.pairings.map((p) => ({ id: p.id, label: p.label, scopes: [...p.scopes], createdAt: p.createdAt, expiresAt: p.expiresAt }));
-  }
-
-  /** Only a browser sign-in's 256-bit credential matches, so this consumes nothing and counts toward no lockout. */
-  previewBrowserSignIn(credential: string): { owner: string | null; expiresAt: number } | null {
-    this.prune();
-    if (!isPairingCredential(credential)) return null;
-    const presented = sha256(credential);
-    const pairing = this.pairings.find((p) => p.browser === true && sameDigest(p.credentialHash, presented));
-    return pairing ? { owner: pairing.owner ?? null, expiresAt: pairing.expiresAt } : null;
   }
 
   cancelPairing(id: string): boolean {
@@ -440,20 +427,19 @@ export class SessionRegistry {
     this.recordFailure(this.codeFailures, PAIRING_LOCKOUT, UNNAMED_SOURCES);
     const entry = this.codeFailures.get(UNNAMED_SOURCES);
     if (!entry || entry.lockedUntil <= this.now()) return;
-    this.pairings = this.pairings.filter((p) => p.browser === true);
+    this.pairings = [];
     this.codeFailures.delete(UNNAMED_SOURCES);
   }
 
-  exchange(input: { code: string; label: string; source: string; fallbackLabel?: string; attemptId?: string; browser?: boolean }): ExchangeResult {
+  exchange(input: { code: string; label: string; source: string; fallbackLabel?: string; attemptId?: string }): ExchangeResult {
     this.prune();
     const now = this.now();
     const read = readPairingInput(input.code);
     if (read.kind === "wrong" && read.problem !== "notACode") return { ok: false, status: 400, code: PAIRING_INPUT_PROBLEM_CODE[read.problem], ...userError(PAIRING_INPUT_PROBLEM_KEY[read.problem]) };
     // A credential is hashed as presented: normalizePairingCode folds 0 to O and 1 to I, which would merge distinct secrets.
     const presented = sha256(read.kind === "credential" ? read.credential : read.kind === "code" ? read.code : normalizePairingCode(input.code));
-    const browser = input.browser === true;
     const attemptId = typeof input.attemptId === "string" && /^[\w-]{8,64}$/.test(input.attemptId) ? input.attemptId : null;
-    const replay = attemptId ? this.replays.find((r) => r.attemptId === attemptId && r.browser === browser && sameDigest(r.codeHash, presented)) : undefined;
+    const replay = attemptId ? this.replays.find((r) => r.attemptId === attemptId && sameDigest(r.codeHash, presented)) : undefined;
     if (replay) return replay.result;
     const unnamed = unnamedSource(input.source);
     const lock = unnamed ? { locked: false, retryAfterMs: 0 } : this.lockState(this.codeFailures, input.source);
@@ -461,8 +447,7 @@ export class SessionRegistry {
       const until = now + lock.retryAfterMs;
       return { ok: false, status: 429, code: "pairing_too_many", ...userError("serverError.pair.tooMany", { seconds: Math.ceil(lock.retryAfterMs / 1000), until, time: utcClock(until) }) };
     }
-    const index = this.pairings.findIndex((p) => (p.browser === true) === browser &&
-      (sameDigest(p.credentialHash, presented) || (!p.browser && sameDigest(p.codeHash, presented))));
+    const index = this.pairings.findIndex((p) => sameDigest(p.credentialHash, presented) || sameDigest(p.codeHash, presented));
     if (index < 0) {
       if (unnamed) this.wrongFromUnnamed();
       else this.recordFailure(this.codeFailures, PAIRING_LOCKOUT, input.source);
@@ -482,7 +467,6 @@ export class SessionRegistry {
       lastSeenAt: now,
       expiresAt: pairing.member ? teamSessionExpiresAt(checkedAt, now + SESSION_TTL_MS) : now + Math.min(pairing.tokenTtlMs ?? SESSION_TTL_MS, SESSION_MAX_AGE_MS),
       ...(pairing.tokenTtlMs !== undefined ? { token: true as const } : {}),
-      ...(pairing.browser ? { cookieOnly: true as const, ...(pairing.owner ? { owner: pairing.owner } : {}) } : {}),
       ...(pairing.member ? { email: pairing.member.email, teamRole: pairing.member.role, membershipAuthority: "team" as const } : {}),
       ...(pairing.member && pairing.memberCheckedAt !== undefined ? { memberCheckedAt: pairing.memberCheckedAt } : {}),
     };
@@ -492,7 +476,7 @@ export class SessionRegistry {
     this.persist();
     for (const listener of this.onIssued) listener(record);
     const result: ExchangeResult = { ok: true, token, session: publicSession(record) };
-    if (attemptId) this.replays.push({ codeHash: presented, attemptId, browser, result, expiresAt: now + EXCHANGE_REPLAY_MS });
+    if (attemptId) this.replays.push({ codeHash: presented, attemptId, result, expiresAt: now + EXCHANGE_REPLAY_MS });
     return result;
   }
 
@@ -715,10 +699,10 @@ export class SessionRegistry {
     return this.sessions.filter((s) => ids.has(s.id) && !s.cookieOnly && !this.personal(s.scopes)).map((s) => ({ id: s.id, tokenHash: s.tokenHash }));
   }
 
-  /** The credential digests of the newest open pairing windows a device may redeem (never a browser sign-in's). */
+  /** The credential digests of the newest open pairing windows a device may redeem. */
   pairingDigests(max: number): string[] {
     this.prune();
-    return this.pairings.filter((p) => !p.browser).sort((a, b) => b.createdAt - a.createdAt).slice(0, max).map((p) => p.credentialHash);
+    return [...this.pairings].sort((a, b) => b.createdAt - a.createdAt).slice(0, max).map((p) => p.credentialHash);
   }
 
   /** The live sessions a Team Cloud member's own codes opened: their phones. Never an Admin-signed pairing (an app). */

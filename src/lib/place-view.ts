@@ -147,12 +147,6 @@ export function openPlaceAction(
       appSettings("cloudAccount");
       return true;
     }
-    case "open-my-cloud": {
-      const desktop = window.ogb?.remoteClient?.active ? undefined : window.ogb?.cloudAccount;
-      if (desktop) void desktop.connectHome().catch(() => {});
-      else appSettings("cloudAccount");
-      return true;
-    }
     case "clear-pin":
       if (!target.threadId) return false;
       dispatch({ type: "updateTask", botId: target.botId, threadId: target.threadId, patch: { surface: null } });

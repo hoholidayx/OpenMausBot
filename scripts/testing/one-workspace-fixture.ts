@@ -25,7 +25,7 @@ import capabilities from "../../electron/capabilities.cjs";
 import { chatLinkFrom } from "../../electron/chat-link.mjs";
 import { createCleanWorkspace } from "../../electron/clean-workspace.mjs";
 import { createLocalProfiles, createProfileRegistry } from "../../electron/local-profiles.mjs";
-import { parsePairingGrant, withCloudHome } from "../../electron/cloud-home.mjs";
+import { withCloudHome } from "../../electron/cloud-home.mjs";
 import { installCloudRail, railPlaces } from "../../electron/cloud-rail.mjs";
 import { createComputerSharing } from "../../electron/computer-sharing.mjs";
 import { createLendingTarget } from "../../electron/lending-target.mjs";
@@ -510,8 +510,10 @@ export async function launchHomeWorld(fx: CloudSendFixture, { chrome, versionEve
     if (network.down) throw new TypeError("fetch failed");
     const response = await fetch(`${ipcBase}/api/cloud/desktop/teams/${encodeURIComponent(teamId)}/pairing`, { method: "POST", headers: { authorization: "Bearer omc_fixture" } });
     if (!response.ok) throw Object.assign(new Error("Cloud request failed."), { status: response.status, ...(response.status === 404 ? { gone: true } : {}) });
-    const grant = parsePairingGrant(await response.json(), teamOrigin, Date.now());
-    if (!grant) throw new Error("Invalid Cloud pairing response.");
+    const grant = await response.json();
+    if (grant?.origin !== teamOrigin || typeof grant.code !== "string" || !Number.isSafeInteger(grant.expiresAt) || grant.expiresAt <= Date.now()) {
+      throw new Error("Invalid Cloud pairing response.");
+    }
     return grant;
   };
   const client = {
@@ -606,7 +608,7 @@ export async function launchHomeWorld(fx: CloudSendFixture, { chrome, versionEve
   const launchHome = () => {
     const made = makeHome();
     homeRef = made;
-    installHomeWindowIpc({ ipcMain, homeWindow: made, cloudPage: (event: any) => (made.homePage(event) ? "cloud" : null) });
+    installHomeWindowIpc({ ipcMain, homeWindow: made });
     return made;
   };
   let home = launchHome();

@@ -535,7 +535,6 @@ it("a server of the person's own that main offers as home: its menu's one tap st
 });
 
 const ALICE = "alice@example.test", BOB = "bob@example.test";
-const accounts = { list: vi.fn(async () => ({ active: { id: "a", email: ALICE } })), onChanged: vi.fn(() => () => {}), signOut: vi.fn(), addStart: vi.fn(), addVerify: vi.fn(), addBrowser: vi.fn(), addReopen: vi.fn(), addCancel: vi.fn(async () => {}) };
 const TWO_ACCOUNTS: RailPlace[] = [
   place("local", "This computer", { kind: "computer", active: true }),
   place("a1", "My Cloud", { color: "purple", group: "active", email: ALICE }),
@@ -561,30 +560,6 @@ it("several accounts: a thin divider between groups, This computer first, and ea
   expect(host.querySelector('[data-rail-place="b1"]')?.getAttribute("title")).toBe(`My Cloud · ${BOB}`);
   expect(host.querySelector('[data-rail-place="vps"]')?.getAttribute("title")).toBe("Office");
   expect(host.querySelector('[data-rail-place="account:c"]')?.getAttribute("title")).toBe("carol@example.test");
-});
-
-it("a click on another account's place asks main by its id; a refusal shows the plain line, and nothing else moves", async () => {
-  rail = { places: TWO_ACCOUNTS, add: { cloud: true, link: true, address: false } };
-  Object.assign(window, { ogb: { workspaces, cloudAdd, accounts } });
-  workspaces.open.mockResolvedValueOnce({ outcome: "moving" } as never);
-  await mount(createElement(PlacesRail));
-  await click(host.querySelector('[data-rail-place="b1"]'));
-  await act(async () => { await Promise.resolve(); });
-  expect(workspaces.open.mock.calls).toEqual([["b1"]]);
-  expect(document.querySelector("[data-accounts-note]")?.textContent).toContain("moving to the Cloud");
-  expect(document.querySelector("[data-accounts-sign-out]")).toBeNull();
-});
-
-it("a saved account whose sign-in ended: its tile says so, and a click opens the emailed code for that address", async () => {
-  const ended = TWO_ACCOUNTS.map((row) => (row.id === "b1" ? { ...row, signIn: true as const } : row));
-  rail = { places: ended, add: { cloud: true, link: true, address: false } };
-  Object.assign(window, { ogb: { workspaces, cloudAdd, accounts } });
-  workspaces.open.mockResolvedValueOnce({ outcome: "sign-in", email: BOB } as never);
-  await mount(createElement(PlacesRail));
-  expect(host.querySelector('[data-rail-place="b1"]')?.getAttribute("title")).toBe(`My Cloud · ${BOB} · Sign in again`);
-  await click(host.querySelector('[data-rail-place="b1"]'));
-  await act(async () => { await Promise.resolve(); });
-  expect((document.querySelector("#cloud-add-email") as HTMLInputElement | null)?.value).toBe(BOB);
 });
 
 it("past eight, ⋯ keeps the groups, each under its address, and search finds a place by its account's address", async () => {

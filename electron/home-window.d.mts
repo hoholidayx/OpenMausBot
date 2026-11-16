@@ -24,10 +24,6 @@ export interface HomeBridge {
   retry(): Promise<HomeView>;
   /** This computer's screen only, once the person said yes there: the Cloud it shows leaves their list (absent: an older app). */
   remove?(): Promise<import("./cloud-account.mjs").CloudRemoveOutcome>;
-  /** This device's MausBot Cloud sign-in, again; on My Cloud's page only from the person's click. */
-  signIn(): Promise<void>;
-  /** My Cloud's own page only: its session ended, so the app signs it in again by itself. */
-  repair(): Promise<void>;
   /** My Cloud's own page only: the window reloaded it just now for its newer version. */
   updating?: boolean;
 }
@@ -56,9 +52,6 @@ export declare const VERSION_EVERY_MS: number;
 export declare const SPLASH_HANDOFF_MS: number;
 export declare const UPDATING_MS: number;
 export declare const SPLASH_TEXT: Readonly<{ opening: string; waking: string }>;
-export declare const TEAM_RENEW_MS: number;
-export declare const TEAM_RENEW_EARLY_MS: number;
-export declare const TEAM_RENEW_RETRY_MS: number;
 export declare const FRESH_MS: number;
 export declare const NAME_WAIT_MS: number;
 export declare const NAME_RETRY_MS: readonly number[];
@@ -94,26 +87,20 @@ export interface HomeWindow {
   current(): Home;
   shown(): HomePlace | null;
   retry(): Promise<unknown>;
-  signIn(): Promise<void>;
-  repair(): Promise<void>;
   changed(): Promise<void>;
-  responded(details: { url: string; statusCode: number; webContentsId?: number }): void;
   navigated(url: string): void;
   failed(url: string, code?: number): boolean;
   homePage(event: unknown): boolean;
   /** Asked once by the home page as it loads: the window reloaded it just now for its newer version. */
   updating(event: unknown): boolean;
   screenPage(event: unknown): boolean;
-  /** Signs the team on screen in again now, without moving the page. */
-  renew(): Promise<void>;
   close(): void;
 }
 
 export function createHomeWindow(deps: {
   journal(): unknown;
   frozen(): Promise<{ frozen: boolean; cloud?: string; place?: string } | null>;
-  account(): { state(): any; power(): any; wakeHome(): Promise<unknown>; setWaking(on: boolean): void; pairHome(cloudId?: string | null): Promise<{ origin: string; code: string; expiresAt: number }>;
-    pairTeam?(teamId: string): Promise<{ origin: string; code: string; expiresAt: number }>; signInAgain(): Promise<unknown>; begin(): Promise<unknown>; signOut?(): Promise<unknown>; reopen?(): Promise<unknown>;
+  account(): { state(): any; power(): any; wakeHome(): Promise<unknown>; setWaking(on: boolean): void;
     hideCloud?(cloudId: string): Promise<{ outcome: import("./cloud-account.mjs").CloudRemoveOutcome }> } | null;
   restored?(): Promise<unknown>;
   window(): WindowLike | null;
@@ -147,5 +134,4 @@ export function createHomeWindow(deps: {
 export function installHomeWindowIpc(deps: {
   ipcMain: { handle(channel: string, handler: (event: any, ...args: any[]) => unknown): void; on(channel: string, listener: (event: any) => void): void };
   homeWindow: HomeWindow;
-  cloudPage(event: unknown): "local" | "cloud" | null;
 }): void;

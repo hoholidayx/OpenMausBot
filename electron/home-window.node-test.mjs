@@ -3,13 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 
-import { cloudPlanSnapshot } from "./cloud-account.mjs";
-import { installCloudPlanIpc } from "./cloud-plan-ipc.mjs";
-import { cloudPageSenderAllowed, myCloudOrigin } from "./cloud-home.mjs";
-import { otherOwnClouds } from "./cloud-list.mjs";
+import { cloudPageSenderAllowed } from "./cloud-home.mjs";
 import environments from "./environments.cjs";
-import localOrigin from "./local-origin.cjs";
-import { HOME_SCREEN_PATH, homeOf, installHomeWindowIpc, LOOK_MS, OPEN_MS, placeOf, QUIET_MS, routeOf, SPLASH_TEXT, splashText, TEAM_RENEW_EARLY_MS, TEAM_RENEW_MS, TEAM_RENEW_RETRY_MS, UPDATING_MS } from "./home-window.mjs";
+import { HOME_SCREEN_PATH, homeOf, installHomeWindowIpc, LOOK_MS, OPEN_MS, placeOf, QUIET_MS, SPLASH_TEXT, splashText, UPDATING_MS } from "./home-window.mjs";
 import { ACCOUNT, ACME, CLIENT, CLIENT_A, CLOUD, connected, done, LOCAL, TEAM, world } from "./fixtures/home-window-world.mjs";
 
 /** Everything already queued runs before this comes back: what the fake clock's callbacks left to flush. */
@@ -125,14 +121,6 @@ test("a frozen copy left on this computer's own page goes back to the server it 
   assert.equal(elsewhere.url, "https://studio.example.test/", "the window stays where it is");
 });
 
-test("a sign-in keeps only a path of My Cloud's own", () => {
-  assert.equal(routeOf(`${CLOUD}/chats/b1?view=2#x`, CLOUD), "/chats/b1?view=2");
-  assert.equal(routeOf(`${CLOUD}/`, CLOUD), null);
-  assert.equal(routeOf(`${CLOUD}/pair#code=AAAA-BBBB-CCCC`, CLOUD), null);
-  assert.equal(routeOf("https://evil.example.test/chats", CLOUD), null);
-  assert.equal(routeOf("not a url", CLOUD), null);
-});
-
 
 test("no Cloud: the window is this computer's as before, and nothing asks any Cloud or the Admin", async () => {
   const w = world({ journal: null, state: { status: "signed-out" }, url: `${LOCAL}/` });
@@ -178,65 +166,6 @@ test("launching with My Cloud asleep says Waking My Cloud… and wakes it throug
   assert.equal(w.fetched.some(([route]) => route === "/api/health"), false, "a sleeping Cloud is never looked at");
   assert.deepEqual(w.went, [[CLOUD, CLOUD]]);
   assert.ok(w.calls.includes("woke"));
-});
-
-test("a lapsed cookie: a new session from the Admin's one-time code, so the page never asks for one", async () => {
-  const w = world({ cloud: { signedIn: false } });
-  await w.home.show();
-  assert.equal(w.pairs, 1);
-  assert.deepEqual(w.went, [[`${CLOUD}/pair#code=AAAA-BBBB-CCCC`, CLOUD]]);
-});
-
-test("a session that ends while the page is open is renewed by itself, back on the same page", async () => {
-  const w = world();
-  await w.home.show();
-  w.url = `${CLOUD}/chats/b1`;
-  w.cloud.signedIn = false;
-  w.home.responded({ url: `${CLOUD}/api/bots`, statusCode: 401, webContentsId: 7 });
-  await w.home.repair();
-  assert.deepEqual(w.went.at(-1), [`${CLOUD}/pair?next=%2Fchats%2Fb1#code=AAAA-BBBB-CCCC`, CLOUD]);
-  const pairs = w.pairs;
-  for (const details of [{ url: `${CLOUD}/api/bots`, statusCode: 401, webContentsId: 8 }, { url: "https://other.example.test/api/bots", statusCode: 401, webContentsId: 7 },
-    { url: `${CLOUD}/api/bots`, statusCode: 403, webContentsId: 7 }, { url: `${CLOUD}/assets/x.js`, statusCode: 401, webContentsId: 7 }]) {
-    w.home.responded(details);
-    await w.later(0);
-  }
-  assert.equal(w.pairs, pairs, "another window, another server, another status or a file is not this session ending");
-  w.cloud.signedIn = true;
-  w.home.responded({ url: `${CLOUD}/api/bots`, statusCode: 401, webContentsId: 7 });
-  await w.later(0);
-  assert.equal(w.pairs, pairs, "still signed in: a 401 of some other kind changes nothing");
-  w.cloud.signedIn = false;
-  w.home.navigated(`${CLOUD}/pair`);
-  await w.later(0);
-  assert.equal(w.pairs, pairs + 1, "landing on My Cloud's own sign-in page signs in again by itself");
-  w.state = { status: "reauth-required", message: "access-ended", account: ACCOUNT };
-  await w.home.repair();
-  assert.deepEqual(w.home.view(), { screen: "signin" }, "no code because this device's sign-in ended: the one Sign in, not the offline screen");
-  w.state = connected(); w.cloud.down = true;
-  await w.home.refresh();
-  await w.home.repair();
-  assert.equal(w.home.view().screen, "offline", "no code because nothing answered: the offline screen");
-});
-
-test("an ended Admin grant opens My Cloud while its session lasts, and shows the one Sign in when it doesn't", async () => {
-  const w = world({ state: { status: "reauth-required", account: ACCOUNT, lastPlan: { tier: "pro", active: true } } });
-  await w.home.show();
-  assert.deepEqual(w.went, [[CLOUD, CLOUD]], "the window's own session still works");
-  const lapsed = world({ state: { status: "reauth-required", account: ACCOUNT }, cloud: { signedIn: false } });
-  await lapsed.home.show();
-  assert.deepEqual(lapsed.went, [[`${LOCAL}${HOME_SCREEN_PATH}`, null]]);
-  assert.deepEqual(lapsed.home.view(), { screen: "signin" });
-  await lapsed.home.signIn();
-  assert.deepEqual(lapsed.signIns, ["again"]);
-  const out = world({ state: { status: "signed-out" } });
-  await out.home.show();
-  assert.deepEqual([out.went, out.home.view(), out.fetched], [[[`${LOCAL}${HOME_SCREEN_PATH}`, null]], { screen: "signin" }, []], "signed out: the sign-in screen, never the frozen copy");
-  await out.home.signIn();
-  assert.deepEqual(out.signIns, ["begin"]);
-  out.state = connected();
-  await out.home.changed();
-  assert.deepEqual(out.went.at(-1), [CLOUD, CLOUD], "signed in again: My Cloud opens by itself");
 });
 
 test("another account: the sign-in screen says so, and My Cloud is never opened for it", async () => {
@@ -408,31 +337,6 @@ test("only the main window's main frame counts, at My Cloud's origin for its pag
   assert.equal(w.home.homePage({ sender: w.contents, senderFrame: frame }), false, "signed out, My Cloud's page is no longer this app's");
 });
 
-test("the window's IPC: the screen reads and retries, My Cloud's page renews its session, either signs in again", async () => {
-  const w = world();
-  await w.home.show();
-  const handlers = new Map(), listeners = new Map();
-  installHomeWindowIpc({ ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: (channel, listener) => listeners.set(channel, listener) },
-    homeWindow: w.home, cloudPage: (event) => event.cloudPage ?? null });
-  const frame = w.contents.mainFrame, page = { sender: w.contents, senderFrame: frame };
-  w.url = `${CLOUD}/`;
-  const sync = (event) => { listeners.get("home:page")(event); return event.returnValue; };
-  assert.equal(sync({ ...page }), true);
-  assert.equal(sync({ sender: {}, senderFrame: frame }), false);
-  assert.throws(() => handlers.get("home:state")(page), /only available/);
-  assert.throws(() => handlers.get("home:retry")(page), /only available/);
-  await handlers.get("home:repair")(page);
-  w.url = `${LOCAL}${HOME_SCREEN_PATH}`;
-  assert.deepEqual(handlers.get("home:state")(page), { screen: "opening" });
-  assert.throws(() => handlers.get("home:repair")(page), /only available/);
-  w.state = { status: "signed-out" };
-  await handlers.get("home:sign-in")(page);
-  w.url = "https://other.example.test/";
-  assert.throws(() => handlers.get("home:sign-in")(page), /only available/);
-  await handlers.get("home:sign-in")({ ...page, cloudPage: "cloud" });
-  assert.deepEqual(w.signIns, ["begin", "begin"]);
-});
-
 const PRELOAD = readFileSync(new URL("./preload.cjs", import.meta.url), "utf8");
 function preload(origin, { home = false, activation = false, pairedElsewhere = false } = {}) {
   let bridge; const invoked = [], synced = [], listeners = new Map();
@@ -454,37 +358,6 @@ test("My Cloud's page in the app is the Cloud's own page, never a remote client:
   assert.equal(preload(LOCAL, { pairedElsewhere: true }).bridge.remoteClient?.active, true);
 });
 
-test("My Cloud's own page, once it is home, gets this app's chat links, diagnostics and its session renewal; any other server's page doesn't", async () => {
-  const keys = ["home", "onChatLink", "onPackageInstall", "exportDiagnostics", "openLogsFolder"];
-  const home = preload(CLOUD, { home: true });
-  for (const key of keys) assert.ok(home.bridge[key], key);
-  assert.ok(home.synced.includes("home:page"));
-  assert.equal(home.bridge.home.updating, false);
-  assert.ok(home.synced.includes("home:updating"), "My Cloud's page asks once whether it was reloaded for its newer version");
-  for (const key of ["cloudAccount", "companion", "environments", "credential", "setCredential", "saveFile", "revealInFolder", "pickFolder"]) assert.equal(home.bridge[key], undefined, key);
-  await home.bridge.home.repair();
-  await assert.rejects(home.bridge.home.signIn(), /Choose Sign in/, "only from the person's click");
-  await assert.rejects(home.bridge.cloudPlan.signIn(), /Choose Sign in/);
-  const clicked = preload(CLOUD, { home: true, activation: true });
-  await clicked.bridge.home.signIn(); await clicked.bridge.cloudPlan.signIn();
-  assert.deepEqual([...home.invoked, ...clicked.invoked].map(([channel]) => channel), ["home:repair", "home:sign-in", "home:sign-in"]);
-  const other = preload("https://bots.example.test", { home: false });
-  for (const key of keys) assert.equal(other.bridge[key], undefined, key);
-  for (const page of [home, other]) {
-    const opened = [];
-    page.bridge.onOpenAppSettings(section => opened.push(section ?? "settings"));
-    page.tell("app:open-settings");
-    assert.deepEqual(opened, ["settings"], "the app menu's Settings reaches every server's page");
-  }
-  const local = preload(LOCAL);
-  for (const key of keys) assert.ok(local.bridge[key], key);
-  assert.equal(local.synced.includes("home:page"), false, "this computer's page never needs to ask");
-  assert.equal(local.synced.includes("home:updating"), false);
-  assert.equal(local.bridge.home.updating, false);
-  await local.bridge.home.retry(); await local.bridge.home.state(); await local.bridge.home.signIn();
-  assert.deepEqual(local.invoked.map(([channel]) => channel), ["home:retry", "home:state", "home:sign-in"]);
-});
-
 test("only the verified Cloud, open as this window's active server, counts as the Cloud page", () => {
   const frame = { url: `${CLOUD}/` }, contents = { mainFrame: frame };
   const context = { contents, homeOrigin: CLOUD, activeOrigin: CLOUD };
@@ -498,33 +371,6 @@ test("only the verified Cloud, open as this window's active server, counts as th
 });
 
 const MAIN = readFileSync(new URL("./main.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const PAGE_IPC = MAIN.slice(MAIN.indexOf("function myCloud() {"), MAIN.indexOf("const savedWorkspace = id =>"));
-
-const plain = (value) => JSON.parse(JSON.stringify(value));
-function pageIpc(overrides = {}) {
-  const handlers = new Map(), calls = [];
-  const localFrame = { url: `${LOCAL}/` }, localContents = { mainFrame: localFrame };
-  const cloudFrame = { url: `${CLOUD}/` }, cloudContents = { mainFrame: cloudFrame };
-  localOrigin.setLocalOrigin(LOCAL);
-  const account = { status: "connected", account: { id: "a1", email: "person@example.test" }, deviceId: "d1",
-    entitlement: { plan: "pro", tier: "max", status: "active", expiresAt: 1, version: 1 }, machine: { status: "ready", origin: CLOUD } };
-  const context = vm.createContext({
-    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: () => {} },
-    senderIsLocal: localOrigin.isLocalSender, workspaceSenderAllowed: environments.workspaceSenderAllowed, cloudPageSenderAllowed, otherOwnClouds,
-    activeEnvironment: environments.activeEnvironment, rendererOrigin: () => LOCAL, desktopRemoteAccess: false,
-    mainWindow: { isDestroyed: () => false, webContents: cloudContents },
-    environmentsState: { environments: [{ id: "cloud", name: "My Cloud", origin: CLOUD }], activeId: "cloud" },
-    cloudAccount: { homeTarget: () => ({ origin: CLOUD }), state: () => account, isOwnCloud: (origin) => origin === CLOUD }, cloudPlanSnapshot, installCloudPlanIpc, myCloudOrigin, rememberedHome: null,
-    cloudTrialNotices: () => ({ due: () => null, seen: (...args) => { calls.push(["notice-seen", ...args]); } }),
-    ensureCloudAccount: () => ({ openDashboard: async () => { calls.push(["dashboard"]); return account; }, state: () => account,
-      cancelPlan: async (...args) => { calls.push(["cancel", ...args]); return { outcome: "failed" }; },
-      keepPlan: async (...args) => { calls.push(["keep", ...args]); return { outcome: "failed" }; } }),
-    homeWindow: { homePage: () => false },
-    ...overrides,
-  });
-  vm.runInContext(PAGE_IPC, context);
-  return { handlers, calls, context, account, localContents, localFrame, cloudContents, cloudFrame };
-}
 
 test("no page gets a control over lending this computer: not My Cloud's, another Cloud's or this computer's own, and main handles none", async () => {
   for (const origin of [CLOUD, "https://omb-c-a.fly.dev", LOCAL]) {
@@ -533,35 +379,6 @@ test("no page gets a control over lending this computer: not My Cloud's, another
     assert.equal(page.bridge.cloudAccount?.lending, undefined, origin);
   }
   assert.deepEqual(MAIN.match(/ipcMain\.handle\("(?:cloud-)?lending:[^"]*"/g), null, "no lending channel at all");
-});
-
-test("Settings on the person's own Cloud shows the plan read only, says when it is home, and can open the Plan page or sign in again; never switch away", async () => {
-  const page = preload(CLOUD);
-  assert.deepEqual(Object.keys(page.bridge.cloudPlan), ["state", "manage", "signIn", "noticeSeen", "cancel", "keep"]);
-  assert.equal(page.bridge.cloudAccount, undefined, "no account, credential or address reaches the Cloud's page");
-  await page.bridge.cloudPlan.state({ origin: "https://evil.example.test" });
-  await assert.rejects(page.bridge.cloudPlan.manage(), /Choose Manage/);
-  const ipc = pageIpc();
-  const event = { sender: ipc.cloudContents, senderFrame: ipc.cloudFrame };
-  assert.deepEqual(Object.keys(Object.fromEntries(ipc.handlers)), ["cloud-plan:state", "cloud-plan:notice-seen", "cloud-plan:manage",
-    "cloud-plan:cancel", "cloud-plan:keep"]);
-  assert.deepEqual(plain(await ipc.handlers.get("cloud-plan:state")(event, { tier: "personal" })), { status: "paid", tier: "max" });
-  ipc.context.homeWindow = { homePage: (asked) => asked === event };
-  assert.deepEqual(plain(await ipc.handlers.get("cloud-plan:state")(event)), { status: "paid", tier: "max", home: true });
-  await ipc.handlers.get("cloud-plan:manage")(event, "https://evil.example.test");
-  assert.deepEqual(ipc.calls, [["dashboard"]]);
-  for (const sender of [{ sender: ipc.cloudContents, senderFrame: { url: "https://other.example.test/" } }, { sender: {}, senderFrame: ipc.cloudFrame }]) {
-    for (const channel of ["cloud-plan:state", "cloud-plan:manage", "cloud-plan:notice-seen"]) assert.throws(() => ipc.handlers.get(channel)(sender), /only available/);
-  }
-  let current = { status: "reauth-required", message: "expired", account: ipc.account.account, lastPlan: { tier: "max", active: true } };
-  ipc.context.cloudAccount = { homeTarget: () => null, state: () => current, isOwnCloud: () => false };
-  assert.throws(() => ipc.handlers.get("cloud-plan:state")(event), /only available/);
-  ipc.context.rememberedHome = { accountId: "a1", origin: CLOUD };
-  assert.deepEqual(plain(await ipc.handlers.get("cloud-plan:state")(event)), { status: "signin", tier: "max", home: true });
-  current = { status: "unavailable", account: ipc.account.account, lastPlan: { tier: "max", active: true } };
-  assert.deepEqual(plain(await ipc.handlers.get("cloud-plan:state")(event)), { status: "checking", tier: "max", home: true });
-  ipc.context.rememberedHome = { accountId: "someone-else", origin: CLOUD };
-  assert.throws(() => ipc.handlers.get("cloud-plan:state")(event), /only available/);
 });
 
 test("main shows the switcher at home only with somewhere else to go: My Cloud alone has none", () => {
@@ -602,29 +419,6 @@ test("the place asked for: My Cloud unless a team is asked or remembered; a team
   assert.equal(splashText("waking"), SPLASH_TEXT.waking);
 });
 
-test("choosing a team opens its Cloud through the Admin's team pairing, at the team's address, remembered for next time; My Cloud on request lets it go", async () => {
-  const w = world({ state: { ...connected(), teams: [ACME] }, team: { signedIn: false } });
-  await w.home.show({ place: { team: "team-acme" } });
-  assert.deepEqual(w.teamPairs, ["team-acme"]);
-  assert.equal(w.pairs, 0, "never My Cloud's pairing");
-  assert.deepEqual(w.went, [[`${TEAM}/pair#code=TTTT-EEEE-AAAA`, TEAM, "team-acme"]]);
-  assert.deepEqual(w.fetched, [["team:/api/health", "1"], ["team:/api/auth/session", null]], "a look at the team's Cloud, never My Cloud");
-  assert.deepEqual(w.splash, ["Opening Acme…"]);
-  assert.deepEqual(w.remembers, [{ team: "team-acme" }]);
-  assert.deepEqual(w.home.shown(), { kind: "team", id: "team-acme", name: "Acme", role: "member", origin: TEAM, machine: ACME.machine });
-  assert.equal(w.home.cloudOrigin(), CLOUD, "My Cloud stays the person's home");
-  assert.equal(w.home.placeOrigin(), TEAM, "the window's page is the team's");
-  assert.equal(w.wakes, 0, "a team's Cloud is never woken through the Admin");
-  // Already there: only brought forward.
-  w.fetched.length = 0;
-  await w.home.show();
-  assert.deepEqual([w.went.length, w.fetched], [1, []]);
-  await w.home.show({ place: "cloud" });
-  assert.deepEqual(w.went.at(-1), [CLOUD, CLOUD]);
-  assert.deepEqual(w.remembers.at(-1), null);
-  assert.equal(w.home.placeOrigin(), CLOUD);
-});
-
 test("launching opens the team remembered from last time; one the connected session no longer lists is gone: My Cloud, with its name said once", async () => {
   const w = world({ state: { ...connected(), teams: [ACME] }, remembered: { team: "team-acme", name: "Acme", origin: TEAM } });
   await w.home.show();
@@ -657,57 +451,6 @@ test("a team's Cloud that can't be reached shows this computer's screen with the
   assert.equal(w.wakes, 0);
 });
 
-test("signed out, a team shows the sign-in screen with its name; the Admin refusing the team pairing (no longer a member) falls back to My Cloud and says so", async () => {
-  const out = world({ state: { status: "signed-out" }, remembered: { team: "team-acme", name: "Acme", origin: TEAM } });
-  await out.home.show();
-  assert.deepEqual(out.home.view(), { screen: "signin", name: "Acme" });
-  assert.deepEqual(out.teamPairs, []);
-  const w = world({ state: { ...connected(), teams: [ACME] }, team: { signedIn: false, gone: true } });
-  await w.home.show({ place: { team: "team-acme" } });
-  assert.deepEqual(w.teamPairs, ["team-acme"]);
-  assert.deepEqual(w.left, ["Acme"]);
-  assert.deepEqual(w.went.at(-1), [CLOUD, CLOUD], "My Cloud instead");
-  assert.deepEqual(w.remembers.at(-1), null);
-  const problem = world({ state: { ...connected(), teams: [{ ...ACME, machine: { status: "stopped", hold: { until: 9 } } }] } });
-  await problem.home.show({ place: { team: "team-acme" } });
-  assert.deepEqual(problem.home.view(), { screen: "plan", machine: "stopped", name: "Acme", member: true }, "a team's Cloud that ended: its plan screen, by name");
-  assert.deepEqual(problem.teamPairs, []);
-  const stoppedFor = async (role, machine) => {
-    const seen = world({ state: { ...connected(), teams: [{ ...ACME, role, machine }] } });
-    await seen.home.show({ place: { team: "team-acme" } });
-    return seen.home.view();
-  };
-  for (const machine of [{ status: "stopped", hold: { until: 9 } }, { status: "payment-problem" }, { status: "stopped", origin: TEAM }, { status: "payment-problem", origin: TEAM }]) {
-    assert.deepEqual(await stoppedFor("member", machine), { screen: "plan", machine: machine.status, name: "Acme", member: true }, "a team's User is sent to its owner");
-    for (const role of ["owner", "admin"]) assert.equal((await stoppedFor(role, machine)).member, undefined, role);
-  }
-  assert.equal((await stoppedFor("member", null)).member, true, "no machine at all: stopped, for a User too");
-});
-
-test("on the team's page, a session that ends is renewed through the team pairing, the page counts as this app's, and its new version reloads at a quiet moment", async () => {
-  const w = world({ state: { ...connected(), teams: [ACME] } });
-  await w.home.show({ place: { team: "team-acme" } });
-  w.url = `${TEAM}/chats/b1`;
-  const frame = w.contents.mainFrame;
-  assert.equal(w.home.homePage({ sender: w.contents, senderFrame: frame }), true, "the team's page is this app's");
-  w.team.signedIn = false;
-  w.home.responded({ url: `${TEAM}/api/bots`, statusCode: 401, webContentsId: 7 });
-  await w.home.repair();
-  assert.deepEqual(w.went.at(-1), [`${TEAM}/pair?next=%2Fchats%2Fb1#code=TTTT-EEEE-AAAA`, TEAM, "team-acme"]);
-  assert.deepEqual(w.teamPairs, ["team-acme"]);
-  assert.equal(w.pairs, 0);
-  w.team.signedIn = true;
-  w.url = `${TEAM}/`;
-  w.home.navigated(w.url);
-  await w.tick();
-  w.team.version = "0.1.131"; w.typed = w.clock - QUIET_MS - 1;
-  await w.tick();
-  assert.equal(w.reloads, 1, "the team's page reloads for its own new version");
-  w.state = { status: "signed-out" };
-  await w.home.refresh();
-  assert.equal(w.home.homePage({ sender: w.contents, senderFrame: frame }), false, "signed out, the team's page is no longer this app's");
-});
-
 test("going from a team to another server lets the team go: a later session check never pulls the window back", async () => {
   const w = world({ state: { ...connected(), teams: [ACME] } });
   await w.home.show({ place: { team: "team-acme" } });
@@ -727,129 +470,6 @@ test("going from a team to another server lets the team go: a later session chec
   assert.equal(w.home.placeOrigin(), TEAM);
 });
 
-test("a team on screen signs in again before its hour ends, without moving the page: through the Admin's team pairing, into the window's own cookie", async () => {
-  const w = world({ state: { ...connected(), teams: [ACME] }, team: { signedIn: false } });
-  await w.home.show({ place: { team: "team-acme" } });
-  w.url = `${TEAM}/chats/b1`;
-  const went = w.went.length;
-  await w.later(TEAM_RENEW_MS - 1);
-  assert.deepEqual(w.teamPairs, ["team-acme"], "not before its time");
-  await w.later(1);
-  assert.deepEqual(w.teamPairs, ["team-acme", "team-acme"]);
-  assert.deepEqual(w.redeemed, [["team", { code: "TTTT-EEEE-AAAA", cookie: true, label: "OpenMausBot app" }]]);
-  assert.equal(w.went.length, went, "the page never moved");
-  assert.equal(w.pairs, 0, "never My Cloud's pairing");
-  await w.later(TEAM_RENEW_MS);
-  assert.equal(w.teamPairs.length, 3, "and again each time");
-  // My Cloud is never renewed this way, and leaving the team stops it.
-  await w.home.show({ place: "cloud" });
-  await w.later(TEAM_RENEW_MS * 2);
-  assert.equal(w.teamPairs.length, 3);
-  assert.equal(w.redeemed.length, 2);
-});
-
-test("opening a team on the window's own session renews before the end that session reports; a failed renewal tries again soon", async () => {
-  const w = world({ state: { ...connected(), teams: [ACME] } });
-  w.team.expiresAt = w.clock + 20 * 60_000;
-  await w.home.show({ place: { team: "team-acme" } });
-  assert.deepEqual(w.teamPairs, [], "its own session: no pairing to open it");
-  await w.later(20 * 60_000 - TEAM_RENEW_EARLY_MS - 1);
-  assert.deepEqual(w.teamPairs, []);
-  await w.later(1);
-  assert.deepEqual(w.teamPairs, ["team-acme"], "ten minutes before the end it reports");
-  w.team.redeems = false;
-  await w.later(TEAM_RENEW_MS);
-  assert.equal(w.teamPairs.length, 2);
-  await w.later(TEAM_RENEW_RETRY_MS);
-  assert.equal(w.teamPairs.length, 3, "a code that didn't take is asked again in five minutes");
-});
-
-test("the Admin refusing the team pairing (404) means the person was removed: the team is dropped at once and My Cloud opens, on a renewal or a session that ended", async () => {
-  const w = world({ state: { ...connected(), teams: [ACME] }, team: { signedIn: false } });
-  await w.home.show({ place: { team: "team-acme" } });
-  w.team.gone = true;
-  await w.home.renew();
-  assert.deepEqual(w.dropped, ["team-acme"], "dropped now, not at the next session check");
-  assert.deepEqual(w.left, ["Acme"]);
-  assert.deepEqual(w.went.at(-1), [CLOUD, CLOUD]);
-  assert.equal(w.home.placeOrigin(), CLOUD);
-  assert.equal(w.redeemed.length, 0);
-  await w.later(TEAM_RENEW_MS * 2);
-  assert.equal(w.teamPairs.length, 2, "no renewal of a team that is gone");
-  // The same on the 401 path: the team's session ended and the re-pair is refused.
-  const ended = world({ state: { ...connected(), teams: [ACME] } });
-  await ended.home.show({ place: { team: "team-acme" } });
-  ended.url = `${TEAM}/`;
-  ended.team.signedIn = false; ended.team.gone = true;
-  ended.home.responded({ url: `${TEAM}/api/bots`, statusCode: 401, webContentsId: 7 });
-  await ended.home.repair();
-  assert.deepEqual(ended.dropped, ["team-acme"]);
-  assert.deepEqual(ended.went.at(-1), [CLOUD, CLOUD]);
-});
-
-test("while the window is on the place's own sign-in page, its 401s start no second sign-in (a team's and My Cloud's alike)", async () => {
-  const w = world({ state: { ...connected(), teams: [ACME] }, team: { signedIn: false } });
-  await w.home.show({ place: { team: "team-acme" } });
-  assert.deepEqual(w.teamPairs, ["team-acme"]);
-  assert.match(w.url, /^https:\/\/omb-u-acme\.fly\.dev\/pair#code=/);
-  w.home.responded({ url: `${TEAM}/api/auth/session`, statusCode: 401, webContentsId: 7 });
-  await w.later(0);
-  assert.deepEqual(w.teamPairs, ["team-acme"], "the code on its way is not replaced");
-  w.url = `${TEAM}/chats/b1`;
-  w.home.responded({ url: `${TEAM}/api/bots`, statusCode: 401, webContentsId: 7 });
-  await w.home.repair();
-  assert.deepEqual(w.teamPairs, ["team-acme", "team-acme"], "once on its page, a 401 signs in again as before");
-  const mine = world({ cloud: { signedIn: false } });
-  await mine.home.show();
-  mine.home.responded({ url: `${CLOUD}/api/auth/session`, statusCode: 401, webContentsId: 7 });
-  await mine.later(0);
-  assert.equal(mine.pairs, 1);
-});
-
-test("the plan bridge provides no purchase or upgrade controls", () => {
-  for (const origin of [LOCAL, CLOUD]) {
-    const page = preload(origin, { activation: true });
-    for (const method of ["checkout", "upgradePreview", "upgrade", "restartNow", "roomNotNow"]) {
-      assert.equal(page.bridge.cloudPlan[method], undefined, method);
-    }
-  }
-  assert.equal([...pageIpc().handlers.keys()].some(channel => /checkout|upgrade|restart-now|room-not-now/.test(channel)), false);
-});
-
-test("Cancel and Keep my plan on the Cloud's own page: only from the person's click there, the survey's words only, and the plan's renewal shown read only", async () => {
-  const page = preload(CLOUD);
-  await assert.rejects(page.bridge.cloudPlan.cancel({ answer: "price" }), /Choose Cancel/, "the Cloud's page cancels only from the person's click");
-  await assert.rejects(page.bridge.cloudPlan.keep(), /Choose Keep my plan/);
-  const clicked = preload(CLOUD, { activation: true });
-  await clicked.bridge.cloudPlan.cancel({ answer: "price", improve: "words" }, { cloudId: "someone-elses" });
-  await clicked.bridge.cloudPlan.cancel();
-  await clicked.bridge.cloudPlan.keep({ cloudId: "someone-elses" });
-  assert.deepEqual(clicked.invoked, [["cloud-plan:cancel", { answer: "price", improve: "words" }], ["cloud-plan:cancel", null], ["cloud-plan:keep"]]);
-  const local = preload(LOCAL);
-  await local.bridge.cloudPlan.cancel({ answer: "later" });
-  await local.bridge.cloudPlan.keep();
-  assert.deepEqual(local.invoked, [["cloud-plan:cancel", { answer: "later" }], ["cloud-plan:keep"]]);
-  const ipc = pageIpc();
-  const event = { sender: ipc.cloudContents, senderFrame: ipc.cloudFrame };
-  ipc.account.renewal = { trial: true, cancelled: false, renewsAt: 1_900_000_000_000, endsAt: null, keptDays: 3 };
-  assert.deepEqual(plain(await ipc.handlers.get("cloud-plan:state")(event)).renewal, ipc.account.renewal);
-  await ipc.handlers.get("cloud-plan:cancel")(event, { answer: "setup" }, "https://evil.example.test");
-  await ipc.handlers.get("cloud-plan:keep")(event, { cloudId: "someone-elses" });
-  assert.deepEqual(ipc.calls, [["cancel", { answer: "setup" }], ["keep"]]);
-  for (const sender of [{ sender: ipc.cloudContents, senderFrame: { url: "https://other.example.test/" } }, { sender: {}, senderFrame: ipc.cloudFrame }]) {
-    for (const channel of ["cloud-plan:cancel", "cloud-plan:keep"]) assert.throws(() => ipc.handlers.get(channel)(sender, { answer: "price" }), /only available/);
-  }
-  assert.equal(ipc.calls.length, 2);
-});
-
-test("the plan bridge provides a read-only resource alert for the person's own Cloud", async () => {
-  const ipc = pageIpc();
-  const event = { sender: ipc.cloudContents, senderFrame: ipc.cloudFrame };
-  ipc.account.usage = { tier: "pro", resetsAt: 1, meters: [] };
-  ipc.account.room = { id: "memory-1", cause: { kind: "memory", waits: 3, waitMinutes: 6, stopped: 0 } };
-  assert.deepEqual(plain(await ipc.handlers.get("cloud-plan:state")(event)).room, ipc.account.room);
-});
-
 test("another Cloud of the person's own is the place asked for by its id, from the session's list; one it no longer lists is simply My Cloud again", () => {
   const state = { ...connected(), clouds: [{ ...CLIENT_A, id: "c-home", name: "My Cloud", origin: CLOUD, primary: true }, CLIENT_A] };
   assert.deepEqual(placeOf({ ask: { cloud: "c-a" }, state }), { kind: "own", id: "c-a", name: "Client A", role: "owner", origin: CLIENT, machine: { status: "ready", origin: CLIENT } });
@@ -860,19 +480,6 @@ test("another Cloud of the person's own is the place asked for by its id, from t
     { kind: "own", id: "c-a", name: "Client A", role: null, origin: CLIENT, machine: null }, "while the Admin can't be asked, as it was saved");
   assert.deepEqual(placeOf({ ask: { cloud: "c-a" }, state: { ...state, clouds: [{ ...CLIENT_A, status: "setting_up", origin: null, setup: { step: "storage" } }] } }).machine,
     { status: "provisioning", setup: { step: "storage" } });
-});
-
-test("choosing another Cloud of the person's own opens it through the Admin's pairing for that Cloud, at its own address, remembered for next time; no team renewal", async () => {
-  const w = world({ state: { ...connected(), clouds: [CLIENT_A] }, client: { signedIn: false } });
-  await w.home.show({ place: { cloud: "c-a" } });
-  assert.deepEqual(w.ownPairs, ["c-a"]);
-  assert.equal(w.pairs, 0, "never My Cloud's pairing");
-  assert.deepEqual(w.went, [[`${CLIENT}/pair#code=CCCC-LLLL-AAAA`, CLIENT, "c-a"]]);
-  assert.deepEqual(w.fetched, [["client:/api/health", "1"], ["client:/api/auth/session", null]], "a look at that Cloud only");
-  assert.deepEqual(w.remembers, [{ cloud: "c-a" }]);
-  assert.equal(w.home.placeOrigin(), CLIENT);
-  assert.equal(w.timers.length, 0, "its session lasts as My Cloud's does: nothing to renew");
-  assert.deepEqual(w.home.view(), { screen: "opening", name: "Client A" });
 });
 
 test("another Cloud of the person's own that the Admin says is asleep is never asked for its version; once the Admin says it is awake, it is", async () => {
@@ -894,18 +501,6 @@ test("another Cloud of the person's own that the Admin says is asleep is never a
   await w.tick();
   assert.equal(versions().length, read + 1, "awake again, it is asked");
   assert.deepEqual(versions().at(-1), ["client:/.well-known/openmausbot/environment", "1"], "as a background read");
-});
-
-test("another Cloud the Admin says is no longer theirs is dropped at once and My Cloud opens, with no line; one being set up shows its setup with its name", async () => {
-  const w = world({ state: { ...connected(), clouds: [CLIENT_A] }, client: { signedIn: false, gone: true } });
-  await w.home.show({ place: { cloud: "c-a" } });
-  assert.deepEqual(w.dropped, ["c-a"]);
-  assert.deepEqual(w.left, [], "a Cloud of their own leaving is no team they were removed from");
-  assert.deepEqual(w.went.at(-1), [CLOUD, CLOUD], "My Cloud");
-  const setup = world({ state: { ...connected(), clouds: [{ ...CLIENT_A, status: "setting_up", setup: { step: "starting" } }] } });
-  await setup.home.show({ place: { cloud: "c-a" } });
-  assert.deepEqual(setup.home.view(), { screen: "setup", step: "starting", name: "Client A" });
-  assert.deepEqual(setup.ownPairs, [], "never paired while it is set up");
 });
 
 test("an account leaving: nothing under way for it goes on, and the next show takes the window off its place", async () => {

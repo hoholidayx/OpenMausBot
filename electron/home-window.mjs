@@ -8,7 +8,7 @@
 // signed-out app (its automations would run twice). The page that counts as home is the main window's main frame at the
 // shown place's verified origin, nothing else. A team is only ever one the Admin's session lists, paired through the
 // Admin's team pairing (its claims are the Admin's), never an address a page supplied.
-import { cloudHomeConnectUrl, cloudSetupOf, cloudUnreachableCause, cloudUnreachableText, machineSetup, readyCloudOrigin } from "./cloud-home.mjs";
+import { cloudSetupOf, cloudUnreachableCause, cloudUnreachableText, machineSetup, readyCloudOrigin } from "./cloud-home.mjs";
 import { cloudMachine, cloudState, myCloudOf, otherOwnClouds, ownCloud } from "./cloud-list.mjs";
 import { asleepAnswer, BACKGROUND_HEADERS, openSleepingCloud, SIGNED_IN_MS } from "./cloud-power.mjs";
 import nativeText from "./native-text.cjs";
@@ -38,12 +38,6 @@ export const VERSION_EVERY_MS = 60_000;
 export const UPDATING_MS = 30_000;
 /** While the startup screen is up, a wake that takes longer hands over to this computer's screen, which says the same. */
 export const SPLASH_HANDOFF_MS = 6_000;
-/** A team's Cloud ends each session within an hour of its pairing (T2), so the window signs in again before that, without
- * moving the page: every TEAM_RENEW_MS after a pairing, or TEAM_RENEW_EARLY_MS before the end its session reports. The
- * Admin refusing that pairing (404) means the person is no longer in the team. */
-export const TEAM_RENEW_MS = 45 * 60_000;
-export const TEAM_RENEW_EARLY_MS = 10 * 60_000;
-export const TEAM_RENEW_RETRY_MS = 5 * 60_000;
 const SPLASH_KEYS = Object.freeze({
   opening: ["native.splash.openingCloud", "native.splash.openingNamed"], waking: ["native.splash.wakingCloud", "native.splash.wakingNamed"],
 });
@@ -186,21 +180,11 @@ export function createReadyClock({ store = null, now = Date.now } = {}) {
 }
 
 /** Only a same-origin path survives a sign-in: never another site, never a code. */
-export function routeOf(url, origin) {
-  try {
-    const at = new URL(url);
-    if (at.origin !== origin || at.pathname === "/pair") return null;
-    const route = `${at.pathname}${at.search}`;
-    return route === "/" ? null : route;
-  } catch { return null; }
-}
-
 /**
  * @param {{
  *   journal(): unknown,
  *   frozen(): Promise<{ frozen: boolean, cloud?: string } | null>,
- *   account(): { state(): any, power(): any, wakeHome(): Promise<unknown>, setWaking(on: boolean): void, pairHome(cloudId?: string | null): Promise<{ origin: string, code: string, expiresAt: number }>,
- *     pairTeam?(teamId: string): Promise<{ origin: string, code: string, expiresAt: number }>, signInAgain(): Promise<unknown>, begin(): Promise<unknown>, signOut?(): Promise<unknown>, reopen?(): Promise<unknown> } | null,
+ *   account(): { state(): any, power(): any, wakeHome(): Promise<unknown>, setWaking(on: boolean): void } | null,
  *   restored?(): Promise<unknown>,
  *   window(): { isDestroyed(): boolean, webContents: { id: number, getURL(): string, reload(): void } } | null,
  *   ensureWindow(): void,
@@ -245,7 +229,7 @@ export function createHomeWindow(deps) {
     remembered = () => null, remember = () => {}, left = () => {}, drop = (place) => { if (place.kind === "team") left(place.name); remember(null); },
     splash = () => null, lastInput = () => 0, publish = () => {}, rehomed = () => {}, versionEveryMs = VERSION_EVERY_MS, quietMs = QUIET_MS,
     now = Date.now, timers = DEFAULT_TIMERS, hosts = () => null, readyStore = null, ownMove = () => null, log = () => {}, t = nativeText.englishText.t } = deps;
-  let home = { kind: "computer" }, screen = null, status = null, opens = 0, retry = null, tries = 0, loaded = null, newer = false, repairing = null;
+  let home = { kind: "computer" }, screen = null, status = null, opens = 0, retry = null, tries = 0, loaded = null, newer = false;
   let recovering = null;
   /** The profile (clean-workspace.mjs) the person opened from the rail while My Cloud is home, until they pick a place. */
   let profileShown = null;
@@ -254,7 +238,7 @@ export function createHomeWindow(deps) {
   let asked = null, naming = null;
   const clock = createReadyClock({ store: readyStore, now });
   /** The place the window was last sent to (My Cloud, or a team's Cloud), and the one being opened now. */
-  let shown = null, opening = null, renewal = null, updatingAt = null;
+  let shown = null, opening = null, updatingAt = null;
   /** The window shows a place or this computer's screen, which this computer's page replaces once home is here again. */
   let away = false;
   const state = () => account()?.state() ?? null;
@@ -266,10 +250,7 @@ export function createHomeWindow(deps) {
   /** The origin of the place on screen, or on its way: a team's Cloud while one is shown, else My Cloud. */
   const placeOrigin = () => (otherPlace(shown) ? (signedOut() ? null : shown.origin) : cloudOrigin());
   const teamName = () => (otherPlace(opening) ? opening.name : null);
-  const pair = (place) => (place.kind === "team" ? account()?.pairTeam?.(place.id) : place.kind === "own" ? account()?.pairHome(place.id) : account()?.pairHome());
   /** The same place still the one on screen (a newer show() replaces the object, not the place). */
-  const still = (place) => shown?.kind === place.kind && shown.id === place.id && shown.origin === place.origin;
-  const clearRenewal = () => { if (renewal) timers.clear(renewal); renewal = null; };
 
   async function refresh() {
     clock.seen(state());
@@ -384,7 +365,6 @@ export function createHomeWindow(deps) {
     asked = null; naming = null; screen = null; status = null; away = false;
     clearRetry();
   }
-  const signInNeeded = () => ["reauth-required", "signed-out"].includes(state()?.status);
   /** This device has no MausBot Cloud sign-in to pair a team with (homeOf's rule for My Cloud). */
   const signedOut = () => { const current = state(); return !current?.account?.id || ["signed-out", "connecting"].includes(current.status); };
   /** The session's list's word for My Cloud (the account's primary Cloud), else null: an older Admin, or one it doesn't list. */
@@ -410,49 +390,11 @@ export function createHomeWindow(deps) {
       return response.type === "opaqueredirect" || response.status < 500 ? "yes" : "no";
     } catch { return "no"; }
   }
-  /** The window's own session there: `{ expiresAt }` (null when the server names no end), or null when it has none. */
-  async function sessionAt(origin, timeoutMs) {
+  async function signedInAt(origin, timeoutMs) {
     try {
       const response = await cookieFetch(`${origin}/api/auth/session`, { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
-      const body = response.ok ? await response.json() : null;
-      return body?.kind === "session" ? { expiresAt: Number.isSafeInteger(body.expiresAt) ? body.expiresAt : null } : null;
-    } catch { return null; }
-  }
-  const signedInAt = async (origin, timeoutMs) => Boolean(await sessionAt(origin, timeoutMs));
-  /** A one-time code redeemed into the window's own cookie, as lending does for My Cloud: the page doesn't move. */
-  async function redeem(origin, grant) {
-    try {
-      const response = await cookieFetch(`${origin}/api/auth/pair`, { method: "POST", credentials: "include", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(15_000),
-        headers: { "content-type": "application/json", origin }, body: JSON.stringify({ code: grant.code, cookie: true, label: "OpenMausBot app" }) });
-      await response.body?.cancel?.().catch(() => {});
-      return response.ok;
+      return response.ok && (await response.json())?.kind === "session";
     } catch { return false; }
-  }
-  /** The next silent sign-in to the team on screen: `ends`, the end its session reports, else TEAM_RENEW_MS from now. */
-  function renewLater(place, ms) {
-    clearRenewal();
-    renewal = timers.set(() => { renewal = null; void renew(place); }, Math.max(0, Math.min(ms, TEAM_RENEW_MS)));
-  }
-  /** The team on screen signs in again before its session ends, without moving the page; the Admin refusing means the
-   * person was removed. Nothing happens for a team that is no longer on screen. */
-  async function renew(place = shown) {
-    clearRenewal();
-    if (place?.kind !== "team" || !still(place) || !shows(place.origin)) return;
-    let grant = null;
-    try { grant = await pair(place); } catch (error) {
-      if (error?.gone) { if (still(place)) await gone(place); return; }
-      log(`home: could not sign in to ${place.name} again (${error?.message ?? error})`);
-    }
-    if (!still(place)) return;
-    renewLater(place, grant && await redeem(place.origin, grant) ? TEAM_RENEW_MS : TEAM_RENEW_RETRY_MS);
-  }
-
-  /** The Admin says the team is no longer this person's: it leaves the switcher now, and My Cloud opens with one line. */
-  function gone(place) {
-    drop(place);
-    clearRenewal();
-    if (shown?.kind === place.kind && shown.id === place.id) shown = null;
-    return show({ place: "cloud" });
   }
 
   async function connect(place, token, open) {
@@ -461,7 +403,6 @@ export function createHomeWindow(deps) {
     // switcher before the move) is opened again as home, and goes home with it if My Cloud ends.
     if (shows(origin) && away && !screen && !open) {
       shown = place;
-      if (place.kind === "team" && !renewal) renewLater(place, TEAM_RENEW_MS);
       return;
     }
     clearRetry();
@@ -491,35 +432,21 @@ export function createHomeWindow(deps) {
         if (look === "asleep" && otherPlace(place)) return offline(token);
         if (look === "asleep") { power.hold(); asleep = true; if (wanted(token)) say("waking"); }
       }
-      let session = null;
       const signedIn = asleep
         ? await openSleepingCloud({ power: client?.power() ?? { state: "asleep" }, wake: () => client?.wakeHome(), waking: (on) => client?.setWaking(on), signedIn: (ms) => signedInAt(origin, ms) })
-        : Boolean(session = await sessionAt(origin, SIGNED_IN_MS));
+        : await signedInAt(origin, SIGNED_IN_MS);
       if (!wanted(token)) return;
-      let grant = null;
-      if (!signedIn) {
-        try { grant = await pair(place); } catch (error) {
-          if (error?.gone && wanted(token)) return gone(place);
-          log(`home: no sign-in code for ${otherPlace(place) ? place.name : "My Cloud"} (${error?.message ?? error})`);
-        }
-        if (!wanted(token)) return;
-        if (!grant) {
-          if (signInNeeded()) return toScreen({ screen: "signin" });
-          return offline(token);
-        }
-      }
+      if (!signedIn) return offline(token);
       // My Cloud opened before the move made it home is a saved server the window shows, as the Server menu opens one.
       const asHome = otherPlace(place) || home.kind !== "computer";
       screen = null; status = null; tries = 0; away = asHome; shown = asHome ? place : null;
       // A page that never finishes loading is the offline screen after OPEN_MS, which looks again by itself and has Try again.
       let slow = null;
-      const loaded = await Promise.race([Promise.resolve(go(cloudHomeConnectUrl({ origin, grant }, now(), open === "phone" ? "phone" : null), origin, place)).then(() => true, () => true),
+      const loaded = await Promise.race([Promise.resolve(go(origin, origin, place)).then(() => true, () => true),
         new Promise((done) => { slow = timers.set(() => done(false), OPEN_MS); })]);
       timers.clear(slow);
       if (!loaded) { log(`home: ${otherPlace(place) ? place.name : "My Cloud"} didn't load in ${OPEN_MS / 1000} s`); return offline(token); }
-      if (place.kind === "cloud") { clearRenewal(); power.woke(); }
-      else if (place.kind === "team") renewLater(place, grant || !session?.expiresAt ? TEAM_RENEW_MS : session.expiresAt - now() - TEAM_RENEW_EARLY_MS);
-      else clearRenewal();
+      if (place.kind === "cloud") power.woke();
       tell();
     } finally {
       if (handoff) timers.clear(handoff);
@@ -541,7 +468,7 @@ export function createHomeWindow(deps) {
     if (!current.clean && clean?.active() && !clean.profile?.()) { await clean.leave(); if (!wanted(token)) return; }
     if (profileShown) {
       opening = null; asked = null; naming = null;
-      clearRenewal();
+
       if (await clean.open(profileShown)) {
         if (!wanted(token)) return;
         // `away`: a Cloud's page may still be on its way (a click just before this one); this page's load replaces it.
@@ -571,7 +498,7 @@ export function createHomeWindow(deps) {
     }
     if (place === "cloud" || target.left) remember(null);
     opening = null;
-    clearRenewal();
+
     if (current.kind === "computer" && asked) {
       const setup = cloudSetupOf(state()), mine = readyCloudOrigin(state()), stopped = setup || mine ? null : myCloudScreen();
       if (setup || mine || stopped) ensureWindow();
@@ -611,27 +538,6 @@ export function createHomeWindow(deps) {
     ensureWindow();
     if (current.kind === "signin") { clearRetry(); return toScreen({ screen: "signin", ...(current.other ? { other: true } : {}) }); }
     return connect({ kind: "cloud", origin: current.origin }, token, open);
-  }
-
-  /** The place's session in this window ended: a new one by itself, back where the page was. */
-  function repair() {
-    const place = shown ?? (home.kind === "cloud" ? { kind: "cloud", origin: home.origin } : null);
-    if (repairing || !place) return repairing ?? Promise.resolve();
-    const origin = place.origin;
-    repairing = (async () => {
-      if (await signedInAt(origin, SIGNED_IN_MS)) return;
-      const win = window();
-      const route = win && !win.isDestroyed() ? routeOf(win.webContents.getURL(), origin) : null;
-      let grant = null;
-      try { grant = await pair(place); } catch (error) {
-        if (error?.gone) return gone(place);
-        log(`home: could not sign in to ${otherPlace(place) ? place.name : "My Cloud"} again (${error?.message ?? error})`);
-      }
-      if (placeOrigin() !== origin) return;
-      if (!grant) return signInNeeded() ? toScreen({ screen: "signin" }) : offline(++opens);
-      await go(cloudHomeConnectUrl({ origin, grant }, now(), null, route), origin, place);
-    })().finally(() => { repairing = null; });
-    return repairing;
   }
 
   async function version(origin) {
@@ -723,23 +629,6 @@ export function createHomeWindow(deps) {
     shown: () => shown,
     /** The person asked again (the screen's timer, back online, or the window focused). */
     retry: () => show(),
-    /** The screen's one button: this device's MausBot Cloud sign-in, again. A sign-in already open in the browser opens
-     * again; one with an account My Cloud isn't (`other`) ends first, so the browser can sign in another; one that is still
-     * good only looks again. */
-    async signIn() {
-      const client = account();
-      if (!client) return;
-      const status = client.state().status;
-      if (status === "reauth-required") return void await client.signInAgain();
-      if (status === "connecting") return void await client.reopen?.();
-      if (status !== "signed-out") {
-        const current = await refresh();
-        if (!current.other) return void await show();
-        await client.signOut?.();
-      }
-      await client.begin();
-    },
-    repair,
     /** The MausBot Cloud sign-in changed: a window that waits on it, a home that changed, or a team shown that the
      * session no longer lists (or lists at another address), shows again. */
     async changed() {
@@ -754,21 +643,10 @@ export function createHomeWindow(deps) {
     accountLeaving() {
       opens++;
       profileShown = null;
-      clearRetry(); clearRenewal();
+      clearRetry();
       asked = null; naming = null; shown = null; opening = null; screen = null; status = null;
       away = away || !shows(localOrigin());
     },
-    /** A response the window got (Electron's webRequest): a 401 from the place's API means its session ended. */
-    responded({ url, statusCode, webContentsId }) {
-      const origin = placeOrigin(), win = window();
-      if (statusCode !== 401 || !origin || !win || win.isDestroyed() || webContentsId !== win.webContents.id) return;
-      try { const at = new URL(url); if (at.origin !== origin || !at.pathname.startsWith("/api/")) return; } catch { return; }
-      // The place's own sign-in page is the new session on its way: its 401s until it redeems the code start nothing.
-      try { const page = new URL(win.webContents.getURL()); if (page.origin === origin && page.pathname === "/pair") return; } catch {}
-      void repair();
-    },
-    /** The main frame went somewhere: the place's own sign-in page means its session ended; any other page of it is
-     * the version the window now shows. */
     navigated(url) {
       // Only a page that loaded counts: an error page (chrome-error:) is the load that failed().
       if (asked && /^https?:/.test(url)) {
@@ -777,11 +655,9 @@ export function createHomeWindow(deps) {
         else if (!(at === localOrigin() && new URL(url).pathname === HOME_SCREEN_PATH)) letAskGo();
       }
       // The window went to another server (the Server menu): the team it showed is no longer the place on screen.
-      if (otherPlace(shown) && ![shown.origin, localOrigin()].includes(originOf(url))) { shown = null; clearRenewal(); }
+      if (otherPlace(shown) && ![shown.origin, localOrigin()].includes(originOf(url))) { shown = null; }
       const origin = placeOrigin();
       if (!origin || originOf(url) !== origin) return;
-      const at = new URL(url);
-      if (at.pathname === "/pair" && !/[#&]code=/.test(at.hash)) { void repair(); return; }
       newer = false; loaded = null;
       void version(origin).then((current) => { if (current && placeOrigin() === origin) loaded = current; });
     },
@@ -817,19 +693,17 @@ export function createHomeWindow(deps) {
       if (!win || win.isDestroyed() || event?.sender !== win.webContents || !event.senderFrame || event.senderFrame !== win.webContents.mainFrame) return false;
       return originOf(event.senderFrame.url) === localOrigin();
     },
-    /** Signs the team on screen in again now, without moving the page (the timer's own step; also for tests). */
-    renew: () => renew(),
     cancel() { stopOpening(); shown = null; away = false; },
     stopOpening,
     /** The person chose the place on screen again before the one they'd asked for opened: it stays as it is. */
     stay() { stopOpening(); profileShown = null; },
-    close() { opens++; clearRetry(); clearRenewal(); timers.clear(watcher); },
+    close() { opens++; clearRetry(); timers.clear(watcher); },
   };
 }
 
 /** The window's IPC: this computer's screen reads why the place isn't open and asks again; the place's own page, while
- * it is shown, asks for a new session; either asks this device's sign-in again (from the person's click on My Cloud). */
-export function installHomeWindowIpc({ ipcMain, homeWindow, cloudPage }) {
+ * it is shown, may read its reload status. */
+export function installHomeWindowIpc({ ipcMain, homeWindow }) {
   const from = (channel, allowed, handler) => (event, ...args) => {
     if (!allowed(event)) throw new Error(`${channel} is only available in this app's window`);
     return handler(...args);
@@ -838,8 +712,6 @@ export function installHomeWindowIpc({ ipcMain, homeWindow, cloudPage }) {
   ipcMain.handle("home:state", from("home:state", screenPage, () => homeWindow.view()));
   ipcMain.handle("home:retry", from("home:retry", screenPage, () => homeWindow.retry().then(() => homeWindow.view())));
   ipcMain.handle("home:remove", from("home:remove", screenPage, () => homeWindow.remove()));
-  ipcMain.handle("home:sign-in", from("home:sign-in", (event) => screenPage(event) || cloudPage(event) === "cloud" || (homeWindow.homePage(event) && homeWindow.shown()?.kind === "own"), () => homeWindow.signIn()));
-  ipcMain.handle("home:repair", from("home:repair", (event) => homeWindow.homePage(event), () => homeWindow.repair()));
   ipcMain.on("home:page", (event) => { try { event.returnValue = homeWindow.homePage(event); } catch { event.returnValue = false; } });
   ipcMain.on("home:updating", (event) => { try { event.returnValue = homeWindow.updating(event); } catch { event.returnValue = false; } });
 }

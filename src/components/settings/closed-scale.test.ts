@@ -12,7 +12,6 @@ const OFF_SCALE = /(?<![\w-])(?:border-hairline(?:\/\d+)?|bg-inset|leading-relax
 
 const FILES = [
   "src/components/AboutMeSettings.tsx",
-  "src/components/AccountMenu.tsx",
   "src/components/ActivitySection.tsx",
   "src/components/AppSettingsRows.tsx",
   "src/components/AppearanceSelectRows.tsx",

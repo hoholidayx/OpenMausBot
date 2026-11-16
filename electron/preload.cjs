@@ -476,9 +476,6 @@ const bridge = {
     },
     retry: () => ipcRenderer.invoke("home:retry"),
     remove: () => ipcRenderer.invoke("home:remove"),
-    signIn: () => isLocalPage || navigator.userActivation?.isActive === true
-      ? ipcRenderer.invoke("home:sign-in") : Promise.reject(new Error("Choose Sign in to sign in again.")),
-    repair: () => ipcRenderer.invoke("home:repair"),
     updating: onHomePage && reloadedForUpdate(),
   },
   desktopProfile: {

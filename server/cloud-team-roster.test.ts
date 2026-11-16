@@ -20,8 +20,8 @@ afterEach(() => { registry.close(); rmSync(dir, { recursive: true, force: true }
 
 /** A browser sign-in the Admin signed for a member (the join page's Open, a User's team home). */
 function browserSession(member: { email: string; role: "owner" | "admin" | "member" } = ADA) {
-  const { credential } = registry.openPairing({ scopes: ["client"], member, browser: true, owner: member.email });
-  const paired = registry.exchange({ code: credential, browser: true, label: "Safari on Mac", source: "b" });
+  const { credential } = registry.openPairing({ scopes: ["client"], member });
+  const paired = registry.exchange({ code: credential, label: "Safari on Mac", source: "b" });
   if (!paired.ok) throw new Error(paired.error);
   return paired.token;
 }

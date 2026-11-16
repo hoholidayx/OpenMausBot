@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
+import { launchVerificationServer } from "../scripts/control-omb.ts";
 
 const server = fileURLToPath(new URL("./index.ts", import.meta.url));
 
@@ -26,5 +27,35 @@ it.each([
     expect(existsSync(dataDir)).toBe(false);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses retired Cloud sign-in without consuming a self-hosted pairing code", async () => {
+  const fixture = await launchVerificationServer({ OMB_LEGACY_MEMORY: "0" });
+  const { url } = fixture.info;
+  const post = (path: string, body: object) => fetch(`${url}${path}`, {
+    method: "POST",
+    headers: { origin: url, "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(5_000),
+  });
+  try {
+    const offer = await post("/api/auth/pairing", { scopes: ["client"] });
+    expect(offer.status).toBe(200);
+    const { code } = await offer.json() as { code: string };
+    const input = { code, cookie: true, label: "Paired browser", attemptId: "selfhost-pairing-check" };
+    const retired = await post("/api/auth/pair", { ...input, browser: true, preview: true });
+    expect(retired.status).toBe(400);
+    expect(retired.headers.get("set-cookie")).toBeNull();
+    const paired = await post("/api/auth/pair", input);
+    expect(paired.status).toBe(200);
+    expect(paired.headers.get("set-cookie")).toContain("HttpOnly");
+    const { session } = await paired.json() as { session: { id: string } };
+    expect(session).toMatchObject({ label: "Paired browser", scopes: ["client"] });
+    const repeated = await post("/api/auth/pair", input);
+    expect(repeated.status).toBe(200);
+    expect(await repeated.json()).toMatchObject({ session: { id: session.id } });
+  } finally {
+    await fixture.close();
   }
 });
