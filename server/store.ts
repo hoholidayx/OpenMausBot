@@ -109,7 +109,7 @@ const ASK_NOW = { approvalMode: "ask" as const, autoApprove: false, alwaysAllow:
 const TASK_PATCH_FIELDS = [
   "title", "projectId", "modelSelection", "approvalMode", "autoApprove", "alwaysAllow",
   "unread", "lastReadMessageId", "rewound", "archivedAt", "pinned", "pinnedMessageId", "resumeCursors", "legacyMemoryDisabled", "lastInstanceId", "cwd",
-  "routineRunId", "surface", "surfaceSource", "snoozedUntil", "link", "linkAuto", "appliedCompactionId", "contextFloor", "lastContextModel", "usage", "setupRequest", "botApi", "outside",
+  "routineRunId", "surface", "surfaceSource", "snoozedUntil", "link", "linkAuto", "appliedCompactionId", "contextFloor", "lastContextModel", "usage", "setupRequest", "botApi", "botApiAsOwner", "outside",
 ] as const satisfies readonly (keyof TaskRecord)[];
 export type TaskPatch = Partial<Pick<TaskRecord, typeof TASK_PATCH_FIELDS[number]>>;
 
@@ -155,7 +155,8 @@ export function titleFromLlm(raw: string): string | null {
 export interface BotRecord extends Omit<WireBot, "avatarUrl" | "tasks"> {
   tasks?: TaskRecord[];
   avatarUrl?: string;
-  resumeCursors: Record<string, unknown>; mainThreadChoice?: string; // mainThreadChoice ("Set as main thread") is host-only; clients get mainThreadId.
+  resumeCursors: Record<string, unknown>;
+  mainThreadChoice?: string;
   /** Elevation journal: Full/Custom runs as Ask until Electron confirms the prepared reply; a marker surviving a restart is revoked on load. */
   approvalGrant?: {
     requestId: string;
@@ -1157,10 +1158,10 @@ export class Store {
     const persist = () => { mdb.appendMessage(threadId, full); return full; };
     const committed = command ? runCommand(command, persist) : persist();
     if (committed.id !== full.id) return committed;
-    t.messages.push(full);
+    t.messages.push(full); this.threads.grew(threadId, full);
     t.activeLeafId = full.id;
     if (full.kind === "screen") {
-      for (const pruned of this.pruneScreenFrames(t)) {
+      for (const pruned of this.pruneScreenFrames(t, threadId)) {
         mdb.updateMessage(threadId, pruned);
         this.emit({ type: "message.patch", threadId, message: pruned });
       }
@@ -1177,10 +1178,10 @@ export class Store {
     if (!anchorExists || t.activeLeafId === anchorId) return this.appendMessage(threadId, message);
     const full: Message = { id: newId(), at: Date.now(), ...redactBotAuthored(message), parentId: anchorId };
     const children = t.messages.filter((m) => m.parentId === anchorId);
-    t.messages.push(full);
+    t.messages.push(full); this.threads.grew(threadId, full);
     mdb.insertMessage(threadId, full);
     if (full.kind === "screen") {
-      for (const pruned of this.pruneScreenFrames(t)) {
+      for (const pruned of this.pruneScreenFrames(t, threadId)) {
         mdb.updateMessage(threadId, pruned);
         this.emit({ type: "message.patch", threadId, message: pruned });
       }
@@ -1201,7 +1202,7 @@ export class Store {
     return this.patchMessage(threadId, card.id, { card: { ...card.card, dismissed: true } });
   }
 
-  private pruneScreenFrames(t: { messages: Message[] }, keep = 4): Message[] {
+  private pruneScreenFrames(t: { messages: Message[] }, threadId: string, keep = 4): Message[] {
     const pruned: Message[] = [];
     let seen = 0;
     for (let i = t.messages.length - 1; i >= 0 && seen < t.messages.length; i--) {
@@ -1209,7 +1210,7 @@ export class Store {
       if (m.kind !== "screen" || !m.png) continue;
       seen += 1;
       if (seen > keep) {
-        m.png = undefined;
+        this.threads.grew(threadId, { ...m, png: undefined }, m); m.png = undefined;
         pruned.push(m);
       }
     }
@@ -1233,7 +1234,7 @@ export class Store {
       ...(sender ? { sender } : {}),
       ...(dataContext ? { dataContext } : {}),
     };
-    t.messages.push(full);
+    t.messages.push(full); this.threads.grew(threadId, full);
     t.activeLeafId = full.id;
     mdb.appendMessage(threadId, full);
     this.noteThreadActivity(threadId, full.at, true);
@@ -1269,7 +1270,7 @@ export class Store {
     const committed = command ? runCommand(command, persist) : persist();
     if (!applied) return committed;
     if (!movesThreadToTop(t.messages[idx]) && movesThreadToTop(next)) this.noteThreadActivity(threadId, next.at, true, next.turnCompletedAt ?? next.at);
-    t.messages[idx] = next;
+    this.threads.grew(threadId, next, t.messages[idx]); t.messages[idx] = next;
     this.emit({ type: "message.patch", threadId, message: next });
     return next;
   }

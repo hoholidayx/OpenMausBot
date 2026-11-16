@@ -39,12 +39,10 @@ const fold = (value: string) => value.replace(/^@/u, "").replace(/[-_]+/gu, " ")
 function bringTogether(place: Place, self: Elsewhere["self"], to: "bot" | "person"): string {
   if (place.kind === "team") return moveToTeam(place, self, to);
   const home = place.kind === "computer" ? self : self.kind === "computer" ? place : null;
-  if (!home || home.kind === "computer") {
-    return `To bring ${to === "bot" ? "their" : "your"} bots together by hand, export a backup in Settings → Backups on one place and import it on the other.`;
+  if (!home || home.kind !== "server") {
+    return `To bring ${to === "bot" ? "their" : "your"} bots together by hand, export a backup in Settings → Import & export on one place and import it on the other.`;
   }
-  const how = home.kind === "cloud"
-    ? `in the app, choose "Bring them together", or turn off "Keep this computer's bots on this computer" in Settings → MausBot Cloud`
-    : `in the app, right-click ${home.name}'s icon on the left of the app and choose "Make ${home.name} my home"`;
+  const how = `in the app, right-click ${home.name}'s icon on the left of the app and choose "Make ${home.name} my home"`;
   return to === "bot" ? `Offer to bring their bots together on ${home.name}: ${how}.` : `To bring your bots together on ${home.name}, ${how}.`;
 }
 

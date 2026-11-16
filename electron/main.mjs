@@ -248,7 +248,7 @@ let desktopPrefs = null, ownHome = null, twoPlaces = null, windowFrameMade = nul
 const phoneLinkFact = createPhoneLinkFact({ retired: () => companionTunnelRetired(secureCredentialState?.read() ?? secureCredentials), server: () => (serverReady ? serverProc : null), log: slog }), phonePushAccess = createPhonePushAccessSync({ server: () => (serverReady ? serverProc : null), credentials: () => secureCredentialState?.read() ?? secureCredentials, controlPlane: () => resolveCompanionControlPlaneURL({ isPackaged: app.isPackaged, environment: process.env }), log: slog });
 const cloudPower = createCloudPowerGate({ wanted: () => computerSharing?.lendingToCloud() === true });
 const utilityServerExits = new WeakMap(), systemProxy = createSystemProxyCache();
-const UTILITY_SERVER_STOP_TIMEOUT_MS = 6_500;
+const UTILITY_SERVER_STOP_TIMEOUT_MS = 9_500;
 const trustedApprovalMode = createTrustedApprovalModeCoordinator({ randomId: randomUUID, t: (...args) => nativeT(...args) });
 const desktopMutationToken = randomBytes(32).toString("base64url");
 const desktopLaunchId = randomUUID();

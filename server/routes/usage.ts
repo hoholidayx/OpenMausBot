@@ -1,5 +1,6 @@
 import { redactSecretsInText } from "../../shared/redact.ts";
 import type { RequestAuth } from "../request-auth.ts";
+import type { UsageCapView } from "../host/usage-cap-gate.ts";
 import {
   flushUsageLedger,
   parseUsageRange,
@@ -18,6 +19,7 @@ import { PASS, type RouteHandler } from "./table.ts";
 
 export interface UsageRouteDeps {
   dataDir: string;
+  caps(auth: RequestAuth): UsageCapView | null;
   recorder: TraceServiceDeps["recorder"];
   messages: TraceServiceDeps["messages"];
   liveBot: TraceServiceDeps["liveBot"];
@@ -81,6 +83,7 @@ export function createUsageRoutes(deps: UsageRouteDeps): RouteHandler {
       groupBy,
       splitBy,
       ...summarizeUsage(rows, groupBy, null, splitBy),
+      caps: deps.caps(auth),
     });
   };
 }

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { createModelSystemPrefixes } from "./model-system-prefixes.ts";
 import { createModelSystemPrefixRoutes } from "./routes/model-system-prefixes.ts";
-import { buildSystemPrompt } from "./system-prompt.ts";
+import { buildSystemPrompt, teamRosterPart } from "./system-prompt.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
 let directory: string;
@@ -19,7 +19,7 @@ it("keys by connection and model, changes only the stable prompt and persists ed
   const one = { instanceId: "one", driverKind: "openai-compat" };
   const two = { instanceId: "two", driverKind: "openai-compat" };
   const model = "vendor/model";
-  const base = buildSystemPrompt("Identity.", "SOUL", [{ id: "files", label: "Files", text: "\nDynamic." }]);
+  const base = buildSystemPrompt("Identity.", "SOUL", [{ id: "files", label: "Files", text: "\nDynamic." }, teamRosterPart("Scout and Echo")]);
   expect(prefixes.apply(base, one, model)).toBe(base);
 
   prefixes.save(one.instanceId, model, "  Prefix one.\n第二行  ");
@@ -35,6 +35,7 @@ it("keys by connection and model, changes only the stable prompt and persists ed
     text: prefix + base.text,
     stable: prefix + base.stable,
     volatile: base.volatile,
+    roster: "\nScout and Echo",
   });
   expect(saved.apply(base, two, model).stable).toBe("Prefix two.\n\n" + base.stable);
   expect(() => saved.save(one.instanceId, model, "字".repeat(8_001))).toThrow("24,000 UTF-8 bytes");

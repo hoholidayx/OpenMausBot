@@ -54,10 +54,10 @@ export function createModelSystemPrefixes(file: string) {
       const text = prefix + "\n\n";
       const section = { id: "model-system-prefix", label: "Model system prefix", text, bytes: Buffer.byteLength(text) };
       return {
+        ...prompt,
         sections: [section, ...prompt.sections],
         text: text + prompt.text,
         stable: text + prompt.stable,
-        volatile: prompt.volatile,
       };
     },
   };

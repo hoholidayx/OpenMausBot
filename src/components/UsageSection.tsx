@@ -13,6 +13,7 @@ import type { TraceList, TraceRootSummary } from "../../shared/usage-trace";
 import { BotAvatar } from "./Avatar";
 import { PlanUsage } from "./PlanUsage";
 import { Select } from "./Select";
+import { UsageCapsCard, type UsageCapView } from "./UsageCaps";
 import { TraceView } from "./usage/TraceView";
 import { LiveBadge, modelName, StatStrip, totalsStats } from "./usage/TraceWaterfall";
 
@@ -36,6 +37,7 @@ export interface UsageGroup {
 interface UsageSummary {
   groupBy: UsageGroupBy;
   groups: UsageGroup[];
+  caps?: UsageCapView | null;
 }
 
 const GROUP_LABEL_KEYS: Record<UsageGroupBy, LocaleKey> = {
@@ -181,11 +183,12 @@ function ModelLegend({ groups }: { groups: readonly UsageGroup[] }) {
 }
 
 /** The "Where it went" panel: bots on one side, the chosen grouping on the other, both split by model. */
-function WhereItWent({ range, version }: { range: { from: string; to: string }; version: number }) {
+function WhereItWent({ range, version, onSummary }: { range: { from: string; to: string }; version: number; onSummary: (summary: UsageSummary | null) => void }) {
   const [other, setOther] = useState<UsageGroupBy>("model");
   const settings = useContext(SettingsLook);
   const byBot = useUsageGroups(range, "bot", version, "model");
   const byOther = useUsageGroups(range, other, version, other === "model" ? undefined : "model");
+  useEffect(() => { onSummary(byBot); }, [byBot, onSummary]);
   if (settings) return null;
   return (
     <section className="rounded-2xl border border-hairline/50 bg-card p-5" aria-label={t("usage.page.where")}>
@@ -224,10 +227,11 @@ function WhereItWent({ range, version }: { range: { from: string; to: string }; 
 const SETTINGS_GROUPINGS: readonly UsageGroupBy[] = ["bot", ...OTHER_GROUPINGS];
 
 /** Settings' Where it went: a select (by bot, model, person…) as the section's action, then one row per item. */
-function SettingsWhereItWent({ range, version }: { range: { from: string; to: string }; version: number }) {
+function SettingsWhereItWent({ range, version, onSummary }: { range: { from: string; to: string }; version: number; onSummary: (summary: UsageSummary | null) => void }) {
   const { state } = useStore();
   const [by, setBy] = useState<UsageGroupBy>("bot");
   const groups = useUsageGroups(range, by, version);
+  useEffect(() => { onSummary(groups); }, [groups, onSummary]);
   const top = groups?.groupBy === by ? [...groups.groups].sort((a, b) => headlineTokens(b) - headlineTokens(a)).filter((group) => headlineTokens(group) > 0).slice(0, 8) : null;
   return (
     <SettingsGroup label={t("usage.page.where")} block="where"
@@ -294,6 +298,7 @@ export function UsageSection() {
   const [list, setList] = useState<TraceList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [open, setOpen] = useState<{ id: string; at: number } | null>(null);
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -350,7 +355,7 @@ export function UsageSection() {
               </div>
             </SettingsRows>
           </SettingsGroup>
-          <SettingsWhereItWent range={range} version={version} />
+          <SettingsWhereItWent range={range} version={version} onSummary={setSummary} />
           <SettingsGroup label={t("usage.page.runs")} block="runs" footnote={untimed ? t("usage.page.untimedNote") : undefined}>
             <SettingsRows>
               {list && !list.roots.length && <SettingsEmptyRow>{t("usage.page.runsEmpty")}</SettingsEmptyRow>}
@@ -360,6 +365,7 @@ export function UsageSection() {
           </SettingsGroup>
         </>}
         <PlanUsage />
+        <UsageCapsCard view={summary?.caps} onSaved={() => setVersion((value) => value + 1)} />
       </div>
     );
   }
@@ -387,7 +393,7 @@ export function UsageSection() {
             {list ? <StatStrip items={totalsStats(list.totals, t("trace.stat.time"))} />
               : <div className="flex items-center gap-2 p-5 text-[13px] text-ink-secondary"><Loader2 size={14} className="animate-spin" />{t("common.checking")}</div>}
           </section>
-          <WhereItWent range={range} version={version} />
+          <WhereItWent range={range} version={version} onSummary={setSummary} />
           <section className="rounded-2xl border border-hairline/50 bg-card p-2" aria-label={t("usage.page.runs")}>
             <div className="px-3 pb-1 pt-3">
               <h3 className="text-[15px] font-medium text-ink">{t("usage.page.runs")}</h3>
@@ -405,6 +411,7 @@ export function UsageSection() {
         </>
       )}
       <PlanUsage />
+      <UsageCapsCard view={summary?.caps} onSaved={() => setVersion((value) => value + 1)} />
     </div>
   );
 }

@@ -98,6 +98,9 @@ describe("container images", () => {
     expect(last(server, "USER")).toBe("maus");
     expect(last(server, "VOLUME")).toBe('["/data"]');
     expect(last(server, "CMD")).toBe('["node", "dist-server/server-launcher.js"]');
+    // A container platform runs the image with no --init: the image is its own.
+    expect(last(server, "ENTRYPOINT")).toBe('["/usr/bin/tini", "-s", "--"]');
+    expect(chain("runtime").find(step => step.op === "RUN" && step.args.includes("apt-get install"))!.args).toMatch(/ tini /);
     expect(last(server, "HEALTHCHECK")).toContain("http://127.0.0.1:8799/api/health");
     expect(last(chain("runtime"), "ENV")).toMatch(/^AGENT_BROWSER_EXECUTABLE_PATH=\/opt\/openmausbot-browser\/chrome .*NODE_ENV=production$/);
   });
