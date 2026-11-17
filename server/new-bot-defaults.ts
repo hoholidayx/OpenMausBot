@@ -20,7 +20,7 @@ export const botDefaultModelSchema = z.object({
   "choose either a model variant or an effort level");
 
 /** Saved defaults may still carry fields no bot has any more; they read as if absent. */
-const RETIRED_FIELDS = ["approvePeerComms", "peers"] as const;
+const RETIRED_FIELDS = ["approvePeerComms", "peers", "helperModel"] as const;
 function withoutRetiredFields(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const rest = { ...(value as Record<string, unknown>) };
@@ -53,8 +53,6 @@ export const botDefaultsProfileSchema = z.preprocess(withoutRetiredFields, profi
   parkDirectMessages: z.boolean().optional(),
   voiceNotes: z.boolean({ error: "voiceNotes must be true or false" }).optional(),
   voiceNoteEveryReply: z.boolean({ error: "voiceNoteEveryReply must be true, false or null" }).nullable().optional(),
-  /** At creation, so a copy of a bot kept off the helper model is off it from its first moment. */
-  helperModel: z.boolean().optional(),
 }).strict());
 
 const scheduleSchema = z.discriminatedUnion("type", [

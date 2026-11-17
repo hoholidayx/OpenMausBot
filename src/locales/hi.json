@@ -1334,7 +1334,6 @@
   "trace.source.owner": "{bot} को एक संदेश",
   "trace.source.routine": "{bot} का चलाया एक रूटीन",
   "trace.source.bot": "वह काम जो {bot} ने किसी साथी से लिया",
-  "trace.source.helper": "{bot} के लिए सहायक मॉडल का काम",
   "trace.group.browser": "ब्राउज़र इस्तेमाल किया · {count} कदम",
   "trace.group.computer": "कंप्यूटर इस्तेमाल किया · {count} कार्रवाइयाँ",
   "trace.group.phone": "फ़ोन इस्तेमाल किया · {count} कार्रवाइयाँ",

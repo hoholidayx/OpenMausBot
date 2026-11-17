@@ -3743,7 +3743,6 @@
   "trace.source.owner": "傳給 {bot} 的訊息",
   "trace.source.routine": "{bot} 執行的例行工作",
   "trace.source.bot": "{bot} 從隊友那裡接手的工作",
-  "trace.source.helper": "為 {bot} 執行的輔助模型工作",
   "trace.group.browser": "使用了瀏覽器 · {count} 個步驟",
   "trace.group.computer": "使用了電腦 · {count} 次操作",
   "trace.group.phone": "使用了手機 · {count} 次操作",

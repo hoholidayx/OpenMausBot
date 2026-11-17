@@ -327,7 +327,6 @@ export interface Bot extends DefaultBotFields, Pick<WireBot, "mascotFaceColor" |
   recordBrowserSteps?: boolean;
   memoryUpkeep?: boolean;
   cacheKeepWarm?: boolean | null;
-  helperModel?: boolean;
   mcpServers?: string[] | null;
   browserProfile?: string | null;
   visibility?: BotVisibility;

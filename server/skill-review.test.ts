@@ -356,55 +356,39 @@ describe("the scheduler", () => {
     expect(review.status(BOT.id, "thread-a").steps).toBe(0);
   });
 
-  function helperReviewer(write: NonNullable<SideJobInstance["generateText"]>, helper: { instanceId: string } | null = { instanceId: "helper" }) {
+  it("books a review to the bot's own engine and keeps work pending on failure", async () => {
+    const prompts: string[] = [];
     const booked: Array<Parameters<SideJobsDeps["book"]>[0]> = [];
-    const engines: Record<string, SideJobInstance> = {
-      pi: { instanceId: "pi", driverKind: "piAgent", enabled: true, models: { default: "", options: [] }, adapter: { capabilities: { agentsMcp: true } } },
-      helper: { instanceId: "helper", driverKind: "openai-compat", enabled: true, models: { default: "", options: [] }, adapter: { capabilities: { agentsMcp: true } }, generateText: write },
+    let failing = false;
+    const instance: SideJobInstance = {
+      instanceId: "own", driverKind: "openai-compat", models: { default: "", options: [] }, adapter: { capabilities: { agentsMcp: true } },
+      async generateText(prompt, options) {
+        prompts.push(prompt);
+        if (failing) throw new Error("503 from the engine");
+        options?.onUsage?.({ model: "gpt-5.4-mini", input: 4_000, output: 300 });
+        return createAnswer;
+      },
     };
     const jobs = createSideJobs({
-      bot: (id) => (id === BOT.id ? { ...BOT, threadId: "main", modelSelection: { instanceId: "pi" } } : undefined),
-      instance: (id) => engines[id] ?? null,
+      bot: (id) => id === BOT.id ? { ...BOT, threadId: "main", modelSelection: { instanceId: "own" } } : undefined,
+      instance: (id) => id === "own" ? instance : undefined,
       refusal: () => undefined,
-      helper: () => helper,
       smallModels: { refused: () => new Set(), remember: () => {} },
       assertWithinBudget: () => {},
       book: (row) => booked.push(row),
     });
-    return { engine: (botId: string) => jobs.text("skill-review", botId), booked };
-  }
-
-  it("is written by the helper model for a bot whose engine has no text call, and waits like any failed review when the helper fails", async () => {
-    const prompts: string[] = [];
-    let failing = false;
-    const { engine, booked } = helperReviewer(async (prompt, options) => {
-      prompts.push(prompt);
-      if (failing) throw new Error("503 from the helper's provider");
-      options?.onUsage?.({ model: "gpt-5.4-mini", input: 4_000, output: 300 });
-      return createAnswer;
-    });
-    const { review, state } = harness({ engine });
+    const { review, state } = harness({ engine: (botId) => jobs.text("skill-review", botId) });
     review.noteTurn(BOT.id, "thread-a", 3);
     expect(await review.run(BOT.id, "thread-a")).toMatchObject({ state: "applied", applied: ["chart-making"] });
     expect(prompts[0]).toContain(SKILL_REVIEW_MARKER);
-    expect(booked).toEqual([expect.objectContaining({ botId: BOT.id, instanceId: "helper", model: "gpt-5.4-mini", trigger: { kind: "helper", botId: BOT.id, job: "skill-review" } })]);
+    expect(booked).toEqual([expect.objectContaining({ botId: BOT.id, instanceId: "own", model: "gpt-5.4-mini", trigger: { kind: "bot", botId: BOT.id } })]);
 
-    // a helper that fails is an ordinary failed review: nothing applied, the
-    // counter kept for the retry, and no error leaves the scheduler
     failing = true;
     review.noteTurn(BOT.id, "thread-b", 3);
     expect(await review.run(BOT.id, "thread-b")).toMatchObject({ state: "failed" });
     expect(review.status(BOT.id, "thread-b").steps).toBe(3);
     expect(state.applied).toHaveLength(1);
     expect(booked).toHaveLength(1);
-  });
-
-  it("does not review that bot while no helper is set, as before", async () => {
-    const write = async () => createAnswer;
-    const { review, state } = harness({ engine: helperReviewer(write, null).engine });
-    review.noteTurn(BOT.id, "thread-a", 3);
-    expect(await review.run(BOT.id, "thread-a")).toMatchObject({ state: "failed", note: "this bot's engine cannot run a background review" });
-    expect(state.applied).toEqual([]);
   });
 
   it("refuses a bot without a capable engine and forgets a conversation that is gone", async () => {

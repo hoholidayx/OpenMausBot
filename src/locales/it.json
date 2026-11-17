@@ -3111,7 +3111,6 @@
   "trace.source.owner": "Un messaggio per {bot}",
   "trace.source.routine": "Una routine eseguita da {bot}",
   "trace.source.bot": "Lavoro che {bot} ha raccolto da un compagno",
-  "trace.source.helper": "Lavoro di un modello ausiliario per {bot}",
   "trace.group.browser": "Ha usato il browser · {count} passi",
   "trace.group.computer": "Ha usato il computer · {count} azioni",
   "trace.group.phone": "Ha usato il telefono · {count} azioni",

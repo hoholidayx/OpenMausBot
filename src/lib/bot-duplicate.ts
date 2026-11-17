@@ -1,13 +1,12 @@
 // A copy's restrictions go in the request that creates it: a later patch that failed would leave it unrestricted.
-import { helperModelAllowed } from "../../shared/wire";
 import type { Bot } from "@/state/store";
 import { currentTeamPeople } from "@/state/team-people";
 
-export type RestrictedSource = Pick<Bot, "visibility" | "toolScope" | "helperModel">;
+export type RestrictedSource = Pick<Bot, "visibility" | "toolScope">;
 
 export interface RestrictedCopyRequest {
   visibility?: Bot["visibility"];
-  settings?: { toolScope?: Bot["toolScope"]; helperModel?: false };
+  settings?: { toolScope?: Bot["toolScope"] };
 }
 
 /** A team's User, who gives a copy only what someone who can edit a bot may set: the server refuses the rest. */
@@ -15,13 +14,9 @@ const teamUser = () => currentTeamPeople()?.admin === false;
 
 export function restrictedCopyRequest(source: RestrictedSource, user = teamUser()): RestrictedCopyRequest {
   if (user) return {};
-  const settings: NonNullable<RestrictedCopyRequest["settings"]> = {
-    ...(Object.hasOwn(source, "toolScope") ? { toolScope: source.toolScope } : {}),
-    ...(helperModelAllowed(source) ? {} : { helperModel: false as const }),
-  };
   return {
     ...(source.visibility && source.visibility !== "everyone" ? { visibility: source.visibility } : {}),
-    ...(Object.keys(settings).length ? { settings } : {}),
+    ...(Object.hasOwn(source, "toolScope") ? { settings: { toolScope: source.toolScope } } : {}),
   };
 }
 

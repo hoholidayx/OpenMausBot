@@ -40,7 +40,7 @@ export function createPrivateRecords(deps: PrivateRecordsDeps) {
           threadId: "",
           ...(hiddenBot ? PRIVATE_BOT : section === undefined ? {} : { section }),
           trigger: hiddenRoutine ? { kind: "routine", ...PRIVATE_ROUTINE, ...person }
-            : row.trigger.kind === "bot" || row.trigger.kind === "helper" ? { kind: row.trigger.kind, ...person } : row.trigger,
+            : row.trigger.kind === "bot" ? { kind: "bot", ...person } : row.trigger,
         };
       };
     },

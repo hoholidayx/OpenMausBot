@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -54,6 +54,7 @@ describe("usage ledger through real turns", () => {
     expect(rows[1]).toMatchObject({ botId, costUsd: 0.01, trigger: { kind: "user", label: "Ada's phone" } });
     expect(readFileSync(file, "utf8")).not.toContain("hello from");
 
+    appendFileSync(file, `${JSON.stringify({ ...rows[0], trigger: { kind: "helper", job: "compaction" } })}\n`);
     const byUser = (await (await api("/api/usage?groupBy=user")).json()) as any;
     expect(byUser.groups.map((g: any) => [g.key, g.turns, g.costUsd])).toEqual(
       expect.arrayContaining([["owner", 1, 0.01], ["user:ada's phone", 1, 0.01]]),
@@ -63,12 +64,7 @@ describe("usage ledger through real turns", () => {
     const byBot = (await (await api("/api/usage?groupBy=bot")).json()) as any;
     expect(byBot.groups).toEqual([expect.objectContaining({ key: `bot:${botId}`, label: "Ledger probe", turns: 2 })]);
 
-    const csv = await api("/api/usage.csv");
-    expect(csv.headers.get("content-type")).toContain("text/csv");
-    expect((await csv.text()).trim().split("\n")).toHaveLength(3);
-
     const client = await pair("Client phone", ["client"]);
     expect((await api("/api/usage", { headers: { authorization: `Bearer ${client}` } })).status).toBe(403);
-    expect((await api("/api/usage.csv", { headers: { authorization: `Bearer ${client}` } })).status).toBe(403);
   }, 120_000);
 });

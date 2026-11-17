@@ -3,7 +3,7 @@ import { TOOL_NAMESPACE, toolSurfaceKind } from "./tool-surface.ts";
 import { isConnectedAppsServer, OWN_APPS_SERVER } from "./own-apps.ts";
 
 /** Who or what started a root. */
-export type TraceSource = "person" | "owner" | "routine" | "bot" | "helper";
+export type TraceSource = "person" | "owner" | "routine" | "bot";
 
 /** `ended`: the tool was still open when its turn ended. */
 export type TraceStatus = "ok" | "error" | "interrupted" | "ended";

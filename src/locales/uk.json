@@ -1596,7 +1596,6 @@
   "trace.source.owner": "Повідомлення для {bot}",
   "trace.source.routine": "Рутина, яку запустив {bot}",
   "trace.source.bot": "Робота, яку {bot} взяв від колеги",
-  "trace.source.helper": "Робота допоміжної моделі для {bot}",
   "trace.group.browser": "Користувався браузером · кроків: {count}",
   "trace.group.computer": "Користувався комп’ютером · дій: {count}",
   "trace.group.phone": "Користувався телефоном · дій: {count}",

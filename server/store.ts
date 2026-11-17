@@ -430,11 +430,11 @@ export class Store {
       delete b.managedSections;
       botsMigrated = true;
     }
-    for (const b of this.bots as Array<BotRecord & { peers?: unknown; approvePeerComms?: unknown }>) {
-      if (!("peers" in b) && !("approvePeerComms" in b)) continue;
+    for (const b of this.bots as Array<BotRecord & { peers?: unknown; approvePeerComms?: unknown; helperModel?: unknown }>) {
+      delete b.helperModel;
+      if ("peers" in b || "approvePeerComms" in b) botsMigrated = true;
       delete b.peers;
       delete b.approvePeerComms;
-      botsMigrated = true;
     }
     if (recoverThreadGrantsOnce(DATA_DIR, this.bots)) botsMigrated = true;
     const botIds = new Set(this.bots.map((b) => b.id));

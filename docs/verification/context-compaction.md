@@ -217,8 +217,8 @@ Evidence covers:
 - Restart before the next send retains the summary and replaces the native session once.
 - A later send keeps that replacement session instead of injecting the summary again.
 - Editing an old message replays its selected branch, not the abandoned summary.
-- Stop aborts a hanging helper without a late record; a new send still works.
-- With the `helper` setting naming an instance, a bot on an engine with no tool-free one-shot for the summary (the fake Pi and the fake Codex) gets a model-written summary from that instance, booked as a helper call; without the setting, or with the bot switched to never use the helper, the Pi bot keeps the excerpt summary.
+- Stop aborts a hanging summary call without a late record. A new send still works.
+- Codex uses a local excerpt even when old settings name Claude as a fallback. A Claude conversation uses its own engine's one-shot summary.
 - Private session bookkeeping stays off the task wire shape; stored summaries redact secrets.
 
 Each API fixture retains exact requests, waits and bounded transcripts in
@@ -283,21 +283,18 @@ That account's setting takes precedence over the inherited launch environment.
 Native `auto`/`off` settings supply no known numeric bound; other engines keep
 their own model-window threshold. The native CLI setting itself is unchanged.
 
-The selected account's tool-free helper can produce a historical summary, with
-a 20-second timeout and source-labelled fallback when unavailable. Summaries
-are capped at 6,000 bytes and retain recent source corrections. The helper may
-incur provider usage; its one-shot cost is not separately reported by the current
-provider interface. Summaries are not verified facts and can omit details.
+The conversation's engine can write a summary if it supports a tool-free
+one-shot call. It has a 20-second timeout. Summaries are capped at 6,000 bytes
+and retain recent source corrections. The one-shot may incur provider usage
+without a separate cost entry in the ledger.
 
-An engine with no tool-free helper for the summary (Pi and Muse Code, which have
-none at all, and Codex and the ACP engines, whose one-shot starts a whole agent
-process and is kept for background work) keeps the source-labelled fallback
-unless a helper model is set ([the memory guide](../memory.md), "The helper
-model"). That instance then writes the summary under the same 20-second timeout
-and fallback, and its call is one usage row with the trigger `helper`. A bot
-switched to never use the helper (`helperModel: false`) keeps the fallback.
-`server/helper-model.e2e.test.ts` boots its own server in a throwaway home with
-the fake Claude, Codex and Pi engines, once with the setting and once without.
+The host falls back to a source-labelled excerpt when the call is unavailable
+or fails. Pi and Muse Code lack a one-shot call. Codex and ACP engines keep their
+agent-based background calls for eligible jobs such as skill review.
+`server/helper-model.e2e.test.ts` boots an isolated server with fake Claude and
+Codex engines and seeds retired configuration, environment and bot settings.
+It inspects Claude's requests to confirm that the Codex excerpt required no
+Claude call and the Claude conversation requested exactly one summary.
 
 This slice covers direct threads. It does not add channel compaction, change
 provider-native compaction, prove live-model summary quality, or ship native

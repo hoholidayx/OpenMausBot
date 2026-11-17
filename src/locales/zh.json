@@ -3785,7 +3785,6 @@
   "trace.source.owner": "发给 {bot} 的消息",
   "trace.source.routine": "{bot} 运行的例行任务",
   "trace.source.bot": "{bot} 从队友那里接手的工作",
-  "trace.source.helper": "为 {bot} 执行的辅助模型工作",
   "trace.group.browser": "使用了浏览器 · {count} 个步骤",
   "trace.group.computer": "使用了电脑 · {count} 次操作",
   "trace.group.phone": "使用了手机 · {count} 次操作",

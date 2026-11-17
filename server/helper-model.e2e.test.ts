@@ -1,251 +1,82 @@
-// POSIX-gated like the other CLI e2es: the fakes are shebang scripts.
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { expect, it } from "vitest";
 
-import { SKILL_REVIEW_MARKER } from "./skill-review.ts";
-import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
-import { workerPort } from "./testing/worker-port.ts";
+import { EXCERPT_SUMMARY_HEADER } from "../shared/wire.ts";
+import { launchVerificationServer, runControlOmb, verificationServerArgs, verificationServerEnvironment } from "../scripts/control-omb.ts";
+import { fixtureApi } from "../scripts/testing/preview-fixture.ts";
+import { waitForExit } from "./testing/cleanup.ts";
 
-const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
-const fake = (name: string) => join(SERVER_DIR, "testing", name);
-const FAKES = ["fake-claude-cli.ts", "fake-codex-app-server.ts", "fake-pi-cli.ts"];
-const posixOnly = describe.skipIf(process.platform === "win32");
+type BotRef = { id: string; activeTaskId: string };
+const SUMMARY = "The fixture requires a clean build before release.";
 
-const SUMMARY_MARKER = "Summarize this conversation history in third person";
-const SUMMARY = "The person said they are vegetarian and asked for nothing else.";
-const SKILL_MD = "---\nname: weekly-report\ndescription: Writes the weekly status report.\n---\n\n# Weekly report\n\nWrites the weekly status report from the project notes.\n\n## When to Use\n- \"write the weekly report\"\n\n## Procedure\n1. Read the notes.\n2. Keep it to five bullets.\n\n## Pitfalls\n- Long reports go unread: stop at five bullets.\n\n## Verification\n- Count the bullets.\n";
-
-interface Msg {
-  role: string;
-  kind: string;
-  text?: string;
-  compaction?: { summary: string };
-  card?: { title?: string; answered?: string; skillRequest?: { name: string } };
-}
-interface Row {
-  botId: string;
-  threadId: string;
-  instanceId: string;
-  driverKind: string;
-  model: string;
-  trigger: { kind: string; botId?: string; job?: string };
-}
-
-/** One isolated server in a throwaway home, with the fake engines and
- * whatever else the test puts in config.json. */
-async function boot(extraConfig: Record<string, unknown>) {
-  for (const name of FAKES) chmodSync(fake(name), 0o755);
-  const port = workerPort(18800, 10_000);
-  const base = `http://127.0.0.1:${port}`;
-  const home = mkdtempSync(join(tmpdir(), "omb-helper-model-"));
-  mkdirSync(join(home, ".openmausbot"), { recursive: true });
-  const routes = join(home, "one-shot-routes.json");
-  writeFileSync(routes, JSON.stringify({
-    [SUMMARY_MARKER]: SUMMARY,
-    [SKILL_REVIEW_MARKER]: JSON.stringify({ changes: [{ action: "create", skill_md: SKILL_MD, gist: "Five-bullet weekly report." }] }),
-  }));
-  writeFileSync(join(home, ".openmausbot", "config.json"), JSON.stringify({
-    instances: {
-      claude: { driver: "claudeAgent", config: { cli: fake("fake-claude-cli.ts"), permissionMode: "bypassPermissions" } },
-      codex: { driver: "codex", config: { cli: fake("fake-codex-app-server.ts") } },
-      pi: { driver: "piAgent", environment: { FAKE_PI_MODE: "tooluse" }, config: { cli: fake("fake-pi-cli.ts"), fullAuto: true } },
-    },
-    ...extraConfig,
-  }));
-  let stderr = "";
-  const env: NodeJS.ProcessEnv = { HOME: home, USERPROFILE: home, OMB_PORT: String(port), FAKE_CLAUDE_TEXT_ROUTES: routes };
-  if (process.env.PATH) env.PATH = process.env.PATH;
-  const child: ChildProcess = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], { cwd: join(SERVER_DIR, ".."), env, stdio: ["ignore", "pipe", "pipe"] });
-  child.stderr!.on("data", (chunk) => (stderr += chunk));
-  let stdout = "";
-  child.stdout!.on("data", (chunk) => (stdout += chunk));
-
-  const api = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
-    const response = await fetch(`${base}${path}`, {
-      method,
-      headers: body ? { "content-type": "application/json" } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    return { status: response.status, body: await response.json().catch(() => null) };
-  };
-  // Generous on purpose: every wait ends the moment its condition holds, and
-  // a busy machine starts each fake CLI slowly.
-  const waitFor = async (predicate: () => Promise<boolean> | boolean, what: string, ms = 60_000) => {
-    const deadline = Date.now() + ms;
-    while (!(await predicate())) {
-      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}. stderr: ${stderr.slice(-3000)}`);
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
-  };
-  const close = async () => {
-    await waitForExit(child, { signal: "SIGTERM" });
-    await removeTempDir(home);
-  };
+it("ignores retired helper settings and writes summaries only on the conversation's engine", async () => {
+  const server = await launchVerificationServer({}, undefined, undefined, undefined, undefined, undefined, ["codex"]);
+  const { dataDir, url, logPath } = server.info;
+  const api = fixtureApi(url, { headers: { origin: url } });
+  const control = (...args: string[]) => runControlOmb([...args, "--url", url]);
+  let restarted: ChildProcess | undefined;
   try {
-    await waitFor(async () => {
-      if (child.exitCode !== null) throw new Error(`server exited ${child.exitCode}. stderr:\n${stderr}`);
-      try { return (await fetch(`${base}/api/health`)).ok; } catch { return false; }
-    }, "the server to come up");
-  } catch (error) {
-    // a server that never answered is still this test's to stop
-    await close();
-    throw error;
+    const { bot: codex } = await control("new-bot", "--name", "Builder") as { bot: BotRef };
+    await waitForExit(server.child, { signal: "SIGTERM" });
+    const configPath = join(dataDir, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.helper = { instanceId: "claude", model: "claude-haiku-5-5" };
+    config.features.llmThreadTitles = false;
+    writeFileSync(configPath, JSON.stringify(config));
+    const botsPath = join(dataDir, "bots.json");
+    const bots = JSON.parse(readFileSync(botsPath, "utf8")) as Array<{ id: string; helperModel?: unknown }>;
+    bots.find(bot => bot.id === codex.id)!.helperModel = true;
+    writeFileSync(botsPath, JSON.stringify(bots));
+
+    const log = join(dataDir, "summary-prompts.ndjson");
+    const reply = join(dataDir, "summary.txt");
+    writeFileSync(reply, SUMMARY);
+    const env = {
+      ...verificationServerEnvironment({ FAKE_CLAUDE_TEXT_FILE: reply, FAKE_CLAUDE_TEXT_LOG: log }, dataDir, Number(new URL(url).port)),
+      OMB_HELPER_INSTANCE: "claude",
+      OMB_HELPER_MODEL: "claude-haiku-5-5",
+    };
+    const fd = openSync(logPath, "a", 0o600);
+    try { restarted = spawn(process.execPath, verificationServerArgs(env), { env, stdio: ["ignore", fd, fd] }); }
+    finally { closeSync(fd); }
+    console.info(`Side job evidence: ${logPath}`);
+    await expect.poll(async () => {
+      try { return (await api("GET", "/api/health")).pid; } catch { return undefined; }
+    }, { timeout: 20_000 }).toBe(restarted.pid);
+
+    const listed = await api("GET", "/api/bots?messages=0");
+    const loaded = listed.bots.find((bot: { id: string }) => bot.id === codex.id);
+    expect(loaded).toMatchObject({ name: "Builder" });
+    expect(loaded).not.toHaveProperty("helperModel");
+    const { instances } = await control("models") as { instances: Array<{ instanceId: string; models: { default: string } }> };
+    const selectModel = (bot: BotRef, instance: string) => control("set-model", "--bot", bot.id, "--instance", instance,
+      "--model", instances.find(item => item.instanceId === instance)!.models.default);
+    const compact = async (bot: BotRef, text: string) => {
+      const wait = () => control("wait", "--bot", bot.id, "--task", bot.activeTaskId, "--timeout", "30");
+      await control("send", "--bot", bot.id, "--task", bot.activeTaskId, "--text", text);
+      expect(await wait()).toMatchObject({ status: "settled" });
+      await api("POST", `/api/bots/${bot.id}/compact`, { threadId: bot.activeTaskId });
+      expect(await wait()).toMatchObject({ status: "settled" });
+      const { messages } = await api("GET", `/api/threads/${bot.activeTaskId}/messages`);
+      return (messages as Array<{ kind: string; compaction?: { summary: string } }>).findLast(message => message.kind === "compaction")?.compaction?.summary;
+    };
+    const summaryPrompts = () => existsSync(log) ? readFileSync(log, "utf8").trim().split("\n")
+      .map(line => JSON.parse(line).prompt as string).filter(prompt => prompt.startsWith("Summarize this conversation history")) : [];
+
+    await selectModel(codex, "codex");
+    const excerpt = await compact(codex, "CODEX_ONLY_REQ Test the build before release.");
+    expect(excerpt?.startsWith(EXCERPT_SUMMARY_HEADER)).toBe(true);
+    expect(excerpt).toContain("CODEX_ONLY_REQ");
+    expect(summaryPrompts()).toEqual([]);
+
+    const { bot: claude } = await control("new-bot", "--name", "Reviewer") as { bot: BotRef };
+    await selectModel(claude, "claude");
+    expect(await compact(claude, "CLAUDE_ONLY_REQ Test the build before release.")).toContain(SUMMARY);
+    expect(summaryPrompts()).toEqual([expect.stringContaining("CLAUDE_ONLY_REQ")]);
+  } finally {
+    if (restarted) await waitForExit(restarted, { signal: "SIGTERM" });
+    await server.close();
   }
-
-  const getBot = async (id: string) => (await api("GET", "/api/bots")).body.bots.find((bot: any) => bot.id === id) as { busy: boolean; messages: Msg[] };
-  const newBot = async (instanceId: string) => {
-    const created = (await api("POST", "/api/bots")).body.bot as { id: string; threadId: string };
-    expect((await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId, model: "fake-model" } })).status).toBe(200);
-    return created;
-  };
-  /** One turn, sent and settled with its reply. */
-  const turn = async (bot: { id: string }, text: string) => {
-    const before = (await getBot(bot.id)).messages.filter((message) => message.role === "bot" && message.kind === "text").length;
-    expect((await api("POST", `/api/bots/${bot.id}/messages`, { text })).status).toBe(202);
-    await waitFor(async () => {
-      const current = await getBot(bot.id);
-      return !current.busy && current.messages.filter((message) => message.role === "bot" && message.kind === "text").length > before;
-    }, `a turn of ${bot.id} to settle`);
-  };
-  const ledger = (botId: string): Row[] => {
-    const file = join(home, ".openmausbot", "usage", `${new Date().toISOString().slice(0, 7)}.jsonl`);
-    if (!existsSync(file)) return [];
-    return readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as Row).filter((row) => row.botId === botId);
-  };
-  return { api, waitFor, getBot, newBot, turn, ledger, close, log: () => stdout, dataDir: join(home, ".openmausbot") };
-}
-
-posixOnly("the helper model, through the real server", () => {
-  let server: Awaited<ReturnType<typeof boot>>;
-  beforeAll(async () => {
-    server = await boot({
-      helper: { instanceId: "claude", model: "claude-haiku-5-5" },
-      features: { skillReview: true, skillReviewSteps: 3 },
-    });
-  }, 90_000);
-  afterAll(async () => { await server?.close(); });
-
-  const helperRow = (job: string) => expect.objectContaining({
-    instanceId: "claude", driverKind: "claudeAgent", model: "claude-haiku-5-5", threadId: expect.stringMatching(new RegExp(`^${job}-`)),
-    trigger: expect.objectContaining({ kind: "helper", job }),
-  });
-  const compacted = async (bot: { id: string; threadId: string }) => {
-    expect((await server.api("POST", `/api/bots/${bot.id}/compact`, { threadId: bot.threadId })).status).toBe(202);
-    await server.waitFor(async () => {
-      const current = await server.getBot(bot.id);
-      return !current.busy && current.messages.some((message) => message.kind === "compaction");
-    }, "the compaction record");
-    return (await server.getBot(bot.id)).messages.find((message) => message.kind === "compaction")!.compaction!.summary;
-  };
-
-  it("gives a Pi bot the skill review and a written summary from the helper, each booked as a helper call", async () => {
-    const { api, waitFor, getBot, newBot, turn, ledger } = server;
-    const bot = await newBot("pi");
-    // one tool step a turn: three reach the review threshold
-    for (const text of ["Just so you know, I'm vegetarian.", "Write the weekly report from the notes.", "Shorter please, five bullets at most."]) await turn(bot, text);
-
-    // the turns themselves stay the Pi engine's, booked to whoever asked
-    expect(ledger(bot.id)).toContainEqual(expect.objectContaining({ driverKind: "piAgent", threadId: bot.threadId, trigger: { kind: "owner" } }));
-
-    await waitFor(async () => (await getBot(bot.id)).messages.some((message) => message.card?.skillRequest?.name === "weekly-report"), "the skill receipt");
-    expect((await getBot(bot.id)).messages.find((message) => message.card?.skillRequest)!.card).toMatchObject({ answered: "allow", title: 'Skill "weekly-report" enabled' });
-    await waitFor(() => ledger(bot.id).some((row) => row.trigger.job === "skill-review"), "the review call to be booked");
-    expect(ledger(bot.id)).toContainEqual(helperRow("skill-review"));
-
-    expect(await compacted(bot)).toContain(`Model-written historical summary (may be incomplete):\n${SUMMARY}`);
-    await waitFor(() => ledger(bot.id).some((row) => row.trigger.job === "compaction"), "the summary call to be booked");
-    expect(ledger(bot.id)).toContainEqual(helperRow("compaction"));
-
-    // read on its own in the usage summary, apart from the person's turns
-    const byPerson = (await api("GET", "/api/usage?groupBy=user")).body.groups as Array<{ key: string; label: string }>;
-    expect(byPerson.find((group) => group.key === "helper")).toMatchObject({ label: "Helper model" });
-    expect(server.log()).toContain('helper model: small writing jobs for bots whose engine has no one-off text call are written by "claude" (claude-haiku-5-5)');
-  }, 300_000);
-
-  it("accepts a bot's never-use-the-helper switch, saves it, refuses a wrong type, and then writes no helper jobs for that bot", async () => {
-    const { api, waitFor, getBot, newBot, turn, ledger, dataDir } = server;
-    const bot = await newBot("pi");
-
-    for (const wrong of ["no", 0, null, { off: true }]) {
-      const refused = await api("PATCH", `/api/bots/${bot.id}`, { helperModel: wrong });
-      expect(refused.status, JSON.stringify(wrong)).toBe(400);
-      expect(refused.body.error).toBe("helperModel must be true or false");
-    }
-    expect(await getBot(bot.id)).not.toHaveProperty("helperModel");
-
-    const saved = await api("PATCH", `/api/bots/${bot.id}`, { helperModel: false });
-    expect(saved.status).toBe(200);
-    expect(saved.body.bot).toMatchObject({ id: bot.id, helperModel: false });
-    expect(await getBot(bot.id)).toMatchObject({ helperModel: false });
-    const onDisk = () => (JSON.parse(readFileSync(join(dataDir, "bots.json"), "utf8")) as Array<{ id: string; helperModel?: boolean }>).find((record) => record.id === bot.id);
-    expect(onDisk()).toMatchObject({ helperModel: false });
-
-    for (const text of ["Just so you know, I'm vegetarian.", "Write the weekly report from the notes.", "Shorter please, five bullets at most."]) await turn(bot, text);
-    // the skill review: three tool steps are due, and it is refused the same way
-    await waitFor(() => server.log().includes(`skill review: ${bot.id}: this bot's engine cannot run a background review`), "the review to be refused");
-    expect((await getBot(bot.id)).messages.some((message) => message.card?.skillRequest)).toBe(false);
-    // the compaction summary: excerpts, not the helper's text
-    const summary = await compacted(bot);
-    expect(summary).toMatch(/^Historical excerpts in chronological order/);
-    expect(summary).not.toContain(SUMMARY);
-    expect(ledger(bot.id).some((row) => row.trigger.kind === "helper")).toBe(false);
-
-    // switched back, the helper may write for it again
-    expect((await api("PATCH", `/api/bots/${bot.id}`, { helperModel: true })).status).toBe(200);
-    expect(onDisk()).toMatchObject({ helperModel: true });
-  }, 300_000);
-
-  it("creates a bot already kept off the helper when the creation request says so, which is how a duplicate keeps its source's switch", async () => {
-    const { api, getBot, dataDir } = server;
-    // the body src/lib/bot-duplicate.ts builds for a source with helperModel: false
-    const created = await api("POST", "/api/bots", { settings: { helperModel: false } });
-    expect(created.status).toBe(201);
-    expect(created.body.bot).toMatchObject({ helperModel: false });
-    const id = created.body.bot.id as string;
-    // before any later request: on the wire and in the saved record
-    expect(await getBot(id)).toMatchObject({ helperModel: false });
-    expect((JSON.parse(readFileSync(join(dataDir, "bots.json"), "utf8")) as Array<{ id: string }>).find((record) => record.id === id)).toMatchObject({ helperModel: false });
-    // the copy then takes its source's engine, and still has no model steps from the helper
-    expect((await api("PATCH", `/api/bots/${id}`, { name: "Private copy", modelSelection: { instanceId: "pi", model: "fake-model" } })).status).toBe(200);
-    expect((await api("POST", "/api/bots", { settings: { helperModel: "false" } })).status).toBe(400);
-  }, 120_000);
-
-  it("writes a Codex bot's summary with the helper", async () => {
-    const { waitFor, newBot, turn, ledger } = server;
-    const bot = await newBot("codex");
-    await turn(bot, "Just so you know, I'm vegetarian.");
-
-    expect(await compacted(bot)).toContain(`Model-written historical summary (may be incomplete):\n${SUMMARY}`);
-    await waitFor(() => ledger(bot.id).some((row) => row.trigger.job === "compaction"), "the summary call to be booked");
-    expect(ledger(bot.id)).toContainEqual(helperRow("compaction"));
-    expect(ledger(bot.id).filter((row) => row.trigger.kind === "helper").map((row) => row.trigger.job)).toEqual(["compaction"]);
-  }, 240_000);
-
-});
-
-posixOnly("without a helper model, through the real server", () => {
-  let server: Awaited<ReturnType<typeof boot>>;
-  beforeAll(async () => { server = await boot({}); }, 90_000);
-  afterAll(async () => { await server?.close(); });
-
-  it("keeps a Pi bot's fallbacks: an excerpt summary without a helper", async () => {
-    const { api, waitFor, getBot, newBot, turn, ledger } = server;
-    const bot = await newBot("pi");
-    await turn(bot, "Just so you know, I'm vegetarian.");
-    expect((await api("POST", `/api/bots/${bot.id}/compact`, { threadId: bot.threadId })).status).toBe(202);
-    await waitFor(async () => {
-      const current = await getBot(bot.id);
-      return !current.busy && current.messages.some((message) => message.kind === "compaction");
-    }, "the compaction record");
-    const record = (await getBot(bot.id)).messages.find((message) => message.kind === "compaction")!;
-    expect(record.compaction!.summary).toMatch(/^Historical excerpts in chronological order/);
-    expect(record.compaction!.summary).not.toContain("Model-written");
-    expect(ledger(bot.id).some((row) => row.trigger.kind === "helper")).toBe(false);
-    expect(server.log()).not.toContain("helper model:");
-  }, 180_000);
-
-});
+}, 90_000);

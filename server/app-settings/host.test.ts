@@ -502,10 +502,17 @@ describe("every other setting applies at once with Undo, Full access or not", ()
 
   it("other bot settings name each change, and Undo restores each field as the bot ran on it", async () => {
     const fx = fixture();
-    await fx.set("bots.settings", JSON.stringify({ botId: "kiwi", memoryEnabled: false, computer: "local" }));
-    expect(fx.cards()[0]!.card.subtitle).toBe("Kiwi: memory off; computer use this computer's own desktop, as you");
+    await fx.set("bots.settings", JSON.stringify({ botId: "kiwi", notifications: false, computer: "local" }));
+    expect(fx.cards()[0]!.card.subtitle).toBe("Kiwi: notifications off; computer use this computer's own desktop, as you");
     expect(await fx.undo()).toEqual({ claimed: true, state: "undone" });
-    expect(fx.botPatches).toEqual([{ botId: "kiwi", body: { memoryEnabled: false, computer: "local" } }, { botId: "kiwi", body: { memoryEnabled: true, computer: null } }]);
+    expect(fx.botPatches).toEqual([{ botId: "kiwi", body: { notifications: false, computer: "local" } }, { botId: "kiwi", body: { notifications: true, computer: null } }]);
+  });
+
+  it("does not expose the retired helper setting as a writable bot field", async () => {
+    const fx = fixture();
+    expect((await fx.set("bots.settings", JSON.stringify({ botId: "kiwi", helperModel: false }))).status).toBe(400);
+    expect(fx.botPatches).toEqual([]);
+    expect(fx.cards()).toEqual([]);
   });
 
   it("never keeps a bot on this computer from a routine or other automation, the owner's own included", async () => {

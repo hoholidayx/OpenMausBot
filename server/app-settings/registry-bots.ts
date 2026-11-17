@@ -39,7 +39,6 @@ const OTHER = {
   voice: { label: "voice", value: z.string().max(BOT_PROFILE_LIMITS.voice), shown: String, was: (one: BotRecord) => one.voice ?? "" },
   voiceNotes: { label: "voice notes", value: z.boolean(), shown: onOff, was: (one: BotRecord) => on(one.voiceNotes) },
   voiceNoteEveryReply: { label: "a voice note with every reply", value: z.boolean().nullable(), shown: onOff, was: (one: BotRecord) => one.voiceNoteEveryReply ?? null },
-  helperModel: { label: "helper model", value: z.boolean(), shown: onOff, was: (one: BotRecord) => on(one.helperModel) },
   browser: { label: "built-in browser", value: z.boolean(), shown: onOff, was: (one: BotRecord) => on(one.browser) },
   recordBrowserSteps: { label: "saving browser steps", value: z.boolean(), shown: onOff, was: (one: BotRecord) => set(one.recordBrowserSteps) },
   composio: { label: "Composio apps", value: z.boolean(), shown: onOff, was: (one: BotRecord) => on(one.composio) },

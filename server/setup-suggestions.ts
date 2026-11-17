@@ -256,7 +256,7 @@ export function createSetupSuggestions(deps: SetupSuggestionsDeps) {
     try {
       const shown = settle(bot.id, job, choices ?? (renamed && outcome === "nothing to go on" ? setupChoices(basis.languageCode) : null));
       if (shown === null) return;
-      deps.log?.(`setup card answers for ${bot.id}${renamed ? " after a rename" : ""}: ${!shown && outcome === "shown" ? "late" : outcome} after ${Date.now() - started} ms (${bot.modelSelection.instanceId}, ${writer.via})`);
+      deps.log?.(`setup card answers for ${bot.id}${renamed ? " after a rename" : ""}: ${!shown && outcome === "shown" ? "late" : outcome} after ${Date.now() - started} ms (${bot.modelSelection.instanceId})`);
     } catch {
       deps.log?.(`setup card answers for ${bot.id}: could not be saved`);
     }

@@ -3166,7 +3166,6 @@
   "trace.source.owner": "Wiadomość do bota {bot}",
   "trace.source.routine": "Rutyna uruchomiona przez bota {bot}",
   "trace.source.bot": "Praca od współpracownika przejęta przez bota {bot}",
-  "trace.source.helper": "Praca modelu pomocniczego dla bota {bot}",
   "trace.group.browser": "Użycie przeglądarki · kroki: {count}",
   "trace.group.computer": "Użycie komputera · akcje: {count}",
   "trace.group.phone": "Użycie telefonu · akcje: {count}",

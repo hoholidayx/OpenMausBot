@@ -2744,7 +2744,6 @@
   "trace.source.owner": "Một tin nhắn gửi {bot}",
   "trace.source.routine": "Một tác vụ định kỳ do {bot} chạy",
   "trace.source.bot": "Việc {bot} nhận từ một đồng đội",
-  "trace.source.helper": "Việc do mô hình phụ trợ làm cho {bot}",
   "trace.group.browser": "Đã dùng trình duyệt · {count} bước",
   "trace.group.computer": "Đã dùng máy tính · {count} thao tác",
   "trace.group.phone": "Đã dùng điện thoại · {count} thao tác",

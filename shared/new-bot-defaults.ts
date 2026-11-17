@@ -16,7 +16,6 @@ export type BotDefaultsProfile = Partial<Pick<WireBot,
   mcpServers?: string[] | null;
   toolScope?: ToolScope | null;
   parkDirectMessages?: boolean;
-  helperModel?: boolean;
   /** null or absent: follows the installation's `tts.everyReply`. */
   voiceNoteEveryReply?: boolean | null;
 };

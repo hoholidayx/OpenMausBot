@@ -21,19 +21,11 @@ describe("new-bot templates", () => {
     }
   });
 
-  it("reads saved defaults that still carry a peers list or a peer-approval switch as if they never had them", () => {
-    const defaults = newBotDefaultsSchema.parse({ profile: { name: "Sky", approvePeerComms: true, peers: ["x"] } });
+  it("ignores retired fields in saved defaults and creation settings", () => {
+    const defaults = newBotDefaultsSchema.parse({ profile: { name: "Sky", approvePeerComms: true, peers: ["x"], helperModel: false } });
     expect(defaults.profile).toEqual({ name: "Sky" });
-    expect(resolveBotCreationDefaults(defaults, { settings: { peers: null } }).profile).toEqual({ name: "Sky" });
-  });
-
-  it("takes the helper-model switch in the request that creates a bot, as a boolean and nothing else", () => {
-    expect(resolveBotCreationDefaults(undefined, { settings: { helperModel: false } }).profile).toEqual({ helperModel: false });
-    // beside a tool selection, as the sidebar's Duplicate sends them
-    expect(resolveBotCreationDefaults(undefined, { settings: { toolScope: { allow: [] }, helperModel: false } }).profile).toEqual({ toolScope: { allow: [] }, helperModel: false });
-    for (const wrong of ["false", 0, null]) {
-      expect(() => resolveBotCreationDefaults(undefined, { settings: { helperModel: wrong } }), JSON.stringify(wrong)).toThrow();
-    }
+    expect(resolveBotCreationDefaults(defaults, { settings: { peers: null, toolScope: { allow: [] }, helperModel: "false" } }).profile)
+      .toEqual({ name: "Sky", toolScope: { allow: [] } });
   });
 
   it("saves the voice-note switches as defaults and gives them to new bots", () => {

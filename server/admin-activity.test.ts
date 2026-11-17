@@ -126,15 +126,8 @@ describe("what a row records", () => {
     expect(botChangeRows({ id: "b" }, before, after).map((row) => row.changed)).toEqual([["approvalMode", "composio"]]);
   });
 
-  it("follows a bot's helper-model switch: putting a bot back on the helper decides where its text may go", () => {
-    const off = botAuditSnapshot({ id: "b", helperModel: false });
-    const on = botAuditSnapshot({ id: "b", helperModel: true });
-    const unset = botAuditSnapshot({ id: "b" });
-    expect(botChangeRows({ id: "b", name: "Legal" }, off, on)).toEqual([
-      { category: "bot", action: "bot.update", target: { kind: "bot", id: "b", name: "Legal" }, changed: ["helperModel"], before: { helperModel: false }, after: { helperModel: true } },
-    ]);
-    expect(botChangeRows({ id: "b" }, unset, off).map((row) => [row.action, row.changed, row.after])).toEqual([["bot.update", ["helperModel"], { helperModel: false }]]);
-    expect(botChangeRows({ id: "b" }, off, off)).toEqual([]);
+  it("ignores the retired helper setting in bot audit snapshots", () => {
+    expect(botAuditSnapshot({ id: "b", helperModel: false, browser: true })).toEqual({ browser: true });
   });
 
   it("records that a Team bot's instructions changed without keeping their text", () => {

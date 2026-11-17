@@ -4095,7 +4095,6 @@
   "trace.source.owner": "A message to {bot}",
   "trace.source.routine": "A routine run by {bot}",
   "trace.source.bot": "Work {bot} picked up from a teammate",
-  "trace.source.helper": "Helper model work for {bot}",
   "trace.group.browser": "Used the browser · {count} steps",
   "trace.group.computer": "Used the computer · {count} actions",
   "trace.group.phone": "Used the phone · {count} actions",

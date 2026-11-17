@@ -36,8 +36,8 @@ in the server's own time zone.
   events, Bot API calls, and hand-offs in work no person started. A person's
   own message always runs, and so does a routine run they start by hand, a
   webhook's Run now test, and the hand-offs their message leads to.
-- `everything`: a person's own messages too, and the helper model's side
-  jobs (titles, memory upkeep), which only the server's caps stop.
+- `everything`: a person's own messages too. The server-wide caps also stop
+  model calls for setup suggestions and skill review.
 
 Nothing is cut off mid-turn. A turn that is running when the cap is reached
 finishes; a cap is checked only before new work starts, so the last turn can

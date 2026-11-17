@@ -3596,7 +3596,6 @@
   "trace.source.owner": "{bot} へのメッセージ",
   "trace.source.routine": "{bot} が実行したルーティン",
   "trace.source.bot": "{bot} がチームメイトから引き継いだ作業",
-  "trace.source.helper": "{bot} のための補助モデルの作業",
   "trace.group.browser": "ブラウザーを使用 · {count} ステップ",
   "trace.group.computer": "コンピューターを使用 · 操作 {count} 回",
   "trace.group.phone": "スマートフォンを使用 · 操作 {count} 回",

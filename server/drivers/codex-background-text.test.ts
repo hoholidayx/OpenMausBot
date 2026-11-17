@@ -373,14 +373,13 @@ describe("Codex generateMemoryText (fake CLI)", () => {
       bot: () => ({ id: "b1", name: "Bot", threadId: "main-b1", modelSelection: { instanceId: codex.instanceId, model: "gpt-fake-default" } }),
       instance: () => codex,
       refusal: () => undefined,
-      helper: () => null,
       smallModels,
       assertWithinBudget: () => {},
       book: () => {},
     });
-    const memory = jobs(new QuickModelFallback({ file, publish: () => {}, stopped: () => false })).text("memory", "b1")!;
-    await memory.generateText("first");
-    await memory.generateText("second");
+    const review = jobs(new QuickModelFallback({ file, publish: () => {}, stopped: () => false })).text("skill-review", "b1")!;
+    await review.generateText("first");
+    await review.generateText("second");
     await jobs(new QuickModelFallback({ file, publish: () => {}, stopped: () => false })).text("skill-review", "b1")!.generateText("after a restart");
     expect(modelsRun()).toEqual(["gpt-6-luna", "gpt-fake-default", "gpt-6-astra", "gpt-6-astra"]);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ [codex.instanceId]: ["gpt-6-luna"] });

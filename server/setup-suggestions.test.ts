@@ -125,7 +125,7 @@ describe("the card's answers", () => {
     const store = new Store(() => ({ instanceId: "claude", model: "claude-sonnet-5" }), undefined, undefined, "en");
     const bot = store.createBot({ name: "Bookkeeper" });
     const calls: Array<{ prompt: string; options?: { signal?: AbortSignal; timeoutMs?: number } }> = [];
-    const writer: SideJobText = { via: "engine", generateText: (prompt, callOptions) => {
+    const writer: SideJobText = { generateText: (prompt, callOptions) => {
       calls.push({ prompt, ...(callOptions ? { options: callOptions } : {}) });
       return options.reply ? options.reply() : Promise.resolve(REPLY);
     } };
@@ -264,7 +264,7 @@ describe("renaming a new bot before its card is answered", () => {
     const bot = store.createBot({ name: options.name ?? "Pepper" });
     const replies: Record<string, Reply> = { Recruiter: replying(RECRUITER), Gardener: replying(GARDENER), "Party Planner": replying(PLANNER), ...options.replies };
     const calls: Array<{ name: string; signal?: AbortSignal }> = [];
-    const writer: SideJobText = { via: "engine", generateText: (prompt, callOptions) => {
+    const writer: SideJobText = { generateText: (prompt, callOptions) => {
       const name = /^Bot name: (.*)$/m.exec(prompt)?.[1] ?? "";
       calls.push({ name, ...(callOptions?.signal ? { signal: callOptions.signal } : {}) });
       return (replies[name] ?? (async () => "[]"))();

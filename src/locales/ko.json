@@ -3440,7 +3440,6 @@
   "trace.source.owner": "{bot}에게 보낸 메시지",
   "trace.source.routine": "{bot}이(가) 실행한 루틴",
   "trace.source.bot": "{bot}이(가) 팀원에게서 받은 작업",
-  "trace.source.helper": "{bot}의 보조 모델 작업",
   "trace.group.browser": "브라우저 사용 · {count}단계",
   "trace.group.computer": "컴퓨터 사용 · 작업 {count}개",
   "trace.group.phone": "휴대폰 사용 · 작업 {count}개",

@@ -3212,7 +3212,6 @@
   "trace.source.owner": "Сообщение боту {bot}",
   "trace.source.routine": "Запуск рутины ботом {bot}",
   "trace.source.bot": "Работа, которую {bot} взял у товарища",
-  "trace.source.helper": "Работа вспомогательной модели для {bot}",
   "trace.group.browser": "Использовал браузер · шагов: {count}",
   "trace.group.computer": "Использовал компьютер · действий: {count}",
   "trace.group.phone": "Использовал телефон · действий: {count}",

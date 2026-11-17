@@ -128,7 +128,7 @@ import {
 } from "./legacy-memory.ts";
 import { createCacheKeepWarm, type KeepWarmStatus, type KeepWarmTarget } from "./cache-keepwarm.ts";
 import { createSkillReview, turnToolSteps } from "./skill-review.ts";
-import { createSideJobs, helperSelection } from "./side-jobs.ts";
+import { createSideJobs } from "./side-jobs.ts";
 import { canManage, canReach, departmentRefusal, hasTeamAuthority, inChargeOfEvery, livePeerRoster, livePeerRosterBlock, peerName, peerRosterPrompt, peerRosterSystemPrompt, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomPeerRosterSystemPrompt, roomRosterLine } from "./peer-roster.ts"; import { roomPostRefusal, sharedNamesNote, unreachedMentionLines } from "./same-name-mentions.ts";
 import {
   containerComputerAction,
@@ -4919,7 +4919,6 @@ const sideJobs = createSideJobs({
   bot: (botId) => store.bot(botId),
   instance: (instanceId) => registry.get(instanceId),
   refusal: (instance) => policyModelRefusal(instance), smallModels: quickFallback,
-  helper: cacheUntilConfigChanges((config) => helperSelection(config)),
   assertWithinBudget: () => usageCapGate.assertTurn(undefined, true),
   book: bookTurnUsage,
   log: (line) => console.log(line),

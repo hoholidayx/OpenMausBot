@@ -2744,7 +2744,6 @@
   "trace.source.owner": "{bot} botuna bir mesaj",
   "trace.source.routine": "{bot} tarafından çalıştırılan bir rutin",
   "trace.source.bot": "{bot} botunun bir ekip arkadaşından devraldığı iş",
-  "trace.source.helper": "{bot} için yardımcı model çalışması",
   "trace.group.browser": "Tarayıcıyı kullandı · {count} adım",
   "trace.group.computer": "Bilgisayarı kullandı · {count} işlem",
   "trace.group.phone": "Telefonu kullandı · {count} işlem",

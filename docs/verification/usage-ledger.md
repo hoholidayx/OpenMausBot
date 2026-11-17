@@ -13,8 +13,9 @@
   (the Slack worker) may name the person it acts for with `onBehalfOf`.
 - Name the asker: the email a person signed in with, else their device label;
   this computer for loopback; the routine; or "bot to bot" for a peer hop.
-- Read a period back grouped by bot, model, person, day or engine, and export
-  one CSV line per turn. Owners only; a chat-only device gets 403.
+- Read a period back grouped by bot, model, person, day or engine. Owners
+  only. A chat-only device gets 403.
+- Ignore unsupported trigger kinds on read, including old `helper` rows.
 - Keep message text out of the ledger.
 - Record each turn as a trace: its turn id, start and end, the turn that
   started it (a delegation, a resume, a room handoff), its outcome, and one
@@ -29,8 +30,7 @@
 Settings → Usage (in Simple mode, on Account) shows the period's totals, where
 the money went by bot and by model (with a switch for person, day, provider and
 routine), and every run. Opening a run shows its trace waterfall. In a chat, each
-turn's work line reads "Worked for …" with **View trace** beside it. **Export
-CSV** stays one line per turn.
+turn's work line reads "Worked for …" with **View trace** beside it.
 
 ## Driving it
 
@@ -42,9 +42,10 @@ The test launches a fresh `control-omb` fixture with the repository's fake
 engine, creates a bot, sends one turn as the owner through the control surface
 and one as a paired device with a label, waits for both to settle, then checks
 the month file has exactly two rows with the right triggers and no message
-text, that `GET /api/usage` groups them by person and by bot with the fake
-engine's `0.01` per turn, and that a client-scoped device is refused. It prints the fixture's server log
-path as evidence and removes its temporary home.
+text. It adds a retired helper row and checks that `GET /api/usage` groups
+only the two active rows by person and by bot at `0.01` per turn. It also
+checks that a client-scoped device is refused. It prints the fixture's server
+log path as evidence and removes its temporary home.
 
 `server/usage-attribution.e2e.test.ts` boots the server against the fake Claude, ACP
 and Codex engines in a disposable home and reads the month file back: an ACP

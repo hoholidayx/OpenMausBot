@@ -9,15 +9,13 @@ import type { CostSource } from "./model-prices.ts";
 import { billableFor, type PriceList } from "./prices.ts";
 import type { RequestAuth } from "./request-auth.ts";
 
-/** `helper`: a job the helper model wrote for `botId`, kept apart from `bot` so its cost reads on its own. */
-/** `email` on an owner, routine, bot or helper row: the person it was spent for (`usage-attribution.ts`), such as the
+/** `email` on an owner, routine or bot row: the person it was spent for, such as the
  * person whose turn delegated to it. */
 export type UsageTrigger =
   | { kind: "user"; email?: string; label?: string }
   | { kind: "owner"; email?: string }
   | { kind: "routine"; routineId?: string; label?: string; runId?: string; email?: string }
-  | { kind: "bot"; botId?: string; email?: string }
-  | { kind: "helper"; botId?: string; job?: string; email?: string };
+  | { kind: "bot"; botId?: string; email?: string };
 
 export interface UsageRow {
   at: string;
@@ -149,8 +147,11 @@ export async function flushUsageLedger(dataDir: string): Promise<void> {
   await writeQueues.get(dataDir);
 }
 
-const isTrigger = (value: unknown): value is UsageTrigger =>
-  typeof value === "object" && value !== null && typeof (value as UsageTrigger).kind === "string";
+function isTrigger(value: unknown): value is UsageTrigger {
+  if (!value || typeof value !== "object" || !("kind" in value)) return false;
+  const { kind } = value;
+  return kind === "user" || kind === "owner" || kind === "routine" || kind === "bot";
+}
 
 export const isUsageRow = (value: unknown): value is UsageRow =>
   typeof value === "object" &&
@@ -237,9 +238,7 @@ export function triggerKey(trigger: UsageTrigger): string {
       return "owner";
     case "routine":
       return `routine:${trigger.routineId ?? trigger.label ?? "unknown"}`;
-    case "helper":
-      return "helper";
-    default:
+    case "bot":
       return "bot";
   }
 }
@@ -252,9 +251,7 @@ export function triggerLabel(trigger: UsageTrigger): string {
       return "This computer";
     case "routine":
       return trigger.routineId === PRIVATE_ROUTINE.routineId ? PRIVATE_ROUTINE.label : `Routine: ${trigger.label ?? trigger.routineId ?? "unknown"}`;
-    case "helper":
-      return "Helper model";
-    default:
+    case "bot":
       return "Bot to bot";
   }
 }

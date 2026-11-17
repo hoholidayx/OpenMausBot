@@ -40,7 +40,7 @@ export function summaryPrompt(history: readonly ReplayEntry[]): string {
   ].join("\n\n");
 }
 
-/** Timeout aborts the helper; Stop aborts the whole operation rather than commit a late summary. */
+/** Timeout cancels the summary call. Stop cancels the whole operation. */
 export async function draftSummary(history: readonly ReplayEntry[], options: {
   generateText?: (prompt: string, options?: { signal?: AbortSignal }) => Promise<string>;
   signal: AbortSignal;

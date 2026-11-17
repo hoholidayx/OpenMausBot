@@ -56,6 +56,12 @@ const reloaded = (patch: object, cfg: AppConfig = {}) =>
   changedInstanceIds(engineLaunches(instanceConfigs(cfg), {}), engineLaunches(instanceConfigs({ ...cfg, ...patch } as AppConfig), {}));
 
 describe("configuration boundaries", () => {
+  it("ignores a retired helper entry in stored and patched configuration", () => {
+    const config = { language: "en", helper: { instanceId: "claude" } };
+    expect(parseStoredConfig(config)).toEqual({ language: "en" });
+    expect(parseConfigPatch(config)).toEqual({ language: "en" });
+  });
+
   it("requires an explicit backup to opt into automatic recovery without reloading engines", () => {
     expect(parseStoredConfig({}).automaticRecovery).toBeUndefined();
     expect(parseConfigPatch({ automaticRecovery: { enabled: false } })).toEqual({ automaticRecovery: { enabled: false } });
