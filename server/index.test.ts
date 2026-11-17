@@ -12202,6 +12202,7 @@ describe("bot memory API", () => {
       const fresh = await api("GET", `/api/bots/${bot.id}/overview`);
       expect(fresh.status).toBe(200);
       expect(fresh.body.who.name).toBe("Kiwi");
+      expect(fresh.body).not.toHaveProperty("setup");
       expect(fresh.body.wont).toEqual([
         "Has no connected apps.",
         "Can't use a computer.",

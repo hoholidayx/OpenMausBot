@@ -12,7 +12,7 @@ export const TAB_LABEL: Record<PanelTab, LocaleKey> = {
 
 export type PageId =
   | "settings" | "where"
-  | "setup" | "model" | "instructions" | "approvals" | "always" | "routines" | "apps"
+  | "model" | "instructions" | "approvals" | "always" | "routines" | "apps"
   | "memory" | "skills"
   | "browser" | "folder" | "android"
   | "voice" | "blurb" | "team" | "chiefteams" | "mcp" | "tools" | "webhooks" | "visibility" | "slack"
@@ -35,7 +35,6 @@ export interface PageMeta {
 export const PAGES: Record<PageId, PageMeta> = {
   settings: { title: "botPanel.page.settings", home: "details" },
   where: { title: "computer.simple.whereWorks", home: "computer" },
-  setup: { title: "botSetup.ideas", home: "details" },
   model: { title: "model.simple.model", home: "details" },
   instructions: { title: "botSettings.simple.instructions", home: "details" },
   approvals: { title: "botPanel.page.approvals", home: "details" },

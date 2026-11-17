@@ -14,7 +14,6 @@ export interface BotOverview {
   wont: string[];
   recent: Array<{ at: number; summary: string }>;
   grants?: BotOverviewGrant[];
-  setup: SetupStep[];
 }
 
 export interface OverviewRoutineLine {
@@ -30,16 +29,6 @@ export interface BotOverviewGrant {
   level: "all" | "partial" | "none";
   /** Granted tool count; 0 unless level is "partial". */
   toolCount: number;
-}
-
-export type SetupStepId = "identity" | "soul" | "folder" | "apps" | "schedule";
-export type SetupStepSection = "identity" | "soul" | "access" | "routines";
-
-export interface SetupStep {
-  id: SetupStepId;
-  label: string;
-  done: boolean;
-  section?: SetupStepSection;
 }
 
 export interface OverviewFacts {
@@ -282,31 +271,5 @@ export function buildBotOverview(facts: OverviewFacts): BotOverview {
     wont: wontLines(facts),
     recent: facts.recent,
     grants: grantsSummary(facts.bot.connectorTools),
-    setup: setupSteps(facts),
   };
-}
-
-const DEFAULT_BOT_NAMES = /^(new bot|bot|untitled)(\s*\d+)?$/i;
-
-export function setupSteps(facts: OverviewFacts): SetupStep[] {
-  const named = facts.bot.name.trim() !== "" && !DEFAULT_BOT_NAMES.test(facts.bot.name.trim());
-  const described = facts.bot.title.trim() !== "" || facts.bot.description.trim() !== "";
-  const apps = facts.connectedApps;
-  const routines = facts.routines.some((routine) => routine.enabled);
-  const webhooks = facts.webhooks.some((webhook) => webhook.enabled);
-  const steps: SetupStep[] = [
-    { id: "identity", label: "Give it a name and a role", done: named && described, section: "identity" },
-    { id: "soul", label: "Write its standing instructions", done: (facts.bot.soul ?? "").trim() !== "", section: "soul" },
-    { id: "folder", label: "Choose a working folder", done: Boolean(facts.bot.cwd), section: "access" },
-  ];
-  if (couldUseApps(facts)) {
-    steps.push({
-      id: "apps",
-      label: "Connect the apps it needs",
-      done: apps.authoritative && apps.services.length > 0,
-      section: "access",
-    });
-  }
-  steps.push({ id: "schedule", label: "Add a schedule or a trigger", done: routines || webhooks, section: "routines" });
-  return steps;
 }

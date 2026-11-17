@@ -39,20 +39,16 @@ const prompt: PromptPreviewData = {
 };
 
 describe("OverviewSection", () => {
-  it("offers optional setup ideas without declaring a usable bot unfinished", () => {
+  it("starts with the bot profile even when an older server sends setup ideas", () => {
+    const overview = { ...sentences, setup: [
+      { id: "folder", label: "Choose a working folder", done: false, section: "access" },
+    ] };
     const markup = render(createElement(OverviewSection, {
-      overview: { ...sentences, setup: [
-        { id: "identity", label: "Identity", done: true, section: "identity" },
-        { id: "folder", label: "Choose a working folder", done: false, section: "access" },
-        { id: "schedule", label: "Add a routine", done: false, section: "routines" },
-      ] }, prompt: null, onOpen: vi.fn(),
+      overview, prompt: null, onOpen: vi.fn(),
     }));
-    expect(markup).toContain("Setup ideas");
-    expect(markup).toContain("You can start chatting now.");
-    expect(markup).toContain("Choose a working folder");
-    expect(markup).not.toContain("Finish setting up");
-    expect(markup).not.toContain("1 of 3 done");
-    expect(markup).not.toContain(">Identity</span>");
+    expect(markup).toContain(sentences.who.name);
+    expect(markup).not.toContain("Setup ideas");
+    expect(markup).not.toContain("Choose a working folder");
   });
 
   it("says in its own words that a bot can reach every bot, and whose departments a Chief is in charge of", () => {
