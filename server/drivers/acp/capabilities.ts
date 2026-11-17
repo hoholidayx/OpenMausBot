@@ -16,6 +16,7 @@ export function acpCapabilities(support: AcpSupport): ProviderAdapter["capabilit
     modelVariants: support.modelVariants === true,
     localComputerMcp: true,
     contextReading: "meter",
+    contextCompactionOwner: "provider",
     engineAdmission: true, ...(support.askTool ? { askTool: { kind: "native" as const, name: support.askTool } } : {}),
     ...(support.steer ? { queueing: true } : {}),
     strictResume: true,

@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { closeSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb, verificationServerEnvironment } from "../scripts/control-omb.ts";
@@ -26,13 +28,21 @@ const api = async (method: string, path: string, body?: unknown) => {
 };
 /** What the agent reports before each prompt result: nothing, or these sizes. */
 const reports = (...used: number[]) => writeFileSync(usageFile, JSON.stringify(used));
+type BotRef = { id: string; activeTaskId: string };
+
+const selectAcp = (bot: BotRef) => control("set-model", "--bot", bot.id, "--instance", "opencodeGo", "--model", MODEL);
 const acpBot = async (name: string) => {
-  const { bot } = await control("new-bot", "--name", name);
-  await control("set-model", "--bot", bot.id, "--instance", "opencodeGo", "--model", MODEL);
-  return bot as { id: string; activeTaskId: string };
+  const { bot } = await control("new-bot", "--name", name) as { bot: BotRef };
+  await selectAcp(bot);
+  return bot;
 };
-const taskOf = async (bot: { id: string; activeTaskId: string }) => (await api("GET", "/api/bots")).body.bots
+const taskOf = async (bot: BotRef) => (await api("GET", "/api/bots")).body.bots
   .find((entry: any) => entry.id === bot.id).tasks.find((entry: any) => entry.threadId === bot.activeTaskId);
+const messagesOf = async (threadId: string) => (await api("GET", `/api/threads/${threadId}/messages?limit=100`)).body.messages as any[];
+const sendTo = async (bot: BotRef, text: string) => {
+  await control("send", "--bot", bot.id, "--task", bot.activeTaskId, "--text", text);
+  expect((await control("wait", "--bot", bot.id, "--task", bot.activeTaskId, "--timeout", "30")).status).toBe("settled");
+};
 
 /** One fresh 1:1 conversation of four asks: how many compaction records it
  * holds after each, and the context the conversation shows at the end. */
@@ -41,72 +51,124 @@ async function conversation(name: string, ...used: number[]) {
   const bot = await acpBot(name);
   const compactions: number[] = [];
   for (const text of ASKS) {
-    await control("send", "--bot", bot.id, "--task", bot.activeTaskId, "--text", text);
-    expect((await control("wait", "--bot", bot.id, "--task", bot.activeTaskId, "--timeout", "30")).status).toBe("settled");
-    const messages = (await api("GET", `/api/threads/${bot.activeTaskId}/messages?limit=100`)).body.messages as any[];
+    await sendTo(bot, text);
+    const messages = await messagesOf(bot.activeTaskId);
     compactions.push(messages.filter((message) => message.kind === "compaction").length);
   }
   return { compactions, context: (await taskOf(bot)).usage?.context };
 }
 
-async function withAcpServer(run: () => Promise<void>): Promise<void> {
-  const fixture = await launchVerificationServer();
+async function withAcpServer(run: (fixture: { dataDir: string; restart: (whileStopped?: () => void) => Promise<void> }) => Promise<void>): Promise<void> {
+  const fixture = await launchVerificationServer({}, undefined, undefined, undefined, undefined, { scripted: true });
   const { dataDir, logPath } = fixture.info;
-  let server: ChildProcess | undefined;
+  let server: ChildProcess = fixture.child;
+  const restart = async (whileStopped?: () => void) => {
+    await waitForExit(server, { signal: "SIGTERM" });
+    whileStopped?.();
+    const log = openSync(logPath, "a", 0o600);
+    try {
+      server = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+        env: verificationServerEnvironment({ FAKE_CLAUDE_CONTEXT_TOKENS: "990000", OMB_WARM_SUMMARY_TIME_SCALE: "0.001" },
+          dataDir, Number(new URL(url).port)), stdio: ["ignore", log, log],
+      });
+    } finally { closeSync(log); }
+    await expect.poll(async () => {
+      try { return (await fetch(url + "/api/health", { signal: AbortSignal.timeout(1_000) })).ok; } catch { return false; }
+    }, { timeout: 20_000 }).toBe(true);
+  };
   try {
     url = fixture.info.url;
     usageFile = join(dataDir, "acp-usage.json");
     updatesFile = join(dataDir, "acp-updates.json");
     reports();
     writeFileSync(updatesFile, "[]");
-    // Never discover the person's own CLI or home.
-    await waitForExit(fixture.child, { signal: "SIGTERM" });
-    const configPath = join(dataDir, "config.json");
-    const config = JSON.parse(readFileSync(configPath, "utf8"));
-    config.instances.opencodeGo = {
-      driver: "opencodeGo", displayName: "Context fixture",
-      config: { cli: fileURLToPath(new URL("./testing/fake-acp-cli.ts", import.meta.url)) },
-      environment: { FAKE_ACP_MODELS: MODEL, FAKE_ACP_USAGE_UPDATES_FILE: usageFile, FAKE_ACP_UPDATES_FILE: updatesFile },
-    };
-    writeFileSync(configPath, JSON.stringify(config));
-    const log = openSync(logPath, "a", 0o600);
-    server = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
-      cwd: fileURLToPath(new URL("..", import.meta.url)),
-      env: verificationServerEnvironment({}, dataDir, Number(new URL(url).port)), stdio: ["ignore", log, log],
+    await restart(() => {
+      const configPath = join(dataDir, "config.json");
+      const config = JSON.parse(readFileSync(configPath, "utf8"));
+      config.instances.opencodeGo = {
+        driver: "opencodeGo", displayName: "Context fixture",
+        config: { cli: fileURLToPath(new URL("./testing/fake-acp-cli.ts", import.meta.url)) },
+        environment: { FAKE_ACP_MODELS: MODEL, FAKE_ACP_USAGE_UPDATES_FILE: usageFile, FAKE_ACP_UPDATES_FILE: updatesFile,
+          FAKE_ACP_DUMP: join(dataDir, "acp-dump.json"), FAKE_ACP_DUMP_PROMPT: "1", FAKE_ACP_RPC_APPEND_FILE: join(dataDir, "acp-rpc.jsonl") },
+      };
+      writeFileSync(configPath, JSON.stringify(config));
     });
-    closeSync(log);
-    await expect.poll(async () => {
-      try { return (await fetch(url + "/api/health", { signal: AbortSignal.timeout(1_000) })).ok; } catch { return false; }
-    }, { timeout: 20_000 }).toBe(true);
-    await run();
+    await run({ dataDir, restart });
   } finally {
     await waitForExit(server, { signal: "SIGTERM" });
     await fixture.close();
   }
 }
 
-it("shows the engine's context and still folds a 1:1 conversation at the same turn", () => withAcpServer(async () => {
-  // Default 80% threshold; a few hundred tokens of transcript never folds, whatever the agent reports.
+it("shows ACP usage and leaves compaction to the agent regardless of the host threshold", () => withAcpServer(async () => {
+  expect((await api("PATCH", "/api/config", { context: { compactAt: 100 } })).status).toBe(200);
   const quiet = await conversation("Quiet agent");
   const full = await conversation("Nearly full agent", 190_000);
+  const empty = await conversation("Nearly empty agent", 10);
   expect(quiet.compactions).toEqual([0, 0, 0, 0]);
   expect(full.compactions).toEqual(quiet.compactions);
+  expect(empty.compactions).toEqual(quiet.compactions);
   expect(quiet.context).toBeUndefined();
   expect(full.context).toEqual({ tokens: 190_000, window: REPORTED_WINDOW });
-
-  // The fourth ask folds the first exchange even when the agent reports almost nothing.
-  expect((await api("PATCH", "/api/config", { context: { compactAt: 100 } })).status).toBe(200);
-  const folded = await conversation("Quiet agent, low threshold");
-  const empty = await conversation("Nearly empty agent, low threshold", 10);
-  expect(folded.compactions).toEqual([0, 0, 0, 1]);
-  expect(empty.compactions).toEqual(folded.compactions);
   expect(empty.context).toEqual({ tokens: 10, window: REPORTED_WINDOW });
 }), 180_000);
 
-it("does not start a room member on a fresh session because its engine reports a nearly full context", () => withAcpServer(async () => {
-  // 95%: above the 90% at which a room resets a member whose reading it trusts.
+it("resumes across an unapplied host summary and recovers from raw history after a session is lost", () => withAcpServer(async ({ dataDir, restart }) => {
   reports(190_000);
-  const bot = await acpBot("Editor");
+  const bot = await acpBot("Archive bot");
+  await sendTo(bot, `HISTORY_BEYOND_BUDGET ${LINE.repeat(30)}`);
+  await sendTo(bot, "ORIGINAL_ALPHA");
+  await sendTo(bot, "ORIGINAL_BETA");
+  const history = await messagesOf(bot.activeTaskId);
+  const [, first, kept] = history.filter(message => message.role === "user");
+  const compacted = { id: randomUUID(), at: Date.now(), kind: "compaction", role: "bot", parentId: history.at(-1).id,
+    compaction: { summary: "LEGACY_SUMMARY_SENTINEL", firstKeptId: kept.id, foldedThroughId: first.id,
+      legacyMemoryExcluded: true, tokensBefore: 180_000, by: "harness" } };
+  await restart(() => {
+    const database = new DatabaseSync(join(dataDir, "messages.db"));
+    try {
+      database.prepare("INSERT INTO messages (thread_id, id, at, role, kind, json) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(bot.activeTaskId, compacted.id, compacted.at, compacted.role, compacted.kind, JSON.stringify(compacted));
+      database.prepare("UPDATE thread_state SET active_leaf_id = ? WHERE thread_id = ?").run(compacted.id, bot.activeTaskId);
+    } finally { database.close(); }
+  });
+
+  expect(await api("POST", `/api/bots/${bot.id}/compact`, { threadId: bot.activeTaskId })).toMatchObject({
+    status: 409, body: { code: "provider_managed_context" },
+  });
+  const rpcPath = join(dataDir, "acp-rpc.jsonl");
+  const promptPath = join(dataDir, "acp-dump.json.prompt.json");
+  const rpc = () => readFileSync(rpcPath, "utf8").trim().split("\n").map(line => JSON.parse(line) as { method: string; sessionId?: string });
+  const previous = rpc().findLast(row => row.method === "session/prompt")?.sessionId;
+  expect(previous).toBeTruthy();
+  const beforeResume = rpc().length;
+  await sendTo(bot, "CONTINUE_GAMMA");
+  expect(rpc().slice(beforeResume)).toContainEqual(expect.objectContaining({ method: "session/load", sessionId: previous }));
+  const continued = readFileSync(promptPath, "utf8");
+  expect(continued).toContain("CONTINUE_GAMMA");
+  expect(continued).not.toMatch(/LEGACY_SUMMARY_SENTINEL|ORIGINAL_ALPHA|ORIGINAL_BETA/);
+  expect((await messagesOf(bot.activeTaskId)).filter(message => message.kind === "compaction")).toMatchObject([compacted]);
+
+  await restart(() => {
+    const configPath = join(dataDir, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.context = { ...config.context, rebuildBytes: 1024 };
+    Object.assign(config.instances.opencodeGo.environment, { FAKE_ACP_LOAD_NULL: "1", FAKE_ACP_SESSION_ID: "recovered-acp-session" });
+    writeFileSync(configPath, JSON.stringify(config));
+  });
+  await sendTo(bot, "RECOVER_DELTA");
+  const recovered = readFileSync(promptPath, "utf8");
+  expect(rpc().findLast(row => row.method === "session/prompt")?.sessionId).toBe("recovered-acp-session");
+  expect(recovered).toContain("ORIGINAL_ALPHA");
+  expect(recovered).toContain("CONTINUE_GAMMA");
+  expect(recovered).toContain("RECOVER_DELTA");
+  expect(recovered).not.toMatch(/LEGACY_SUMMARY_SENTINEL|HISTORY_BEYOND_BUDGET/);
+}), 120_000);
+
+it("discards a room member's queued host compaction when its model switches to ACP", () => withAcpServer(async ({ dataDir }) => {
+  const { bot } = await control("new-bot", "--name", "Editor") as { bot: BotRef };
+  writeFileSync(join(dataDir, "room-plan.json"), JSON.stringify({ [bot.id]: { reply: "Edited." } }));
   const room = (await control("new-channel", "--name", "Edit bay", "--members", bot.id)).channel as { id: string; activeTaskId: string };
   const group = async () => (await api("GET", "/api/bots?messages=0")).body.groups.find((entry: any) => entry.id === room.id);
   const send = async (text: string) => {
@@ -114,12 +176,19 @@ it("does not start a room member on a fresh session because its engine reports a
     expect((await control("wait", "--channel", room.id, "--timeout", "30")).status).toBe("settled");
   };
   await send("Cut the intro.");
-  await send("Trim the middle.");
-  const messages = (await api("GET", `/api/threads/${room.activeTaskId}/messages?limit=100`)).body.messages as any[];
-  expect(messages.filter((message) => message.role === "bot" && message.kind === "text")).toHaveLength(2);
-  expect(messages.filter((message) => message.kind === "activity" && /compacted/.test(message.tool?.name ?? ""))).toEqual([]);
+  await expect.poll(async () => (await group()).memberContext?.[bot.id]?.tokens).toBe(990_000);
+  const compactRoute = `/api/groups/${room.id}/members/${bot.id}/compact`;
+  expect((await api("POST", compactRoute, {})).status).toBe(202);
+  await selectAcp(bot);
+  reports(190_000);
+  expect(await api("POST", compactRoute, {})).toMatchObject({ status: 409, body: { code: "provider_managed_context" } });
   expect((await group()).memberContext ?? null).toBeNull();
-  expect((await api("POST", `/api/groups/${room.id}/members/${bot.id}/compact`, {})).status).toBe(409);
+  await send("Trim the middle.");
+  await send("Tighten the outro.");
+  const messages = await messagesOf(room.activeTaskId);
+  expect(messages.filter((message) => message.role === "bot" && message.kind === "text")).toHaveLength(3);
+  expect(messages.filter((message) => message.kind === "activity" && /compacted/i.test(message.tool?.name ?? ""))).toEqual([]);
+  expect((await group()).memberContext ?? null).toBeNull();
 }), 120_000);
 
 it("shows an agent's plan in the chat as activity only once plan lines are switched on", () => withAcpServer(async () => {

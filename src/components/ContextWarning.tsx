@@ -23,29 +23,32 @@ export function useContextAction() {
 }
 
 export function ThreadContextWarningView({ name, percent, busy, pending, onCompact }: {
-  name: string; percent: number; busy: boolean; pending: boolean; onCompact: () => void;
+  name: string; percent: number; busy: boolean; pending: boolean; onCompact?: () => void;
 }) {
   return (
     <span role="status" data-testid="context-warning" className={pill}
-      title={t("contextWarning.threadHint", { name, percent })}>
+      title={onCompact ? t("contextWarning.threadHint", { name, percent }) : undefined}>
       <Gauge size={13} className="shrink-0 text-warning" aria-hidden="true" />
       <span className="tabular-nums">{t("contextWarning.short", { percent })}</span>
-      <button type="button" className={action} disabled={busy || pending} onClick={onCompact}
+      {onCompact && <button type="button" className={action} disabled={busy || pending} onClick={onCompact}
         title={busy ? t("contextWarning.busy") : undefined}>
         {pending ? t("contextWarning.compacting") : t("contextWarning.compactNow")}
-      </button>
+      </button>}
     </span>
   );
 }
 
 export function ThreadContextWarning({ bot, messages }: { bot: Bot; messages: readonly Message[] }) {
-  const usage = bot.tasks?.find((task) => task.threadId === bot.threadId)?.usage;
-  const warning = threadContextWarning(usage, messages);
+  const { state } = useStore();
+  const task = bot.tasks?.find((task) => task.threadId === bot.threadId);
+  const instanceId = task?.modelSelection?.instanceId ?? bot.modelSelection.instanceId;
+  const providerManaged = state.instances.find((instance) => instance.instanceId === instanceId)?.capabilities?.contextCompactionOwner === "provider";
+  const warning = threadContextWarning(task?.usage, messages, !providerManaged);
   const { pending, run } = useContextAction();
   if (!warning) return null;
   return (
     <ThreadContextWarningView name={bot.name} percent={warning.percent} busy={Boolean(bot.busy)} pending={pending}
-      onCompact={() => run(`/api/bots/${bot.id}/compact`, { threadId: bot.threadId })} />
+      onCompact={providerManaged ? undefined : () => run(`/api/bots/${bot.id}/compact`, { threadId: bot.threadId })} />
   );
 }
 

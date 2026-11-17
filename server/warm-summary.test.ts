@@ -138,6 +138,19 @@ describe("warm summary scheduling", () => {
     expect(runs).toHaveLength(0);
   });
 
+  it("aborts running summaries for selected threads without canceling a bot's other threads", async () => {
+    const { time, warm, runs } = setup();
+    warm.turnCompleted(target, { ok: true, contextTokens: 150_000 });
+    warm.turnCompleted({ ...target, threadId: "t2" }, { ok: true, contextTokens: 150_000 });
+    await time.advance(WARM_SUMMARY_IDLE_MS);
+    warm.forgetBot(target.botId, threadId => threadId === target.threadId);
+    expect(warm.state(target.threadId)).toBeUndefined();
+    expect(runs.map(run => [run.target.threadId, run.signal.aborted])).toEqual([["t1", true], ["t2", false]]);
+    runs.forEach(run => run.finish({ ok: true }));
+    await time.advance(0);
+    expect(warm.state(target.threadId)).toBeUndefined();
+  });
+
   it("before a turn, abandons a summary the turn did not need, so the person never waits for it", async () => {
     const { time, warm, runs } = setup();
     warm.turnCompleted(target, { ok: true, contextTokens: 150_000 });

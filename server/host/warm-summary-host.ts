@@ -5,12 +5,12 @@
 //   it reads the warm cache and the conversation keeps its tool list. The conversation then moves to the fork, and its
 //   last two exchanges count as not yet seen by it, so the next turn carries them word for word on OpenMausBot's existing
 //   "not seen yet" path, which is saved with the conversation and survives a restart.
-// - Every other engine: OpenMausBot's own fold (the last two exchanges kept, the rest summarized), run now rather than at
+// - Other host-managed engines: OpenMausBot's own fold (the last two exchanges kept, the rest summarized), run now rather than at
 //   the next turn's start, once the conversation is close to where that turn would fold it.
 //
 // The person sees it the way they see compaction today: one activity line for Claude Code's summary, the summary note for
 // OpenMausBot's fold.
-import type { IdleCompactResult } from "../contracts.ts";
+import type { IdleCompactResult, ProviderAdapter } from "../contracts.ts";
 import { isContextMessage, type HandedState } from "../delta-context.ts";
 import { sinceFreshStart } from "../fresh-start.ts";
 import { backgroundTextSlots, type JobSlots } from "../job-slots.ts";
@@ -37,7 +37,10 @@ export interface WarmSummaryHostDeps {
   /** How many background engine jobs run at once, across bots (job-slots.ts). */
   slots?: JobSlots;
   store: Pick<Store, "taskByThread" | "botByThread" | "groupByThread" | "activePath" | "appendMessage" | "setResumeCursor" | "setHandedMessages">;
-  instance(instanceId: string): { adapter: { cacheKeepWarm?: { compact?: CompactFn; hold(threadId: string, until: number | null): boolean } } } | null | undefined;
+  instance(instanceId: string): { adapter: {
+    capabilities: Pick<ProviderAdapter["capabilities"], "contextCompactionOwner">;
+    cacheKeepWarm?: { compact?: CompactFn; hold(threadId: string, until: number | null): boolean };
+  } } | null | undefined;
   /** Off with `context.autoCompact: false` or OMB_WARM_SUMMARY=0. */
   enabled(): boolean;
   /** Where the engine summarizes by itself, in tokens (Claude Code's --autocompact); undefined when OpenMausBot set none. */
@@ -125,7 +128,7 @@ export function createWarmSummaryHost(deps: WarmSummaryHostDeps) {
     plan: (target, contextTokens): WarmSummaryPlan | null => {
       if (!deps.enabled() || store.groupByThread(target.threadId) || !store.taskByThread(target.botId, target.threadId)) return null;
       const instance = deps.instance(target.instanceId);
-      if (!instance) return null;
+      if (!instance || instance.adapter.capabilities.contextCompactionOwner === "provider") return null;
       if (!instance.adapter.cacheKeepWarm?.compact) return { way: "harness", soon: false };
       const at = deps.nativeCompactAt(target.instanceId);
       if (at === undefined || contextTokens === undefined || contextTokens < Math.min(WARM_SUMMARY_MIN_TOKENS, at / 2)) return null;

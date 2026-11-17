@@ -49,6 +49,19 @@ describe("room context", () => {
     expect(rooms.takeReset("room", "pixel", undefined)).toBeNull();
   });
 
+  it("discards a pending reset when a member switches to provider-managed compaction", () => {
+    const rooms = new RoomContextTracker({ idleMs: IDLE_MS });
+    rooms.dispatched("room", "scout", "claude");
+    rooms.record("room", "scout", { tokens: 195_000, window: 200_000 }, undefined);
+    expect(rooms.request("room", "scout")).toBe(true);
+    rooms.dispatched("room", "pixel", "codex");
+    rooms.record("room", "pixel", { tokens: 10_000, window: 200_000 }, undefined);
+
+    expect(rooms.dispatch("room", "scout", "acp", undefined, false)).toEqual({ reset: null, displaced: true });
+    expect(rooms.forThread("room")).toEqual({ pixel: { tokens: 10_000, window: 200_000 } });
+    expect(rooms.request("room", "scout")).toBe(false);
+  });
+
   it("drops other members' readings when a turn takes their engine's warm process", () => {
     const rooms = new RoomContextTracker({ idleMs: IDLE_MS });
     rooms.dispatched("room", "editor1", "claude");

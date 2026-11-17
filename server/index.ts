@@ -3909,6 +3909,24 @@ function readCursor(threadId: string): { lastReadMessageId?: string } {
   return newest ? { lastReadMessageId: newest } : {};
 }
 
+function roomContextManagedByProvider(botId: string): boolean {
+  const bot = store.bot(botId);
+  return Boolean(bot && registry.get(bot.modelSelection.instanceId)?.adapter.capabilities.contextCompactionOwner === "provider");
+}
+
+function recordRoomContext(threadId: string, botId: string, reading: { tokens?: number; window?: number } | undefined,
+  selection: ModelSelection | undefined, providerInstanceId: string | undefined): void {
+  if (roomContextManagedByProvider(botId)) return;
+  const instance = registry.get(providerInstanceId ?? selection?.instanceId ?? "");
+  roomMemberContexts.record(threadId, botId, compactionReading(instance?.adapter.capabilities, reading),
+    selection?.model, selection && registry.get(selection.instanceId)?.models);
+}
+
+function threadContextManagedByProvider(botId: string, threadId: string, defaultInstanceId: string): boolean {
+  const instanceId = store.taskByThread(botId, threadId)?.modelSelection?.instanceId ?? defaultInstanceId;
+  return registry.get(instanceId)?.adapter.capabilities.contextCompactionOwner === "provider";
+}
+
 function publicGroupState(record: GroupRecord): WireGroup {
   // The organization library's part hashes stay server-side.
   const { installedPackage: _installedPackage, ...group } = record;
@@ -3926,6 +3944,8 @@ function publicGroupState(record: GroupRecord): WireGroup {
   });
   const currentSpeaker = groupSpeakers.get(group.threadId);
   const activeWorking = groupThreadIsWorking(record.id, group.threadId);
+  const memberContexts = Object.entries(roomMemberContexts.forThread(group.threadId) ?? {})
+    .filter(([botId]) => !roomContextManagedByProvider(botId));
   return {
     ...group,
     tasks: record.dm ? undefined : tasks,
@@ -3933,7 +3953,7 @@ function publicGroupState(record: GroupRecord): WireGroup {
     description: record.description ?? null,
     turnTimeoutMinutes: record.turnTimeoutMinutes ?? null,
     usage: usage ?? null,
-    memberContext: roomMemberContexts.forThread(group.threadId) ?? null,
+    memberContext: memberContexts.length > 0 ? Object.fromEntries(memberContexts) : null,
     busyBotId: currentSpeaker?.botId ?? (activeWorking ? record.busyBotId : null),
     ...(currentSpeaker?.since ? { turnStartedAt: currentSpeaker.since } : {}),
     working: groupIsWorking(record) || openHandoffs.length > 0,
@@ -4998,8 +5018,21 @@ const warmSummaries = createWarmSummaryHost({ store, instance: (id) => registry.
   nativeCompactAt: (id) => { const instance = registry.get(id), at = instance ? nativeCompactTokens(instance) : undefined; return at && Number.isFinite(at) ? at : undefined; },
   busy: (botId, threadId) => threadBusy(botId, threadId) || botHasActiveTurn(botId), keepWarmUntil: (threadId) => cacheKeepWarm.status(threadId)?.until, book: bookForkUsage, log: (line) => console.info(line), language: threadLanguage,
   fold: async ({ botId, threadId, instanceId }, idle) => { const bot = store.projectBotForTask(botId, threadId), model = store.taskByThread(botId, threadId)?.lastContextModel, instance = registry.get(instanceId), before = latestCompaction(store.activePath(threadId))?.id;
-    if (bot && instance && model?.startsWith(`${instanceId}:`)) await compactConversation({ bot, threadId, generation: `idle:${randomUUID()}`, instance, model: model.slice(instanceId.length + 1), excludedIds: new Set(), manual: false, idle });
+    if (bot && instance && instance.adapter.capabilities.contextCompactionOwner !== "provider" && model?.startsWith(`${instanceId}:`)) {
+      await compactConversation({ bot, threadId, generation: `idle:${randomUUID()}`, instance, model: model.slice(instanceId.length + 1), excludedIds: new Set(), manual: false, idle });
+    }
     return latestCompaction(store.activePath(threadId))?.id !== before; } });
+store.onChange((change) => {
+  if (change.type !== "bot") return;
+  const bot = store.bot(change.botId);
+  if (!bot) return;
+  warmSummaries.forgetBot(bot.id, threadId => threadContextManagedByProvider(bot.id, threadId, bot.modelSelection.instanceId));
+  if (!roomContextManagedByProvider(bot.id)) return;
+  for (const threadId of roomMemberContexts.clearReadings(bot.id)) {
+    const group = store.groupByThread(threadId);
+    if (group?.threadId === threadId) broadcast({ kind: "group", group: publicGroupState(group) });
+  }
+});
 onThreadSeen((threadId) => warmSummaries.sawThread(threadId));
 onConfigSaved((before, after) => {
   if (JSON.stringify(before.cacheKeepWarm ?? null) !== JSON.stringify(after.cacheKeepWarm ?? null)) setImmediate(() => cacheKeepWarm.refresh());
@@ -5020,7 +5053,9 @@ bus.subscribe((event: RuntimeEvent) => {
       keepWarmTargets.delete(event.threadId);
       keepWarmContext.delete(event.threadId);
       if (!target || routines?.runForThread(event.threadId)) return;
-      cacheKeepWarm.noteTurnCompleted(target, { ok: event.ok, stopReason: event.stopReason, contextTokens }); warmSummaries.turnCompleted(target, { ok: event.ok, contextTokens });
+      cacheKeepWarm.noteTurnCompleted(target, { ok: event.ok, stopReason: event.stopReason, contextTokens });
+      const defaultInstanceId = store.bot(target.botId)?.modelSelection.instanceId ?? target.instanceId;
+      if (!threadContextManagedByProvider(target.botId, target.threadId, defaultInstanceId)) warmSummaries.turnCompleted(target, { ok: event.ok, contextTokens });
     }
   } catch (error) {
     console.warn(`cache keep-warm: ${(error as Error).message}`);
@@ -6281,7 +6316,7 @@ bus.subscribe((event: RuntimeEvent) => {
         const tokens = event.usage ?? lastReported;
         const speakingBot = store.bot(speaker.botId);
         const selection = speakingBot?.modelSelection;
-        roomMemberContexts.record(event.threadId, speaker.botId, compactionReading(registry.get(event.providerInstanceId ?? selection?.instanceId ?? "")?.adapter.capabilities, lastContext), selection?.model, selection && registry.get(selection.instanceId)?.models);
+        recordRoomContext(event.threadId, speaker.botId, lastContext, selection, event.providerInstanceId);
         const promptBytes = turnPromptBytes.get(event.threadId);
         turnPromptBytes.delete(event.threadId);
         bookTurnUsage({
@@ -6456,6 +6491,20 @@ function directContext(bot: BotRecord, threadId: string, messages: Message[]): C
     keep: m.roomRequest?.phase === "result" || Boolean(m.peerAsk) || (m.role !== "user" && Boolean(m.from)) || newestReports.has(m.id),
     ...(m.steered ? { steered: true } : {}),
   }));
+}
+
+function directReplay(bot: BotRecord, threadId: string, messages: Message[], excludedIds: ReadonlySet<string>, hostCompaction: boolean) {
+  const context = directContext(bot, threadId, messages);
+  const contextOrder = context.map(message => message.id);
+  const historyOnly = hostCompaction ? undefined : new Set(messages.filter(message => message.kind === "compaction").map(message => message.id));
+  const replayable = context.filter(message => !excludedIds.has(message.id) && !historyOnly?.has(message.id));
+  const record = hostCompaction ? latestCompaction(messages) : undefined;
+  const replayMessages = messages.filter(message => !historyOnly?.has(message.id) && (!message.tool || !isLegacyMemoryTool(message.tool.name)));
+  const selection = selectReplay(context, {
+    budgetBytes: cfg.context?.rebuildBytes ?? DEFAULT_REBUILD_BYTES, excludedIds,
+    compaction: record, tools: replayToolCalls(replayMessages, cfg.context),
+  });
+  return { contextOrder, replayable, record, selection };
 }
 
 function peerReplayText(m: Message, name: string, text: string): string {
@@ -6936,6 +6985,14 @@ async function finalScreenFrame(_botId: string, threadId: string): Promise<Frame
   return frame;
 }
 
+function directHostCompaction(instance: ProviderInstance | null, options: { compactOnly?: boolean } | undefined): boolean {
+  const enabled = instance?.adapter.capabilities.contextCompactionOwner !== "provider";
+  if (options?.compactOnly && !enabled) {
+    throw Object.assign(userErrorThrown("serverError.chat.providerManagedContext"), { status: 409, code: "provider_managed_context" });
+  }
+  return enabled;
+}
+
 function threadTitleGate(bot: Pick<BotRecord, "modelSelection">): { ok: true; instance: ProviderInstance } | { ok: false; refusal: string } {
   if (!llmThreadTitlesEnabled(cfg)) return { ok: false, refusal: "generated thread titles are turned off on this server" };
   const instance = registry.get(bot.modelSelection.instanceId);
@@ -7016,6 +7073,8 @@ async function beginTurn(
   limitFailovers.restore(botId, threadId);
   const bot = store.projectBotForTask(botId, threadId);
   if (!bot) throw Object.assign(new Error("no such task"), { status: 404 });
+  const instance = registry.get(bot.modelSelection.instanceId);
+  const hostCompaction = directHostCompaction(instance, opts);
   if (bot.approvalGrant) {
     throw Object.assign(new Error("this bot's approval level is still being confirmed — try again"), { status: 409, code: "settling" });
   }
@@ -7047,7 +7106,6 @@ async function beginTurn(
   const task = store.taskByThread(bot.id, threadId);
   if (!task) throw Object.assign(new Error("no such task"), { status: 404 });
   const plan = turnSurfacePlan(bot, threadId);
-  const instance = registry.get(bot.modelSelection.instanceId);
   if (!instance) {
     if (removedComputerInstanceIds(cfg.instances).has(bot.modelSelection.instanceId)) void retryComputerEngineMove();
     throw noAiNotice.refusal(threadId, opts?.sender, bot.modelSelection.instanceId) ?? Object.assign(new Error(`provider instance "${bot.modelSelection.instanceId}" is unavailable — pick another model in settings`), { status: 409 });
@@ -7223,10 +7281,16 @@ async function beginTurn(
         }
         if (!readiness.ready) throw new Error(readiness.reason ?? "The cloud computer is not ready");
       }
-      await warmSummaries.beforeTurn(threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId));
+      if (hostCompaction) {
+        await warmSummaries.beforeTurn(threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId));
+      } else {
+        warmSummaries.forget(threadId);
+      }
       if (usesNativeImageInput && !opts?.compactOnly) turnImages.push(...await videoFramesWithin(turnImages.length, resolvedImages.videos));
-      await compactConversation({ bot, threadId, generation: dispatchClaimId, instance, model,
-        excludedIds: new Set([userMessage.id, ...(opts?.excludeMessageIds ?? [])]), manual: opts?.compactOnly === true });
+      if (hostCompaction) {
+        await compactConversation({ bot, threadId, generation: dispatchClaimId, instance, model,
+          excludedIds: new Set([userMessage.id, ...(opts?.excludeMessageIds ?? [])]), manual: opts?.compactOnly === true });
+      }
       if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped during context setup");
       if (opts?.compactOnly) {
         clearDirectTurnDispatch(threadId, dispatchClaimId);
@@ -7248,12 +7312,7 @@ async function beginTurn(
         if ((m.roomRequest.phase === "request" && m.roomRequest.id === opts.coordination.id) ||
           (m.roomRequest.phase === "result" && coordinationChildren?.has(m.roomRequest.id))) skipTranscript.add(m.id);
       }
-      const context = directContext(bot, threadId, activeMessages);
-      const contextOrder = context.map(m => m.id);
-      const replayable = context.filter(m => !skipTranscript.has(m.id));
-      const record = latestCompaction(activeMessages);
-      const replayMessages = activeMessages.filter((message) => !message.tool || !isLegacyMemoryTool(message.tool.name));
-      const selection = selectReplay(context, { budgetBytes: cfg.context?.rebuildBytes ?? DEFAULT_REBUILD_BYTES, excludedIds: skipTranscript, compaction: record, tools: replayToolCalls(replayMessages, cfg.context) });
+      const { contextOrder, replayable, record, selection } = directReplay(bot, threadId, activeMessages, skipTranscript, hostCompaction);
       const transcript = selection.transcript.map(({ role, text }) => ({ role, text }));
       const legacyMemoryDisabled = MEMORY_OFF_CONTEXT_VERSION;
       const applyingCompaction = selection.compacted > 0 && record?.id !== task.appliedCompactionId;
@@ -9622,7 +9681,8 @@ async function runClaimedGroupMemberTurn(
     runningTurnEngines.set(threadId, instance);
     const turnApprovalMode = roomTurnApprovalMode(readyBot, threadId, orchestration);
     if (!done) releaseTurnLevel = roomTurnLevels.dispatched(threadId, readyBot.id, turnApprovalMode);
-    const { reset: roomReset, displaced } = roomMemberContexts.dispatch(threadId, readyBot.id, instance.instanceId, cfg.context);
+    const { reset: roomReset, displaced } = roomMemberContexts.dispatch(threadId, readyBot.id, instance.instanceId, cfg.context,
+      instance.adapter.capabilities.contextCompactionOwner !== "provider");
     if (roomReset) {
       store.appendMessage(threadId, {
         role: "bot", kind: "activity", from: { botId: readyBot.id, name: readyBot.name, color: readyBot.color },
@@ -11425,6 +11485,7 @@ ROUTES.push(createChannelRoutes({
   phoneSecretSubmissions,
   sendSequencer,
   roomMemberContexts,
+  roomContextManagedByProvider,
   skillReview,
   groupSpeakers,
   groupTurnOperations,
@@ -14281,7 +14342,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   } catch (e) {
     const status = (e as any)?.status ?? 500;
     const candidateCode = (e as { code?: unknown })?.code;
-    const code = typeof candidateCode === "string" && ["guarded_busy", "guarded_branch", "guarded_permissions", "guarded_request_changed", "guarded_request_untracked", "outside_workspace", "file_too_large", "no_ai", BOT_PAUSED_CODE, BOT_HELD_CODE].includes(candidateCode)
+    const code = typeof candidateCode === "string" && ["guarded_busy", "guarded_branch", "guarded_permissions", "guarded_request_changed", "guarded_request_untracked", "outside_workspace", "file_too_large", "no_ai", "provider_managed_context", BOT_PAUSED_CODE, BOT_HELD_CODE].includes(candidateCode)
       ? candidateCode : undefined;
     return json(res, status, { error: e instanceof Error ? e.message : String(e), ...(code ? { code } : {}), ...userErrorFields(e) });
   } finally {

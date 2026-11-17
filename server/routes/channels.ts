@@ -17,7 +17,7 @@ import type { ProviderInstance, SteerOutcome } from "../contracts.ts";
 import { cancelledChatFollowup } from "../message-db.ts";
 import { messageTextRefusal } from "../message-text.ts";
 import { prepareRoomPointed, roomPickBots, type RoomPick } from "../room-pointed.ts";
-import { refusalBody } from "../user-errors.ts";
+import { refusalBody, userError } from "../user-errors.ts";
 import type { PhoneSecretSubmissionRegistry } from "../phone-secret.ts";
 import { promptWithReply, type PersonName } from "../replies.ts";
 import { clientGroupPatchViolation, requestSource, type RequestAuth } from "../request-auth.ts";
@@ -35,7 +35,7 @@ import { sameNameRefusal, sameNameRefusalForBots } from "../same-name-mentions.t
 import { conversationLanguage } from "../server-lines.ts";
 import { bulkDeleteThreadIds, type BulkDeleteRefusal } from "./bulk-delete.ts";
 import { forkMessageId } from "./fork-request.ts";
-import { PASS, type RouteHandler } from "./table.ts";
+import { PASS, type RouteContext, type RouteHandler } from "./table.ts";
 import { sawThread } from "../thread-presence.ts";
 import { readThreadNotifications, type NotificationListed } from "./notifications.ts";
 
@@ -60,6 +60,7 @@ export interface ChannelRouteDeps {
   phoneSecretSubmissions: Pick<PhoneSecretSubmissionRegistry, "hasGroup" | "hasThread">;
   sendSequencer: Pick<SendSequencer, "run">;
   roomMemberContexts: Pick<RoomContextTracker, "request">;
+  roomContextManagedByProvider(botId: string): boolean;
   skillReview: Pick<SkillReview, "dropThread">;
   groupSpeakers: ReadonlyMap<string, { botId: string }>;
   groupTurnOperations: ReadonlyMap<string, ReadonlySet<{ threadId: string; cancelled: boolean }>>;
@@ -140,6 +141,22 @@ export function createChannelRoutes(deps: ChannelRouteDeps): RouteHandler {
     }
     return result;
   };
+  function compactMember(groupId: string, botId: string, { auth, json, res }: Pick<RouteContext, "auth" | "json" | "res">): void {
+    const group = store.group(groupId);
+    if (!group) return json(res, 404, { error: "no such room" });
+    if (!group.memberIds.includes(botId)) return json(res, 404, { error: "that bot is not in this room" });
+    const notYours = cloudThreadRefusal(auth, group.threadId);
+    if (notYours) return json(res, 403, { error: notYours });
+    if (deps.roomContextManagedByProvider(botId)) {
+      return json(res, 409, { code: "provider_managed_context", ...userError("serverError.chat.providerManagedContext") });
+    }
+    if (!roomMemberContexts.request(group.threadId, botId)) {
+      return json(res, 409, { error: "this bot has no measured context in this room yet" });
+    }
+    const visible = publicGroupState(store.group(group.id) ?? group);
+    broadcast({ kind: "group", group: visible });
+    return json(res, 202, { ok: true, threadId: group.threadId, group: deps.groupFor?.(auth, visible) ?? visible });
+  }
   return async ({ req, res, url, path, method, auth, json, readBody }) => {
     const own = (group: WireGroup) => deps.groupFor?.(auth, group) ?? group;
     let m: RegExpMatchArray | null = null;
@@ -604,19 +621,7 @@ export function createChannelRoutes(deps: ChannelRouteDeps): RouteHandler {
       return json(res, 200, { ok: true, queued: true, threadId: targetThreadId });
     }
     m = path.match(/^\/api\/groups\/([\w-]+)\/members\/([\w-]+)\/compact$/);
-    if (m && method === "POST") {
-      const group = store.group(m[1]);
-      if (!group) return json(res, 404, { error: "no such room" });
-      if (!group.memberIds.includes(m[2])) return json(res, 404, { error: "that bot is not in this room" });
-      const notYours = cloudThreadRefusal(auth, group.threadId);
-      if (notYours) return json(res, 403, { error: notYours });
-      if (!roomMemberContexts.request(group.threadId, m[2])) {
-        return json(res, 409, { error: "this bot has no measured context in this room yet" });
-      }
-      const visible = publicGroupState(store.group(group.id) ?? group);
-      broadcast({ kind: "group", group: visible });
-      return json(res, 202, { ok: true, threadId: group.threadId, group: own(visible) });
-    }
+    if (m && method === "POST") return compactMember(m[1], m[2], { auth, json, res });
     m = path.match(/^\/api\/groups\/([\w-]+)\/interrupt$/);
     if (m && method === "POST") {
       const group = store.group(m[1]);

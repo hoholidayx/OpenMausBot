@@ -49,4 +49,12 @@ describe("context warning", () => {
     expect(busy).toContain("disabled=\"\"");
     expect(busy).toContain("Stop this bot&#x27;s turn first");
   });
+
+  it("shows usage without a compaction action when the provider owns compaction", () => {
+    const warning = threadContextWarning(usage(182_000, 200_000), [line("bot", "text"), line("bot", "compaction")], false);
+    expect(warning).toEqual({ percent: 91 });
+    const markup = renderToStaticMarkup(createElement(ThreadContextWarningView, { name: "Scout", percent: warning!.percent, busy: false, pending: false }));
+    expect(text(markup)).toBe("Context 91%");
+    expect(markup).not.toContain("<button");
+  });
 });

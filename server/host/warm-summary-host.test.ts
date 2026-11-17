@@ -45,7 +45,7 @@ describe("what a summary keeps", () => {
 });
 
 /** A host over an in-memory conversation with a Claude-like engine. */
-function setup(overrides: Partial<WarmSummaryHostDeps> = {}, options: { tokens?: number; native?: boolean; room?: boolean; onCompact?: () => void } = {}) {
+function setup(overrides: Partial<WarmSummaryHostDeps> = {}, options: { tokens?: number; native?: boolean; room?: boolean; onCompact?: () => void; providerManaged?: boolean } = {}) {
   let now = 5_000_000;
   const timers: Array<{ at: number; fn: () => void; cancelled: boolean }> = [];
   const messages: Message[] = [line("user", "build the page"), line("bot", "built it"), line("user", "make the title bold"),
@@ -66,6 +66,7 @@ function setup(overrides: Partial<WarmSummaryHostDeps> = {}, options: { tokens?:
   let compactResult: IdleCompactResult = { ok: true, session: "fork-session", sessionBefore: "live-session", input: 4, cacheRead: 150_000, cacheWrite: 40, output: 2_400, costUsd: 0.2, model: "claude-opus-5-5" };
   const holds: Array<{ threadId: string; until: number | null }> = [];
   const adapter = {
+    capabilities: { contextCompactionOwner: options.providerManaged ? "provider" as const : undefined },
     cacheKeepWarm: {
       ...(options.native === false ? {} : { compact: vi.fn(async (threadId: string, input: { instructions: string; session?: string }) => {
         compactCalls.push({ threadId, ...input });
@@ -238,6 +239,14 @@ describe("warm summaries for a Claude conversation", () => {
     f.finishTurn();
     await f.advance(WARM_SUMMARY_IDLE_MS);
     expect(f.fold).toHaveBeenCalledWith({ threadId: "t1", botId: "b1", instanceId: "claude" }, expect.any(AbortSignal));
+  });
+
+  it("leaves compaction to the provider without scheduling a fold", async () => {
+    const f = setup({}, { native: false, providerManaged: true });
+    f.finishTurn();
+    await f.advance(WARM_SUMMARY_IDLE_MS);
+    expect(f.host.state("t1")).toBeUndefined();
+    expect(f.fold).not.toHaveBeenCalled();
   });
 
   it("keeps the conversation's process alive while the person has it open, and starts a summary the next turn needs", async () => {

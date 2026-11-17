@@ -211,8 +211,12 @@ export function createWarmSummary(deps: WarmSummaryDeps) {
       drop(p);
     },
 
-    forgetBot(botId: string): void {
-      for (const p of pending.values()) if (p.target.botId === botId) { p.run?.controller.abort(); drop(p); }
+    forgetBot(botId: string, matches: (threadId: string) => boolean = () => true): void {
+      for (const p of pending.values()) {
+        if (p.target.botId !== botId || !matches(p.target.threadId)) continue;
+        p.run?.controller.abort();
+        drop(p);
+      }
     },
 
     state(threadId: string): WarmSummaryState | undefined {

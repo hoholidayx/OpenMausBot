@@ -553,6 +553,7 @@ export class ProviderRegistry {
             localComputerMcp: inst.adapter.capabilities.localComputerMcp === true,
             approvalReview: inst.reviewPermission !== undefined,
             backgroundText: inst.generateText !== undefined || inst.generateMemoryText !== undefined,
+            contextCompactionOwner: inst.adapter.capabilities.contextCompactionOwner,
           },
           access: driver?.metadata.access ?? "subscription",
           install: withServerInstall(driver?.install, npmPresent, this.appStandaloneCopy(driver, cli ?? cliDefaultOf(driver))),

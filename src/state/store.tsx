@@ -451,6 +451,7 @@ export interface InstanceInfo extends InstanceEndpointInfo {
     localComputerMcp?: boolean;
     approvalReview?: boolean;
     backgroundText?: boolean;
+    contextCompactionOwner?: "provider";
   };
   access?: "subscription" | "custom" | "api";
   authentication?: { method: "device-code" | "paste-code" | "browser" | "browser-pkce" | "callback-url"; signOut?: boolean };

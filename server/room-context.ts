@@ -74,10 +74,12 @@ export class RoomContextTracker {
       [botId, { tokens, window, ...(compactRequested ? { compactRequested } : {}) }]));
   }
 
-  dispatch(threadId: string, botId: string, instanceId: string, settings: { autoCompact?: boolean; roomCompactAt?: number } | undefined):
+  dispatch(threadId: string, botId: string, instanceId: string, settings: { autoCompact?: boolean; roomCompactAt?: number } | undefined, hostCompaction = true):
     { reset: RoomReset | null; displaced: boolean } {
-    const reset = this.takeReset(threadId, botId, settings);
-    return { reset, displaced: this.dispatched(threadId, botId, instanceId) };
+    const reset = hostCompaction ? this.takeReset(threadId, botId, settings) : null;
+    const cleared = !hostCompaction && this.clearReading(threadId, botId);
+    const displaced = this.dispatched(threadId, botId, instanceId);
+    return { reset, displaced: cleared || displaced };
   }
 
   /** Each engine keeps one warm process per thread, so this turn closes the other members' processes on its engine. */
@@ -114,6 +116,17 @@ export class RoomContextTracker {
   forget(threadId: string): void {
     this.threads.delete(threadId);
     this.dispatchedOn.delete(threadId);
+  }
+
+  clearReadings(botId: string): string[] {
+    return [...this.threads.keys()].filter(threadId => this.clearReading(threadId, botId));
+  }
+
+  private clearReading(threadId: string, botId: string): boolean {
+    const members = this.threads.get(threadId);
+    if (!members?.delete(botId)) return false;
+    if (!members.size) this.threads.delete(threadId);
+    return true;
   }
 
   private now(): number {

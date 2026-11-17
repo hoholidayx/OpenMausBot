@@ -10,10 +10,10 @@ export function compactedSinceReading(messages: readonly Pick<Message, "role" | 
   return compaction > reply;
 }
 
-export function threadContextWarning(usage: TaskUsage | undefined, messages: readonly Pick<Message, "role" | "kind">[]): { percent: number } | null {
+export function threadContextWarning(usage: TaskUsage | undefined, messages: readonly Pick<Message, "role" | "kind">[], hostCompaction = true): { percent: number } | null {
   const share = usage ? contextShare(usage) : null;
   if (share?.percent === undefined || share.percent < CONTEXT_WARNING_PERCENT) return null;
-  if (compactedSinceReading(messages)) return null;
+  if (hostCompaction && compactedSinceReading(messages)) return null;
   return { percent: share.percent };
 }
 

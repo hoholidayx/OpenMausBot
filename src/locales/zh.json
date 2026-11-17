@@ -9082,6 +9082,7 @@
   "serverError.model.accountUpdating": "这个提供方账号正在更新——请稍后再试",
   "serverError.chat.busyEdit": "对话正在工作——请先停止它再编辑",
   "serverError.chat.busyVersion": "对话正在工作——请先停止它再切换版本",
+  "serverError.chat.providerManagedContext": "此引擎自行管理上下文压缩。",
   "serverError.chat.questionGone": "这个问题已不可用",
   "serverError.chat.askerGone": "提出这个问题的机器人已不可用",
   "serverError.chat.routineElsewhere": "这个机器人正在另一个对话里运行例行任务",

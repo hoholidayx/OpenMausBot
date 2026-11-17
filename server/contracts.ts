@@ -295,6 +295,8 @@ export interface ProviderAdapter {
     guestTurns?: "confined";
     /** "meter": `contextTokens` / `contextWindow` are the engine's own report, shown on the context meter but never used to time compaction. */
     contextReading?: "meter";
+    /** The provider owns compaction of its native sessions. */
+    contextCompactionOwner?: "provider";
     /** sendTurn calls `engineAdmission` itself before it starts an engine process or joins one. */
     engineAdmission?: boolean;
     /** The tool the model asks the person with: its question and choices become a card they answer with a tap. */
