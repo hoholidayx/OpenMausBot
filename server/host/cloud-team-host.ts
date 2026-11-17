@@ -3,11 +3,11 @@
 // and what that session is told. On any server that is not a Team Cloud every answer here is the plain one (the bot's own
 // memory, the server's profile), so a My Cloud and a desktop behave exactly as before.
 import type { ThreadAudiences } from "../bot-visibility.ts";
-import { type Audience, baseBotId, layerAudience, layerId, mayRead, memberAudience, audienceMember, threadAudienceFrom } from "../audience.ts";
+import { type Audience, layerId, mayRead, memberAudience, audienceMember, threadAudienceFrom } from "../audience.ts";
 import type { CloudTeam, TeamRole } from "../cloud-team.ts";
 import { createPeopleAbout, type PeopleAbout, type PersonProfilePatch, type SeedField } from "../people-about.ts";
 import { personKey } from "../person-key.ts";
-import { ensureWorkspace, loadMemory, workspaceDir } from "../workspace.ts";
+import { ensureWorkspace, workspaceDir } from "../workspace.ts";
 import type { EngineHomes } from "../engine-homes/engine-homes.ts";
 import { storeThreads, type StoreBotThreads } from "../engine-homes/migrate.ts";
 import type { ConversationShares } from "./conversation-shares.ts";
@@ -21,23 +21,21 @@ export interface CloudTeamHostDeps {
   markers: ReadonlySet<string>;
   /** Conversations their people shared (host/conversation-shares.ts). */
   shares?: Pick<ConversationShares, "audienceOf" | "readers" | "isShareKey">;
-  language?: () => string | undefined;
   /** config.json's one profile. On a team it is nobody's: it is handed to the member whose address it names, then
    * cleared. */
   serverProfile?: { read(): ServerProfile | undefined; clear(): void };
   /** Started on a team: each audience's engines get their own home (server/engine-homes). */
   engineHomes?: Pick<EngineHomes, "start">;
-  legacyMemory?: boolean;
 }
 
 export interface TeamSessionInfo { id: string; name: string; role: TeamRole }
 
 export interface ServerProfile { name?: string; email?: string; aboutMe?: string; avatarUrl?: string }
 
-/** "You" for a person signed in to a team: their own name, picture and About you, and the address of their verified claim. */
+/** "You" for a person signed in to a team: their own name and picture, and the address of their verified claim. */
 export interface MemberProfile { name: string; email: string; aboutMe: string; avatarUrl?: string }
 
-export type MemberProfilePatch = Omit<PersonProfilePatch, "email" | "seeded"> & { aboutMe?: string };
+export type MemberProfilePatch = Omit<PersonProfilePatch, "email" | "seeded">;
 
 type MemberSession = { id: string; email?: string };
 
@@ -57,7 +55,7 @@ export function createCloudTeamHost(deps: CloudTeamHostDeps) {
   const layer = (botId: string, threadId: string): string => {
     if (!team) return botId;
     const id = layerId(botId, audienceOf(threadId));
-    if (id !== botId) ensureWorkspace(id, deps.language?.(), deps.legacyMemory);
+    if (id !== botId) ensureWorkspace(id);
     return id;
   };
   const claimed = (session: MemberSession) => session.email?.trim().toLowerCase() ?? "";
@@ -68,7 +66,6 @@ export function createCloudTeamHost(deps: CloudTeamHostDeps) {
     const person = personKey({ id: "", email });
     const own = people.profile(person);
     people.saveProfile(person, { email, ...(own.name ? {} : { name: server.name ?? "" }), ...(own.avatarUrl ? {} : { avatarUrl: server.avatarUrl ?? "" }) });
-    if (server.aboutMe?.trim() && !people.read(person)) people.write(person, server.aboutMe);
     deps.serverProfile!.clear();
     return true;
   };
@@ -94,30 +91,16 @@ export function createCloudTeamHost(deps: CloudTeamHostDeps) {
   const memberProfile = (session: MemberSession): MemberProfile => {
     const person = met(session) ?? personKey(session);
     const own = people.profile(person);
-    return { name: own.name ?? "", email: claimed(session), aboutMe: people.read(person), ...(own.avatarUrl ? { avatarUrl: own.avatarUrl } : {}) };
+    return { name: own.name ?? "", email: claimed(session), aboutMe: "", ...(own.avatarUrl ? { avatarUrl: own.avatarUrl } : {}) };
   };
   return {
     team,
     audienceOf,
     layer,
-    /** What a turn in this conversation reads: its own layer and the team's (the bot's own folder). */
-    memoryIds(botId: string, threadId: string): string[] {
-      const own = layer(botId, threadId);
-      return own === botId ? [botId] : [own, botId];
-    },
     /** The folders a turn's box must put back besides the bot's own: its layer, when it has one. */
     layerDirs(botId: string, threadId: string): string[] {
       const own = layer(botId, threadId);
       return own === botId ? [] : [workspaceDir(own)];
-    },
-    /** Captured facts about the person, into that person's own "About you"; nothing for the team's or a room's layer. */
-    learnAbout(layerOrBotId: string, plan: (current: string) => { next: string; count: number } | null): number {
-      const person = team ? ownPerson(layerAudience(layerOrBotId)) : null;
-      if (!person) return 0;
-      const planned = plan(people.read(person));
-      if (!planned) return 0;
-      people.write(person, planned.next);
-      return planned.count;
     },
     /** Whether a turn in `threadId` may read `other` (the read rule). Off a team: everything, as before. */
     readableFrom(threadId: string): (other: string) => boolean {
@@ -125,21 +108,10 @@ export function createCloudTeamHost(deps: CloudTeamHostDeps) {
       const turn = audienceOf(threadId);
       return (other) => mayRead(audienceOf(other), turn);
     },
-    /** The team's notes, read-only, for a turn that writes elsewhere (a room's or a member's layer). */
-    sharedNotesPrompt(botId: string, threadId: string): string {
-      if (deps.legacyMemory === false || !team || layer(botId, threadId) === botId) return "";
-      const shared = loadMemory(botId);
-      if (!shared) return "";
-      return `\n\n${team.name}'s shared notes with you (read-only here; what you save in this conversation stays with it):\n${shared.text}`;
-    },
-    /** "About the user" for a turn: on a team only a member's own, with their name, in their own conversations; the
-     * server's profile otherwise. */
-    profileFor<T extends { aboutMe?: string }>(threadId: string, serverProfile: T | undefined): T | { aboutMe: string; person?: string } | undefined {
-      if (!team) return deps.legacyMemory === false ? undefined : serverProfile;
-      const person = ownPerson(audienceOf(threadId));
-      if (!person) return undefined;
-      const name = personName(person);
-      return { aboutMe: deps.legacyMemory === false ? "" : people.read(person), ...(name ? { person: name } : {}) };
+    profileFor(threadId: string): { person: string } | undefined {
+      const person = team ? ownPerson(audienceOf(threadId)) : null;
+      const name = person ? personName(person) : undefined;
+      return name ? { person: name } : undefined;
     },
     /** What a person is called in a bot's words and on their lines: the name they chose, else their address. */
     personName,
@@ -147,9 +119,8 @@ export function createCloudTeamHost(deps: CloudTeamHostDeps) {
     /** Settings → Profile on a team: the signed-in person's own profile and nobody else's. The address is the claim's. */
     saveMemberProfile(session: MemberSession, patch: MemberProfilePatch): MemberProfile {
       const person = met(session) ?? personKey(session);
-      const { aboutMe, name, avatarUrl } = patch;
+      const { name, avatarUrl } = patch;
       if (name !== undefined || avatarUrl !== undefined) people.saveProfile(person, { ...(name !== undefined ? { name } : {}), ...(avatarUrl !== undefined ? { avatarUrl } : {}) });
-      if (aboutMe !== undefined) people.write(person, aboutMe);
       return memberProfile(session);
     },
     /** The name and picture from the person's own computer fill what their team profile lacks: each field once, never
@@ -179,16 +150,11 @@ export function createCloudTeamHost(deps: CloudTeamHostDeps) {
       const email = deps.serverProfile?.read()?.email?.trim().toLowerCase();
       return Boolean(email) && knownEmails.some((known) => known.trim().toLowerCase() === email) && adoptServerProfile(email!);
     },
-    /** The person whose "About you" a layer's captured facts belong to; null for the team's and a room's. */
-    aboutPerson(layerOrBotId: string): string | null {
-      return team ? ownPerson(layerAudience(layerOrBotId)) : null;
-    },
-    /** A turn's captured facts are the member's own when the conversation is theirs. */
     ownTurn(threadId: string): boolean {
       return team !== null && ownPerson(audienceOf(threadId)) !== null;
     },
     people,
-    baseBotId,
+
     /** How a session sees conversations on a team, a member's or an admin's: with each one's audience and the person's own
      * key, so another person's private chat is never theirs to see. Only the server itself (no address) sees everything. */
     audiencesFor(viewer: { kind: "all"; email?: string } | { kind: "member"; email?: string }): ThreadAudiences | undefined {

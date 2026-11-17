@@ -45,7 +45,7 @@ describe("Preset bots in the real renderer", () => {
     const snapshot = async () => (await ui("snapshot")).snapshot as string;
     const api = (path: string, method = "GET", body?: unknown) => request(path, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, info.url);
 
-    // My New bot defaults: a name, words, a colour, a skill that is on, notes,
+    // My New bot defaults: a name, words, a colour, a skill that is on,
     // and things a preset must never carry (approval, connected apps).
     await api("/api/config", "PATCH", { newBotDefaults: {
       profile: { name: "Sky", title: "Support", soul: "Be kind and precise.\n", color: "blue", approvalMode: "auto", composio: true },
@@ -77,7 +77,7 @@ describe("Preset bots in the real renderer", () => {
     await expect.poll(async () => typeof (await evaluate("window.__presetText")), { timeout: 5_000 }).toBe("string");
     const saved = JSON.parse(await evaluate("window.__presetText") as string);
     expect(await evaluate("window.__presetDownload")).toBe("sky-1.0.0.openmaus.json");
-    expect(saved.package).toMatchObject({ id: "sky", agents: [], presets: [{ key: "new-bot-defaults", name: "Sky", skills: ["follow-up"], seed: { memory: { "MEMORY.md": "- Customers first.\n" } } }] });
+    expect(saved.package).toMatchObject({ id: "sky", agents: [], presets: [{ key: "new-bot-defaults", name: "Sky", skills: ["follow-up"] }] });
     expect(JSON.stringify(saved)).not.toMatch(/"approvalMode"|"composio"|"modelSelection"|"enabled"/);
     await click("Done");
     await click("Close settings");
@@ -141,7 +141,6 @@ describe("Preset bots in the real renderer", () => {
     const fromFile = await create(`preset:${filePreset!.id}`, "Skills, added switched off: follow-up", "new-bot-file");
     expect(fromFile).toMatchObject({ name: expect.stringMatching(/^Sky/), installedPackage: { source: "file", presetKey: "new-bot-defaults" } });
     expect((await api(`/api/bots/${fromFile.id}/skills`)).skills).toEqual([expect.objectContaining({ name: "follow-up", enabled: false })]);
-    expect((await api(`/api/bots/${fromFile.id}/memory/file?path=MEMORY.md`)).text).toBe("- Customers first.\n");
     const fromOrg = await create("preset:org-preset-1", "Skills, added switched on: follow-up", "new-bot-org");
     expect(fromOrg.installedPackage).toMatchObject({ source: "org", presetKey: "new-bot-defaults", ref: "acme/sky" });
     expect((await api(`/api/bots/${fromOrg.id}/skills`)).skills).toEqual([expect.objectContaining({ name: "follow-up", enabled: true })]);

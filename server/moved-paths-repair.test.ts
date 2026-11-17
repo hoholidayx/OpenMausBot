@@ -50,8 +50,9 @@ describe("repairing paths a move to My Cloud left behind", () => {
     receipt(dataDir);
     movedFromWindows(dataDir);
 
+    const originalMemory = text(join(dataDir, "workspaces", "bot", "MEMORY.md"));
     expect(repairMovedWorkspacePaths(dataDir)).toEqual([
-      "bots.json", "groups.json", "routines.json", "bots/bot/SOUL.md", "workspaces/bot/MEMORY.md",
+      "bots.json", "groups.json", "routines.json", "bots/bot/SOUL.md",
     ]);
 
     const [bot] = readJson(join(dataDir, "bots.json"));
@@ -63,8 +64,7 @@ describe("repairing paths a move to My Cloud left behind", () => {
       { id: "on", botId: "bot", enabled: true, prompt: `Each morning read ${dataDir}/files/brief.md and C:\\Users\\Ada\\Desktop\\x.docx.` },
       { id: "off", botId: "bot", enabled: false, prompt: `Save the summary to ${dataDir}/files/out.` },
     ]);
-    expect(text(join(dataDir, "workspaces", "bot", "MEMORY.md")))
-      .toBe(`- The register: ${dataDir}/files/register.xlsx\n- C:\\Users\\Ada\\.openmausbot-old\\notes.md is an old copy\n`);
+    expect(text(join(dataDir, "workspaces", "bot", "MEMORY.md"))).toBe(originalMemory);
     expect(text(join(dataDir, "workspaces", "bot", "memory", "people.md"))).toBe("Ada prefers short replies.\n");
     expect(text(join(dataDir, "bots", "bot", "SOUL.md"))).toBe(bot.soul);
   });
@@ -73,12 +73,13 @@ describe("repairing paths a move to My Cloud left behind", () => {
     const dataDir = directory();
     receipt(dataDir);
     movedFromWindows(dataDir);
-    const before = text(join(dataDir, "workspaces", "bot", "MEMORY.md"));
+    const before = text(join(dataDir, "bots", "bot", "SOUL.md"));
 
     repairMovedWorkspacePaths(dataDir);
 
     const kept = join(dataDir, ".backups", `path-repair-${RESTORE_ID}`);
-    expect(text(join(kept, "workspaces", "bot", "MEMORY.md"))).toBe(before);
+    expect(text(join(kept, "bots", "bot", "SOUL.md"))).toBe(before);
+    expect(existsSync(join(kept, "workspaces", "bot", "MEMORY.md"))).toBe(false);
     expect(readJson(join(kept, "routines.json")).routines[0].prompt).toContain(`${WINDOWS}\\files\\brief.md`);
     expect(existsSync(join(kept, "workspaces", "bot", "memory", "people.md"))).toBe(false);
   });
@@ -109,7 +110,7 @@ describe("repairing paths a move to My Cloud left behind", () => {
     const dataDir = directory();
     const path = receipt(dataDir);
     movedFromWindows(dataDir);
-    writeFileSync(join(dataDir, "workspaces", "bot", "memory", "people.md"), "Bob's notes are in C:\\Users\\Bob\\.openmausbot\\files.\n");
+    writeFileSync(join(dataDir, "bots", "bot", "SOUL.md"), "Bob's notes are in C:\\Users\\Bob\\.openmausbot\\files.\n");
     const before = text(join(dataDir, "routines.json"));
 
     expect(repairMovedWorkspacePaths(dataDir)).toEqual([]);

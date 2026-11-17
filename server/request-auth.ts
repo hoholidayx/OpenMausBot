@@ -445,14 +445,9 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   { methods: ["PUT"], path: /^\/api\/me\/welcome$/ },
   // their own "Email me when I'm away" switch on a Team Cloud
   { methods: ["GET", "PUT"], path: /^\/api\/me\/away-emails$/ },
-  // what a bot remembers about the signed-in person on a Team Cloud: their own layer only (routes/bot-memory.ts ownLayer)
-  { methods: ["GET"], path: /^\/api\/bots\/[\w-]+\/memory\/mine$/ },
-  { methods: ["GET", "PUT", "DELETE"], path: /^\/api\/bots\/[\w-]+\/memory\/mine\/file$/ },
-  // a Team Cloud member sharing their own private conversation, and saving a line to a bot's team memory: the handler
+  // A Team Cloud member sharing their own private conversation: the handler
   // lets only the conversation's person share it and only its author or an admin remove a line (routes/conversation-share.ts)
   { methods: ["GET", "POST"], path: /^\/api\/bots\/[\w-]+\/tasks\/[\w-]+\/share$/ },
-  { methods: ["GET", "POST"], path: /^\/api\/bots\/[\w-]+\/memory\/team$/ },
-  { methods: ["DELETE"], path: /^\/api\/bots\/[\w-]+\/memory\/team\/[\w-]+$/ },
   // a Team Cloud's member moving a bot of their own in: it answers with a sign-in for that one bot
   { methods: ["POST"], path: /^\/api\/team-move-in$/ },
   // a Team Cloud member's own connections: only the session's own person, never a value back

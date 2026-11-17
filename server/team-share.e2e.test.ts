@@ -37,8 +37,6 @@ it("shares one team whole (minus chat history) and imports it back as new, inert
     await ok("POST", "/api/mcp/servers", { name: "crm", type: "http", url: "https://mcp.example.com/crm", headers: { Authorization: "Bearer fixture-secret-value" }, enabled: true });
     await ok("POST", "/api/mcp/servers", { name: "local-tool", command: "npx", args: ["fixture"], enabled: true });
     await ok("PATCH", `/api/bots/${lead.id}`, { mcpServers: ["crm", "local-tool"] });
-    await ok("PUT", `/api/bots/${lead.id}/memory/file`, { path: "MEMORY.md", text: "- Prefers short summaries.\n" });
-    await ok("PUT", `/api/bots/${lead.id}/memory/file`, { path: "memory/pricing.md", text: "List price 49.\n" });
     const room = (await ok("POST", "/api/groups", { name: "Deal desk", memberIds: [lead.id, scout.id, outsider.id], section: "Sales desk" })).group;
     await ok("PATCH", `/api/groups/${room.id}/setup`, { action: "complete", cwd: null, bulletin: "Cite sources.", defaultResponder: { kind: "member", botId: lead.id } });
     await ok("POST", "/api/routines", { name: "Daily digest", prompt: "Summarize new leads.", botId: scout.id, enabled: true,
@@ -58,7 +56,7 @@ it("shares one team whole (minus chat history) and imports it back as new, inert
     expect(saved.skipped).toEqual([{ part: "connections[local-tool]", reason: "stdio_server" }]);
     const text = JSON.stringify(saved.document);
     expect(text).not.toMatch(/SalesDesk-Portal-2026|fixture-secret-value|Elsewhere|modelSelection|threadId/);
-    expect(saved.document.package.agents.find((agent: { key: string }) => agent.key === "morgan").seed.memory).toEqual({ "MEMORY.md": "- Prefers short summaries.\n", "memory/pricing.md": "List price 49.\n" });
+    expect(saved.document.package.agents.find((agent: { key: string }) => agent.key === "morgan").seed).toBeUndefined();
     expect(existsSync(published)).toBe(true);
 
     await ok("PATCH", `/api/sidebar-sections?section=${encodeURIComponent("Sales desk")}`, { name: "Revenue desk" });
@@ -75,7 +73,7 @@ it("shares one team whole (minus chat history) and imports it back as new, inert
       package: { ...saved.document.package, publisher: { organization: "acme", name: "Acme" } },
     });
     expect(imported.status).toBe(201);
-    expect(imported.body).toMatchObject({ section: "Sales desk", brief: true, notes: 2, offeredSkills: [], skipped: [] });
+    expect(imported.body).toMatchObject({ section: "Sales desk", brief: true, notes: 0, offeredSkills: [], skipped: [] });
     expect(imported.body.connections).toEqual([{ key: "crm", name: "crm-2", label: "crm" }]);
     const copies = imported.body.bots as Array<{ id: string; name: string; installedPackage: Record<string, unknown>; approvalMode?: string; avatarUrl: string | null; mcpServers?: string[]; chiefOfStaff?: boolean }>;
     const copyLead = copies.find((bot) => bot.name === "Morgan 2")!;
@@ -95,7 +93,6 @@ it("shares one team whole (minus chat history) and imports it back as new, inert
     const config = JSON.parse(readFileSync(join(fixture.info.dataDir, "config.json"), "utf8"));
     expect(config.mcpServers["crm-2"].headers).toEqual({ Authorization: "" });
     expect((await ok("GET", `/api/section-context?section=${encodeURIComponent("Sales desk")}`)).text).toBe("Quote list prices only.");
-    expect((await ok("GET", `/api/bots/${copyLead.id}/memory/file?path=${encodeURIComponent("memory/pricing.md")}`)).text).toBe("List price 49.\n");
     expect(imported.body.groups[0]).toMatchObject({ name: "Deal desk", bulletin: "Cite sources.", defaultResponder: { kind: "member", botId: copyLead.id } });
 
     const before = await ok("GET", "/api/bots");

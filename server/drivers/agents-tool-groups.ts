@@ -5,7 +5,7 @@ import { HOSTING_TOOL_NAMES } from "./agents-hosting-tools.ts";
 import { IMAGE_TOOL_NAMES } from "./agents-image-tools.ts";
 import { MEETING_TOOL_NAMES } from "./agents-meeting-tools.ts";
 import { PAGE_TOOL_NAMES } from "./agents-pages-tools.ts";
-import { RESEARCH_TOOL_NAMES } from "./agents-research-tools.ts";
+export { RESEARCH_TOOL_NAMES } from "./agents-research-tools.ts";
 
 /** Each group's tools on the agents server, and the whole MCP servers (turn integrations) it stands for. */
 export const TOOL_GROUP_MEMBERS: Readonly<Record<ToolGroup, { tools: ReadonlySet<string>; servers: readonly ("data" | "email")[] }>> = {
@@ -16,13 +16,6 @@ export const TOOL_GROUP_MEMBERS: Readonly<Record<ToolGroup, { tools: ReadonlySet
   email: { tools: new Set(), servers: ["email"] },
 };
 
-/** Groups with a bot switch of their own, kept where it was: Memory (`memoryEnabled`), Research (`xResearch`), and
- * Connected apps (`composio`) and the built-in browser (`browser`), which are whole servers. */
-export const OWN_SWITCH_TOOLS: Readonly<Record<"memory" | "research", ReadonlySet<string>>> = {
-  memory: new Set(["memory_update", "memory_log"]),
-  research: RESEARCH_TOOL_NAMES,
-};
-
 /** What every bot keeps: talking to the person and its team, its own setup, routines and waits, and its computer. */
 export const CORE_TOOLS: ReadonlySet<string> = new Set([
   "tool_result_read", "list_shared_computers", "shared_computer", "ask_for_computer", "list_room_targets", "coordinate_bots",
@@ -31,7 +24,7 @@ export const CORE_TOOLS: ReadonlySet<string> = new Set([
   "post_to_room", "post_to_thread", "create_bot", "list_team_setup", "list_team_library", "propose_team_setup",
   "propose_bot_deletion", "manage_room", "request_credential", "request_sign_in", "fill_login", "send_voice_note", "decide",
   "extract", "message_person", "report_bug", "retry_thread", "session_search", "trigger_info", "trigger", "delete_trigger",
-  "wait_until", "list_waits", "cancel_wait", "propose_profile", "propose_model", "propose_team_memory", "skills_list",
+  "wait_until", "list_waits", "cancel_wait", "propose_profile", "propose_model", "skills_list",
   "skill_manage", "mcp_server", "app_settings", "list_unread_notifications", "mark_notifications_read",
 ]);
 

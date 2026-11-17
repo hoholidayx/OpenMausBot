@@ -16,7 +16,6 @@ async function installation() {
   const { Store } = await import("./store.ts");
   const { RoutineManager } = await import("./routines.ts");
   const skills = await import("./skills.ts");
-  const workspace = await import("./workspace.ts");
   const importer = await import("./package-import.ts");
   const store = new Store(() => ({ instanceId: "claude", model: "default-model" }));
   const routines = new RoutineManager({
@@ -30,7 +29,6 @@ async function installation() {
   const deps = {
     store, routines,
     skills: { install: skills.installSkill, setEnabled: skills.setSkillEnabled },
-    memory: { writeIndex: workspace.writeMemoryFile, writeTopic: workspace.writeMemoryTopic },
     mcp: { servers: () => mcp.servers, refusal: () => undefined, persist: (next: Record<string, unknown>) => { mcp.servers = next; } },
     sections: { writeBrief: () => {} },
     images: { save: () => "" },
@@ -42,7 +40,7 @@ async function installation() {
     if (result.alreadyAdded) throw new Error("unexpected");
     return result;
   };
-  return { store, routines, skills, workspace, mcp, move };
+  return { store, routines, skills, mcp, move };
 }
 
 afterEach(async () => {
@@ -78,10 +76,6 @@ describe("a moved Bot, through the real package path", () => {
     // The package path leaves it off; the move switches on what the scan passed, through the bot's own skill route.
     expect(app.skills.listSkills(bot.id).filter((skill) => skill.name === "greet").map((skill) => skill.enabled)).toEqual([false]);
 
-    const memory = app.workspace.readMemoryFile(bot.id).text;
-    expect(memory).toContain("- The door sticks");
-    expect(memory).toContain("- Lives in Tokyo");
-    expect(app.workspace.readMemoryTopic(bot.id, "grok-bot-event-routines.md")).toContain("Answer it.");
     expect(app.routines.listRoutines().map((routine) => routine.name)).toEqual(["Desk: Open up"]);
 
     expect(app.mcp.servers).toEqual({ linear: { type: "http", url: "https://mcp.linear.app/mcp", headers: { Authorization: "" }, enabled: false } });

@@ -31,7 +31,6 @@ const ATTACHMENT_NAMES = 2000;
 /** My Cloud takes at most this many row ids, of at most this many conversations, a request. */
 const ROW_IDS = 10_000;
 const ROW_ID_CONVERSATIONS = 200;
-const MEMORY_FILES = 100;
 const SCOPED_READ = /^\/api\/cloud-send(?:\?move=1|\/manifest|\/chats(?:\?attachments=1)?|\/files)$/u;
 const PICTURE_TYPES = { png: "image/png", jpg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
 const VAULT_ID = /^[\w-]{1,128}$/u;
@@ -431,7 +430,7 @@ export function createCloudSend({ local, cloud, handoff, store, onChange = () =>
       const moved = move ? await movedBots(ctx) : [];
       if (move) {
         // Its notes about the person stay with them when a bot moves into a team.
-        if (!team) await kinds.moveMemory(ctx, moved);
+        if (!team) await kinds.moveDepartmentContext(ctx);
         if (job.files) {
           try { await kinds.moveFiles(ctx, moved, computer?.label); }
           catch (error) { result.failed.push({ key: "files", kind: "files", label: "Files", error: sentence(error?.message) ?? "The files could not be sent." }); }
@@ -776,7 +775,6 @@ export function createCloudSend({ local, cloud, handoff, store, onChange = () =>
       try { await putSkill(ctx, bot.id, item.id, false); done(ctx, key); ctx.result.skills++; }
       catch (error) { ctx.result.failed.push({ key, kind: "skill", label: item.label, error: sentence(error?.message) ?? "It could not be sent." }); }
     }
-    if (!ctx.move) await sendMemory(ctx, bot.id).catch(() => ctx.result.notes.push({ kind: "memory", bot: bot.name }));
   }
 
   async function updateBot(ctx, row) {
@@ -795,7 +793,6 @@ export function createCloudSend({ local, cloud, handoff, store, onChange = () =>
     if (Object.keys(refused).length < parts.length) ctx.result.updatedBots.push(bot.name);
     if (refused.model) ctx.result.notes.push({ kind: "model", bot: bot.name });
     if (Object.keys(refused).some((part) => part !== "model")) ctx.result.notes.push({ kind: "settings", bot: bot.name });
-    if (entry(ctx.origin).created[row.key] && !ctx.move) await sendMemory(ctx, bot.id).catch(() => ctx.result.notes.push({ kind: "memory", bot: bot.name }));
   }
 
   /** The bot's own skill, by its SKILL.md: My Cloud's copy is replaced when the text changed here. */
@@ -840,25 +837,13 @@ export function createCloudSend({ local, cloud, handoff, store, onChange = () =>
     ctx.result.skills++;
   }
 
-  /** A new bot's memory notes go with it once; after that each side's bot keeps its own memory. */
-  async function sendMemory(ctx, botId) {
-    const overview = await localJson(`/api/bots/${botId}/memory`);
-    const files = ["MEMORY.md", ...(Array.isArray(overview?.topics) ? overview.topics.map((topic) => topic?.path).filter((path) => typeof path === "string") : [])];
-    for (const path of files.slice(0, MEMORY_FILES)) {
-      const doc = await localJson(`/api/bots/${botId}/memory/file?path=${encodeURIComponent(path)}`);
-      if (!doc?.exists || typeof doc.text !== "string" || !doc.text.trim()) continue;
-      const put = await ctx.session.call("PUT", `/api/bots/${botId}/memory/file`, { path, text: doc.text });
-      if (!put.ok) throw refusedError("refused", put, "My Cloud could not save a memory note.");
-    }
-  }
-
   async function sendSetting(ctx, row) {
     const config = await localJson("/api/config");
-    const parts = row.parts ?? ["name", "email", "about", "value"];
+    const parts = row.parts ?? ["name", "email", "value"];
     let body;
     if (row.key === itemKey.setting("profile")) {
       const profile = record(config?.profile) ? config.profile : {};
-      const fields = { name: "name", email: "email", about: "aboutMe" };
+      const fields = { name: "name", email: "email" };
       body = { profile: Object.fromEntries(parts.filter((part) => fields[part] && typeof profile[fields[part]] === "string").map((part) => [fields[part], profile[fields[part]]])) };
     } else if (row.key === itemKey.setting("language")) {
       if (typeof config?.language !== "string") return;

@@ -6,8 +6,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { CAPTURE_MARKER } from "./memory-capture.ts";
-import { NO_TEXT_ENGINE } from "./memory-upkeep.ts";
 import { SKILL_REVIEW_MARKER } from "./skill-review.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { workerPort } from "./testing/worker-port.ts";
@@ -47,7 +45,6 @@ async function boot(extraConfig: Record<string, unknown>) {
   mkdirSync(join(home, ".openmausbot"), { recursive: true });
   const routes = join(home, "one-shot-routes.json");
   writeFileSync(routes, JSON.stringify({
-    [CAPTURE_MARKER]: JSON.stringify([{ text: "The person is vegetarian", kind: "preference", evidence: "I'm vegetarian", aboutUser: true, confidence: 0.9 }]),
     [SUMMARY_MARKER]: SUMMARY,
     [SKILL_REVIEW_MARKER]: JSON.stringify({ changes: [{ action: "create", skill_md: SKILL_MD, gist: "Five-bullet weekly report." }] }),
   }));
@@ -57,7 +54,6 @@ async function boot(extraConfig: Record<string, unknown>) {
       codex: { driver: "codex", config: { cli: fake("fake-codex-app-server.ts") } },
       pi: { driver: "piAgent", environment: { FAKE_PI_MODE: "tooluse" }, config: { cli: fake("fake-pi-cli.ts"), fullAuto: true } },
     },
-    memory: { captureQuietMs: 1_000 },
     ...extraConfig,
   }));
   let stderr = "";
@@ -120,8 +116,7 @@ async function boot(extraConfig: Record<string, unknown>) {
     if (!existsSync(file)) return [];
     return readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as Row).filter((row) => row.botId === botId);
   };
-  const memory = async (botId: string) => ((await api("GET", `/api/bots/${botId}/memory/file?path=MEMORY.md`)).body?.text ?? "") as string;
-  return { api, waitFor, getBot, newBot, turn, ledger, memory, close, log: () => stdout, dataDir: join(home, ".openmausbot") };
+  return { api, waitFor, getBot, newBot, turn, ledger, close, log: () => stdout, dataDir: join(home, ".openmausbot") };
 }
 
 posixOnly("the helper model, through the real server", () => {
@@ -147,16 +142,12 @@ posixOnly("the helper model, through the real server", () => {
     return (await server.getBot(bot.id)).messages.find((message) => message.kind === "compaction")!.compaction!.summary;
   };
 
-  it("gives a Pi bot memory capture, the skill review and a written summary from the helper, each booked as a helper call", async () => {
-    const { api, waitFor, getBot, newBot, turn, ledger, memory } = server;
+  it("gives a Pi bot the skill review and a written summary from the helper, each booked as a helper call", async () => {
+    const { api, waitFor, getBot, newBot, turn, ledger } = server;
     const bot = await newBot("pi");
-    expect((await api("GET", `/api/bots/${bot.id}/memory/upkeep`)).body).toMatchObject({ enabled: true, modelSteps: true });
     // one tool step a turn: three reach the review threshold
     for (const text of ["Just so you know, I'm vegetarian.", "Write the weekly report from the notes.", "Shorter please, five bullets at most."]) await turn(bot, text);
 
-    await waitFor(async () => (await memory(bot.id)).includes("The person is vegetarian"), "the helper to capture the fact");
-    await waitFor(() => ledger(bot.id).some((row) => row.trigger.job === "memory"), "the capture call to be booked");
-    expect(ledger(bot.id)).toContainEqual(helperRow("memory"));
     // the turns themselves stay the Pi engine's, booked to whoever asked
     expect(ledger(bot.id)).toContainEqual(expect.objectContaining({ driverKind: "piAgent", threadId: bot.threadId, trigger: { kind: "owner" } }));
 
@@ -175,11 +166,9 @@ posixOnly("the helper model, through the real server", () => {
     expect(server.log()).toContain('helper model: small writing jobs for bots whose engine has no one-off text call are written by "claude" (claude-haiku-5-5)');
   }, 300_000);
 
-  it("accepts a bot's never-use-the-helper switch, saves it, refuses a wrong type, and then writes none of the three jobs for that bot", async () => {
-    const { api, waitFor, getBot, newBot, turn, ledger, memory, dataDir } = server;
+  it("accepts a bot's never-use-the-helper switch, saves it, refuses a wrong type, and then writes no helper jobs for that bot", async () => {
+    const { api, waitFor, getBot, newBot, turn, ledger, dataDir } = server;
     const bot = await newBot("pi");
-    const upkeep = async () => (await api("GET", `/api/bots/${bot.id}/memory/upkeep`)).body;
-    expect(await upkeep()).toMatchObject({ modelSteps: true });
 
     for (const wrong of ["no", 0, null, { off: true }]) {
       const refused = await api("PATCH", `/api/bots/${bot.id}`, { helperModel: wrong });
@@ -195,11 +184,7 @@ posixOnly("the helper model, through the real server", () => {
     const onDisk = () => (JSON.parse(readFileSync(join(dataDir, "bots.json"), "utf8")) as Array<{ id: string; helperModel?: boolean }>).find((record) => record.id === bot.id);
     expect(onDisk()).toMatchObject({ helperModel: false });
 
-    // memory upkeep: the panel's answer is the one a server with no helper gives, and the capture that comes due is refused
-    expect(await upkeep()).toMatchObject({ modelSteps: false });
     for (const text of ["Just so you know, I'm vegetarian.", "Write the weekly report from the notes.", "Shorter please, five bullets at most."]) await turn(bot, text);
-    await waitFor(async () => (await upkeep()).lastCapture?.note === NO_TEXT_ENGINE, "the capture to be refused for want of an engine");
-    expect(await memory(bot.id)).not.toContain("The person is vegetarian");
     // the skill review: three tool steps are due, and it is refused the same way
     await waitFor(() => server.log().includes(`skill review: ${bot.id}: this bot's engine cannot run a background review`), "the review to be refused");
     expect((await getBot(bot.id)).messages.some((message) => message.card?.skillRequest)).toBe(false);
@@ -212,7 +197,6 @@ posixOnly("the helper model, through the real server", () => {
     // switched back, the helper may write for it again
     expect((await api("PATCH", `/api/bots/${bot.id}`, { helperModel: true })).status).toBe(200);
     expect(onDisk()).toMatchObject({ helperModel: true });
-    expect(await upkeep()).toMatchObject({ modelSteps: true });
   }, 300_000);
 
   it("creates a bot already kept off the helper when the creation request says so, which is how a duplicate keeps its source's switch", async () => {
@@ -227,17 +211,13 @@ posixOnly("the helper model, through the real server", () => {
     expect((JSON.parse(readFileSync(join(dataDir, "bots.json"), "utf8")) as Array<{ id: string }>).find((record) => record.id === id)).toMatchObject({ helperModel: false });
     // the copy then takes its source's engine, and still has no model steps from the helper
     expect((await api("PATCH", `/api/bots/${id}`, { name: "Private copy", modelSelection: { instanceId: "pi", model: "fake-model" } })).status).toBe(200);
-    expect((await api("GET", `/api/bots/${id}/memory/upkeep`)).body).toMatchObject({ modelSteps: false });
     expect((await api("POST", "/api/bots", { settings: { helperModel: "false" } })).status).toBe(400);
   }, 120_000);
 
-  it("writes a Codex bot's summary with the helper, while its memory upkeep stays on Codex's own background call", async () => {
-    const { api, waitFor, newBot, turn, ledger } = server;
+  it("writes a Codex bot's summary with the helper", async () => {
+    const { waitFor, newBot, turn, ledger } = server;
     const bot = await newBot("codex");
-    expect((await api("GET", `/api/bots/${bot.id}/memory/upkeep`)).body).toMatchObject({ enabled: true, modelSteps: true });
     await turn(bot, "Just so you know, I'm vegetarian.");
-    await waitFor(() => ledger(bot.id).some((row) => row.threadId.startsWith("memory-")), "Codex's own capture call to be booked");
-    expect(ledger(bot.id).filter((row) => row.threadId.startsWith("memory-")).every((row) => row.driverKind === "codex" && row.trigger.kind === "bot")).toBe(true);
 
     expect(await compacted(bot)).toContain(`Model-written historical summary (may be incomplete):\n${SUMMARY}`);
     await waitFor(() => ledger(bot.id).some((row) => row.trigger.job === "compaction"), "the summary call to be booked");
@@ -245,16 +225,6 @@ posixOnly("the helper model, through the real server", () => {
     expect(ledger(bot.id).filter((row) => row.trigger.kind === "helper").map((row) => row.trigger.job)).toEqual(["compaction"]);
   }, 240_000);
 
-  it("leaves a Claude bot writing with its own engine and its own quick model", async () => {
-    const { waitFor, newBot, turn, ledger, memory } = server;
-    const bot = await newBot("claude");
-    await turn(bot, "Just so you know, I'm vegetarian.");
-    await waitFor(async () => (await memory(bot.id)).includes("The person is vegetarian"), "the bot's own capture");
-    await waitFor(() => ledger(bot.id).some((row) => row.threadId.startsWith("memory-")), "the capture call to be booked");
-    const background = ledger(bot.id).filter((row) => row.threadId.startsWith("memory-"));
-    expect(background.every((row) => row.trigger.kind === "bot" && row.model === "claude-haiku-5-5")).toBe(true);
-    expect(ledger(bot.id).some((row) => row.trigger.kind === "helper")).toBe(false);
-  }, 180_000);
 });
 
 posixOnly("without a helper model, through the real server", () => {
@@ -262,10 +232,9 @@ posixOnly("without a helper model, through the real server", () => {
   beforeAll(async () => { server = await boot({}); }, 90_000);
   afterAll(async () => { await server?.close(); });
 
-  it("keeps a Pi bot's fallbacks: no model steps for upkeep, and an excerpt summary", async () => {
+  it("keeps a Pi bot's fallbacks: an excerpt summary without a helper", async () => {
     const { api, waitFor, getBot, newBot, turn, ledger } = server;
     const bot = await newBot("pi");
-    expect((await api("GET", `/api/bots/${bot.id}/memory/upkeep`)).body).toMatchObject({ enabled: true, modelSteps: false });
     await turn(bot, "Just so you know, I'm vegetarian.");
     expect((await api("POST", `/api/bots/${bot.id}/compact`, { threadId: bot.threadId })).status).toBe(202);
     await waitFor(async () => {
@@ -279,26 +248,4 @@ posixOnly("without a helper model, through the real server", () => {
     expect(server.log()).not.toContain("helper model:");
   }, 180_000);
 
-  it("follows the setting in config.json as the file changes, on and off, without a restart", async () => {
-    const { api, waitFor, newBot, dataDir } = server;
-    const bot = await newBot("pi");
-    const modelSteps = async () => (await api("GET", `/api/bots/${bot.id}/memory/upkeep`)).body.modelSteps as boolean;
-    expect(await modelSteps()).toBe(false);
-    const file = join(dataDir, "config.json");
-    const write = (change: (config: Record<string, unknown>) => void) => {
-      const config = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
-      change(config);
-      writeFileSync(file, JSON.stringify(config));
-    };
-    write((config) => { config.helper = { instanceId: "claude" }; });
-    await waitFor(modelSteps, "the helper named in the file to be used");
-    // a settings request cannot name or clear a helper: alone it is nothing
-    // to save, and beside a real setting it is dropped while the file keeps its helper
-    expect(await api("PATCH", "/api/config", { helper: { instanceId: "" } })).toMatchObject({ status: 400, body: { error: "nothing to save" } });
-    expect((await api("PATCH", "/api/config", { helper: { instanceId: "" }, language: "en" })).status).toBe(200);
-    expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ helper: { instanceId: "claude" }, language: "en" });
-    expect(await modelSteps()).toBe(true);
-    write((config) => { delete config.helper; });
-    await waitFor(async () => !(await modelSteps()), "the helper taken out of the file to stop being used");
-  }, 120_000);
 });

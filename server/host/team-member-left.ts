@@ -19,7 +19,7 @@ import type { AdminActionRow } from "../admin-activity.ts";
 import { memberAudience, type Audience } from "../audience.ts";
 import { forgetDefaultBot } from "../default-bot.ts";
 import { audienceHome } from "../engine-homes/layout.ts";
-import { forgetBotMemoryJournal, journalFile } from "../memory-journal.ts";
+import { journalFile } from "../retired-memory-data.ts";
 import { deleteBotMemoryFiles } from "../message-db.ts";
 import { personKey } from "../person-key.ts";
 import { removeMemoryLayer, type MemoryLayerRecords } from "./delete-leftovers.ts";
@@ -33,7 +33,6 @@ export const memoryLayerRecords: MemoryLayerRecords = {
   journalFile,
   forget(layer) {
     deleteBotMemoryFiles(layer);
-    forgetBotMemoryJournal(layer);
   },
 };
 

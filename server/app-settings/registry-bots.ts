@@ -39,8 +39,6 @@ const OTHER = {
   voice: { label: "voice", value: z.string().max(BOT_PROFILE_LIMITS.voice), shown: String, was: (one: BotRecord) => one.voice ?? "" },
   voiceNotes: { label: "voice notes", value: z.boolean(), shown: onOff, was: (one: BotRecord) => on(one.voiceNotes) },
   voiceNoteEveryReply: { label: "a voice note with every reply", value: z.boolean().nullable(), shown: onOff, was: (one: BotRecord) => one.voiceNoteEveryReply ?? null },
-  memoryEnabled: { label: "memory", value: z.boolean(), shown: onOff, was: (one: BotRecord) => on(one.memoryEnabled) },
-  memoryUpkeep: { label: "memory upkeep", value: z.boolean(), shown: onOff, was: (one: BotRecord) => on(one.memoryUpkeep) },
   helperModel: { label: "helper model", value: z.boolean(), shown: onOff, was: (one: BotRecord) => on(one.helperModel) },
   browser: { label: "built-in browser", value: z.boolean(), shown: onOff, was: (one: BotRecord) => on(one.browser) },
   recordBrowserSteps: { label: "saving browser steps", value: z.boolean(), shown: onOff, was: (one: BotRecord) => set(one.recordBrowserSteps) },
@@ -127,7 +125,7 @@ export function botEntries(deps: Pick<RegistryDeps, "bots" | "engines" | "patchB
     }),
     perBot({
       id: "bots.tools", label: "Bot tool groups", where: "bot-settings",
-      help: `Turn groups of one bot's built-in tools off to make every request smaller, or back on: ${TOOL_GROUPS.map((group) => `${group} (${TOOL_GROUP_LABELS[group]})`).join(", ")}. Memory, X research, the browser and connected apps have their own settings.`,
+      help: `Turn groups of one bot's built-in tools off to make every request smaller, or back on: ${TOOL_GROUPS.map((group) => `${group} (${TOOL_GROUP_LABELS[group]})`).join(", ")}. X research, the browser and connected apps have their own settings.`,
       synonyms: ["tools", "tool groups", "turn off tools", "meetings", "data", "pages", "publish", "images", "email", "tokens", "smaller requests"],
       value: forBot({ turnOff: toolGroups, turnOn: toolGroups })
         .refine((value) => Boolean(value.turnOff?.length || value.turnOn?.length), "name a group in turnOff or turnOn")
@@ -140,7 +138,7 @@ export function botEntries(deps: Pick<RegistryDeps, "bots" | "engines" | "patchB
     }),
     perBot({
       id: "bots.settings", label: "Other bot settings", help: `More of one bot's own settings: ${Object.values(OTHER).map((field) => field.label).join(", ")}.`, where: "bot-settings",
-      synonyms: ["voice", "voice notes", "memory", "notifications", "browser", "instructions", "soul", "title", "description", "reply style", "computer", "desktop", "composio", "x research", "keep warm"],
+      synonyms: ["voice", "voice notes", "notifications", "browser", "instructions", "soul", "title", "description", "reply style", "computer", "desktop", "composio", "x research", "keep warm"],
       value: forBot(Object.fromEntries(Object.entries(OTHER).map(([field, spec]) => [field, spec.value.optional()])) as { [F in OtherField]: z.ZodOptional<(typeof OTHER)[F]["value"]> })
         .refine((value) => Object.keys(value).length > 1, "name at least one setting besides botId"),
       allowed: `{"botId", ...one or more of ${(Object.keys(OTHER) as OtherField[]).join(", ")}}`,

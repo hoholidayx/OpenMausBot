@@ -105,7 +105,7 @@ export function createCloudSendRoutes(deps: CloudSendRouteDeps): RouteHandler {
       if (!deps.chats) return json(res, 404, { error: "not found" });
       res.setHeader("cache-control", "no-store");
       return json(res, 200, { vault: 1, ...await cloudSendManifest({ summary: () => cloudSendSummary(sources, { move: true, leaving: !home, ...(bot ? { bot } : {}), ...(scope ? { bots: scope } : {}) }), store: deps.chats.store, dataDir: deps.chats.dataDir,
-        connections: deps.connections ?? (async () => []), heads: threadHeads, ...(move ? { kinds: move, teamMemory: move.teamMemory } : {}), ...(bot ? { bot } : {}),
+        connections: deps.connections ?? (async () => []), heads: threadHeads, ...(move ? { kinds: move } : {}), ...(bot ? { bot } : {}),
         attachments: url.searchParams.get("attachments") !== "0", files: url.searchParams.get("files") !== "0", ...(scope ? { scope } : {}) }) });
     }
     if (path === "/api/cloud-send/verify-secrets") {

@@ -1,14 +1,10 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_DIR, loadConfig, parseConfigPatch, parseStoredConfig } from "./config.ts";
 import type { TextGenerationOptions } from "./contracts.ts";
-import { createMemoryUpkeep, NO_TEXT_ENGINE, type UpkeepBot } from "./memory-upkeep.ts";
-import { closeMessageDb } from "./message-db.ts";
-import { createJobSlots } from "./job-slots.ts";
 import { createSideJobs, helperSelection, type SideJobBot, type SideJobInstance, type SideJobsDeps } from "./side-jobs.ts";
-import { ensureWorkspace, workspaceDir, WORKSPACES_DIR } from "./workspace.ts";
 
 type Booked = { row: Parameters<SideJobsDeps["book"]>[0]; tokensReported: boolean; notificationThreadId: string };
 type Call = { prompt: string; options?: TextGenerationOptions };
@@ -557,98 +553,5 @@ describe("when the helper is not used", () => {
     // and an engine with its own text call is held to the same gate, as before
     state.instances.set("claude", { ...state.instances.get("claude")!, adapter: { capabilities: { agentsMcp: false } } });
     expect(jobs.text("skill-review", "claude")).toBeNull();
-  });
-});
-
-// server/memory-upkeep.test.ts drives upkeep with a scripted engine; here the
-// engine is whatever the resolver hands it, as server/index.ts wires it.
-describe("memory upkeep through the resolver", () => {
-  const BOT: UpkeepBot = { id: "pi", name: "Bot pi" };
-  const facts = JSON.stringify([{ text: "The person is vegetarian", kind: "preference", evidence: "I'm vegetarian", confidence: 0.9 }]);
-  const turns = [{ person: "I'm vegetarian", bot: "Noted." }];
-
-  beforeEach(() => {
-    closeMessageDb();
-    rmSync(DATA_DIR, { recursive: true, force: true });
-    rmSync(WORKSPACES_DIR, { recursive: true, force: true });
-  });
-
-  const upkeep = (jobs: ReturnType<typeof setup>["jobs"]) => createMemoryUpkeep({
-    bots: () => [BOT],
-    bot: (id) => (id === BOT.id ? BOT : undefined),
-    engine: (botId) => jobs.text("memory", botId),
-    busy: () => false,
-    addToAboutMe: () => 0,
-    sourceLabel: () => 'chat "Plans"',
-    quietMs: () => 60_000,
-    tidyHour: () => 3,
-    now: () => new Date(2026, 8, 25, 10, 0),
-  });
-  const memory = () => readFileSync(join(workspaceDir(BOT.id), "MEMORY.md"), "utf8");
-
-  it("captures for a Pi bot once a helper is set", async () => {
-    const { jobs, state } = setup();
-    state.instances.set("claude", textEngine("claude", "claudeAgent", (prompt) => (prompt.includes("CAPTURE step") ? facts : '{"moves": []}')).instance);
-    const service = upkeep(jobs);
-    expect(service.status(BOT.id).modelSteps).toBe(true);
-    expect(await service.capture({ botId: BOT.id, threadId: "t1", turns })).toMatchObject({ added: 1 });
-    expect(memory()).toContain("The person is vegetarian");
-    expect(state.booked.length).toBeGreaterThan(0);
-    expect(state.booked.every((entry) => entry.row.botId === BOT.id && entry.row.instanceId === "claude" && entry.row.trigger.kind === "helper")).toBe(true);
-  });
-
-  it("captures nothing without a helper, and says the engine cannot, as today", async () => {
-    const service = upkeep(setup({ helper: null }).jobs);
-    expect(service.status(BOT.id).modelSteps).toBe(false);
-    expect(await service.capture({ botId: BOT.id, threadId: "t1", turns })).toMatchObject({ added: 0, note: NO_TEXT_ENGINE });
-    expect(await service.tidy(BOT.id)).toMatchObject({ contradictionsChecked: false, note: NO_TEXT_ENGINE });
-  });
-
-  it("captures nothing for a bot switched to never use the helper, with a helper set: the same answer as with none", async () => {
-    const { jobs, state, claude } = setup();
-    state.bots.set(BOT.id, { ...bot(BOT.id, "pi"), helperModel: false });
-    const service = upkeep(jobs);
-    expect(service.status(BOT.id).modelSteps).toBe(false);
-    expect(await service.capture({ botId: BOT.id, threadId: "t1", turns })).toMatchObject({ added: 0, note: NO_TEXT_ENGINE });
-    expect(await service.tidy(BOT.id)).toMatchObject({ contradictionsChecked: false, note: NO_TEXT_ENGINE });
-    expect(claude.calls).toEqual([]);
-  });
-
-  it("writes nothing and fails nothing when the helper throws or the workspace is at its spend limit", async () => {
-    const failing = setup();
-    failing.state.instances.set("claude", textEngine("claude", "claudeAgent", () => Promise.reject(new Error("503 from the provider"))).instance);
-    ensureWorkspace(BOT.id);
-    const before = memory();
-    expect(await upkeep(failing.jobs).capture({ botId: BOT.id, threadId: "t1", turns })).toMatchObject({ added: 0, note: "The capture call did not answer in time." });
-    expect(memory()).toBe(before);
-
-    const capped = setup();
-    capped.state.overBudget = true;
-    expect(await upkeep(capped.jobs).capture({ botId: BOT.id, threadId: "t1", turns })).toMatchObject({ added: 0, note: "The capture call did not answer in time." });
-    expect(capped.claude.calls).toEqual([]);
-    expect(memory()).toBe(before);
-  });
-});
-
-describe("background engine calls across bots", () => {
-  it("run a few at once, while the ones a turn or a person waits on start at once", async () => {
-    let open = 0, most = 0;
-    const releases: Array<() => void> = [];
-    const { jobs, state } = setup({ slots: createJobSlots(1) });
-    state.instances.set("claude", { ...state.instances.get("claude")!, generateText: async () => {
-      open += 1; most = Math.max(most, open);
-      await new Promise<void>((resolve) => releases.push(resolve));
-      open -= 1;
-      return "ok";
-    } });
-    const memory = [jobs.text("memory", "claude")!.generateText("a"), jobs.text("memory", "claude")!.generateText("b")];
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(open).toBe(1);
-    const summary = jobs.text("compaction", "claude")!.generateText("c");
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(open).toBe(2);
-    while (releases.length || open) { releases.shift()?.(); await new Promise((resolve) => setTimeout(resolve, 5)); }
-    expect(await Promise.all([...memory, summary])).toEqual(["ok", "ok", "ok"]);
-    expect(most).toBe(2);
   });
 });

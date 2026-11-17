@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { GROK_EXPORT_FORMAT, GROK_EXPORT_PROMPT, GROK_NOTES_FILE, GrokImportError, grokExportDocument, grokMovePlan, mergeGrokBots, parseGrokExport, type GrokBot } from "./grok-import.ts";
+import { GROK_EXPORT_FORMAT, GROK_EXPORT_PROMPT, GrokImportError, grokExportDocument, grokMovePlan, mergeGrokBots, parseGrokExport, type GrokBot } from "./grok-import.ts";
 import { parsePackageDocument } from "./package-format.ts";
 
 const TOKEN = "sk-abcdefghijklmnopqrstuvwx";
@@ -110,11 +110,10 @@ describe("what an export may never bring", () => {
     expect(refused({ format: GROK_EXPORT_FORMAT, bots: [{ name: "x", apps: [{ name: "a", api_key: "v" }] }] }).code).toBe("credentials");
   });
 
-  it("redacts token-shaped text everywhere, including the notes", () => {
+  it("redacts token-shaped text and leaves old notes in the export", () => {
     const moved = grokMovePlan(parseGrokExport(FILE)[0]!, { timeZone: "UTC" });
     expect(JSON.stringify(moved)).not.toContain(TOKEN);
-    expect(moved.document.package.agents[0]!.seed!.memory[GROK_NOTES_FILE]).toContain("Reproduce the ticket");
-    expect(moved.document.package.agents[0]!.seed!.memory["MEMORY.md"]).toContain("is old");
+    expect(moved.document.package.agents[0]!.seed).toBeUndefined();
   });
 
   it("strips an app's values, and keeps its address only without a key", () => {
@@ -156,14 +155,12 @@ describe("what an export may never bring", () => {
 });
 
 describe("what comes over", () => {
-  it("maps a Bot to one bot: role, skills by reference, deduplicated memory, and counts it", () => {
+  it("maps a Bot to one bot: role and skills by reference", () => {
     const moved = plan();
     const agent = moved.document.package.agents[0]!;
     expect(agent).toMatchObject({ name: "Account Health", title: "Customer success", soul: BOT.instructions, skills: ["weekly-account-health"] });
-    const memory = agent.seed!.memory["MEMORY.md"]!;
-    expect(memory.match(/three weeks without a login/gi)).toHaveLength(1);
-    expect(memory).toContain("## About the person\n\n- Works in America/New_York");
-    expect(moved).toMatchObject({ routines: 2, notes: 2, memories: 3, apps: 2 });
+    expect(agent.seed).toBeUndefined();
+    expect(moved).toMatchObject({ routines: 2, apps: 2 });
     expect(moved.skills).toEqual([{ folder: "weekly-account-health", name: "Weekly account health", on: true }]);
   });
 
@@ -185,24 +182,16 @@ describe("what comes over", () => {
     expect(plan({ name: "Desk", routines }).document.package.routines!.map((routine) => routine.name)).toEqual(["Desk: Reminder", "Desk: Reminder (2)"]);
   });
 
-  it("creates nothing for any event, webhooks included: each is saved in a notes file with its trigger and instruction", () => {
+  it("skips event routines, including webhooks", () => {
     const moved = plan();
     expect(moved.document.package.routines!.map((routine) => routine.name)).toEqual(["Account Health: Morning watch list", "Account Health: Monday check"]);
-    const notes = moved.document.package.agents[0]!.seed!.memory[GROK_NOTES_FILE]!;
-    expect(notes).toContain("## Escalations");
-    expect(notes).toContain("- Trigger: slack");
-    expect(notes).toContain("- Details: #customer-escalations, phrase 'needs repro'");
-    expect(notes).toContain("## Order hook");
-    expect(notes).toContain("File the order.");
     for (const trigger of ["github", "linear", "sentry", "pagerduty", "email", "other"]) {
       const one = plan({ name: "E", routines: [{ name: "r", instruction: "i", trigger, schedule_cron: "0 9 * * *" }] });
       expect(one.document.package.routines, trigger).toBeUndefined();
-      expect(one.notes, trigger).toBe(1);
-      expect(one.document.package.agents[0]!.seed!.memory[GROK_NOTES_FILE], trigger).toContain(`- Trigger: ${trigger}`);
     }
   });
 
-  it("uses the person's zone for one nothing here can read, and keeps a schedule it can't read as notes", () => {
+  it("uses the person's zone for one nothing here can read, and skips schedules it can't read", () => {
     const moved = plan({ name: "T", routines: [
       { name: "Bad zone", instruction: "i", trigger: "schedule", schedule_cron: "0 9 * * *", timezone: "Pacific/Nowhere" },
       { name: "Vague", instruction: "i", trigger: "schedule", schedule_text: "now and then" },
@@ -212,12 +201,10 @@ describe("what comes over", () => {
     const routines = moved.document.package.routines!;
     expect(routines.map((routine) => routine.name)).toEqual(["T: Bad zone", "T: Words"]);
     expect(routines[0]).toMatchObject({ schedule: { timeZone: "Europe/Berlin" } });
-    expect(moved.notes).toBe(1);
-    expect(moved.document.package.agents[0]!.seed!.memory[GROK_NOTES_FILE]).toContain("## Vague");
   });
 
   it("an empty Bot and a very busy one both become valid packages", () => {
-    expect(plan({ name: "Empty", instructions: "Just chat." })).toMatchObject({ skills: [], routines: 0, notes: 0, memories: 0, apps: 0 });
+    expect(plan({ name: "Empty", instructions: "Just chat." })).toMatchObject({ skills: [], routines: 0, apps: 0 });
     const busy = plan({
       name: "Busy",
       skills: Array.from({ length: 35 }, (_, i) => ({ name: `Skill ${i}`, instructions: `Do ${i}.` })),
@@ -235,7 +222,7 @@ describe("what comes over", () => {
     const moved = plan({ name: "M", skills: ["just a name", { name: "Good", instructions: "x" }, 7], routines: [null, { name: "Good r", instruction: "y", schedule_cron: "0 9 * * *" }], apps: [3, { name: "Gmail" }], memories: [{}, "kept"] });
     expect(moved.skills.map((skill) => skill.folder)).toEqual(["good"]);
     expect(moved.document.package.routines!.map((routine) => routine.name)).toEqual(["M: Good r"]);
-    expect(moved).toMatchObject({ memories: 1, apps: 1 });
+    expect(moved).toMatchObject({ apps: 1 });
   });
 
   it("an existing server name is skipped, never overwritten or carried, and needs no connecting again", () => {

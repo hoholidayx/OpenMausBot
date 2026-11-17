@@ -50,10 +50,6 @@ export interface PackageImportDeps {
     setEnabled(botId: string, name: string, enabled: boolean): SkillListing | { error: string };
     installOrg?(botId: string, source: string, skillMd: string, stamp: SkillPackageStamp): SkillListing | { error: string };
   };
-  memory?: {
-    writeIndex(botId: string, text: string): void;
-    writeTopic(botId: string, name: string, text: string): void;
-  };
   mcp: {
     servers(): Readonly<Record<string, unknown>>;
     refusal(name: string, server: object): string | undefined;
@@ -243,7 +239,6 @@ function runImport(source: ImportSource, options: PackageImportOptions, deps: Pa
   const botIds = new Map<string, string>();
   let group: GroupRecord | undefined;
   let section: string | undefined;
-  let notes = 0;
   try {
     const selection = deps.defaultSelection();
     const existingSections = new Set(
@@ -351,13 +346,6 @@ function runImport(source: ImportSource, options: PackageImportOptions, deps: Pa
               { installId: org.installId, key: skill.name, release: pkg!.release, ...pair(skill.instructions, skill.instructions) })
           : deps.skills.install(created.id, skill.source ?? `package:${pkg!.id}`, [{ path: "SKILL.md", content: skill.instructions }]);
         if ("error" in added) throw new Error(`Package skill "${skillName}" could not be imported: ${added.error}`);
-      }
-      if (deps.memory) {
-        for (const [path, text] of Object.entries(agent?.seed?.memory ?? {})) {
-          if (path === "MEMORY.md") deps.memory.writeIndex(created.id, text);
-          else deps.memory.writeTopic(created.id, path.slice("memory/".length), text);
-          notes += 1;
-        }
       }
       // Part hashes are written last: after a crash, a bot that has them is complete.
       if (org && agent) {
@@ -498,7 +486,7 @@ function runImport(source: ImportSource, options: PackageImportOptions, deps: Pa
       connections,
       skipped,
       brief,
-      notes,
+      notes: 0,
       ...(presets ? { presets } : {}),
     };
   } catch (error) {

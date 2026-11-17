@@ -41,9 +41,6 @@ recipe from sending messages to the user's running app by accident.
 
 ## Drive
 
-The fixture enables legacy memory for existing memory recipes. Set
-`OMB_LEGACY_MEMORY=0` when launching it to test the server with legacy memory off.
-
 Use only mapped, tested commands:
 
 - [The headless command line](headless-cli.md)
@@ -108,7 +105,7 @@ Use only mapped, tested commands:
 - [Who can see, chat with and change each team bot](team-bot-access.md)
 - [Usage ledger](usage-ledger.md)
 - [Bounded built-in tool results](tool-results.md)
-- [Memory: recall, upkeep and the tidy-up](memory-layer.md)
+- [Read-only bot notes](../memory.md)
 - [Spend cap and sell prices](spend-cap.md)
 - [Enterprise layer loading and license expiry](enterprise-license.md)
 

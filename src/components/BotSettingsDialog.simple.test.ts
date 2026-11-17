@@ -3,8 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Routine } from "@/lib/routines";
-import type { MemoryDoc } from "@/lib/memory";
-import type { Bot, BotSettingsSection, ConfigStatus, InstanceInfo } from "@/state/store";
+import type { Bot, BotSettingsSection, InstanceInfo } from "@/state/store";
 import { AVATAR_FOCUS_CENTER, AVATAR_ZOOM_MIN } from "../../shared/bot-avatar";
 import type { ManagedSkill } from "./bot-settings/SkillsSection";
 import type { McpServerSummary } from "@/lib/mcp-servers";
@@ -37,7 +36,6 @@ const fixture = vi.hoisted(() => {
       refresh: (() => Promise.resolve()) as () => Promise<void>,
       putAssignments: (() => Promise.resolve()) as (name: string, remove?: boolean) => Promise<void>,
     },
-    memory: { docs: null as MemoryDoc[] | null, error: false, mine: false, setDoc: (() => {}) as (doc: MemoryDoc) => void, reload: () => Promise.resolve() },
     saveMemory: (() => Promise.resolve({ ok: true })) as (...args: unknown[]) => Promise<unknown>,
     openExternal: (() => Promise.resolve()) as (url: string) => Promise<void>,
     derived: {} as Record<string, unknown>,
@@ -96,13 +94,6 @@ vi.mock("./bot-settings/SkillsSection", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./bot-settings/SkillsSection")>()),
   useManagedSkills: () => ({ ...fixture.skills, setReviewing: () => {}, enableReviewed: () => Promise.resolve() }),
 }));
-vi.mock("./bot-panel/use-memory-doc", () => ({
-  useMemoryDoc: (bot: Pick<Bot, "memoryEnabled">) => {
-    const config = fixture.storeState.config as ConfigStatus | undefined;
-    const legacyMemory = config?.features?.legacyMemory === true;
-    return { ...fixture.memory, legacyMemory, memoryOn: legacyMemory && bot.memoryEnabled !== false };
-  },
-}));
 vi.mock("./PlaceChip", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./PlaceChip")>()),
   usePlaceViews: () => Object.fromEntries(Object.entries(fixture.places).map(([place, [policy, reachable, short]]) =>
@@ -136,7 +127,7 @@ const { LibraryTab } = await import("./bot-panel/LibraryTab");
 const { ApprovalChip } = await import("./ComposerPlusMenu");
 const { callMode, setCallMode } = await import("@/lib/call-mode");
 const { ComputerTab, WherePage } = await import("./bot-panel/ComputerTab");
-const { PageBody, AppsPage, RoutinesPage, MemoryPage, SkillsPage, FolderPage, BrowserPage } = await import("./bot-panel/pages");
+const { PageBody, AppsPage, RoutinesPage, SkillsPage, FolderPage, BrowserPage } = await import("./bot-panel/pages");
 const { BrowserLogins } = await import("./bot-panel/browser-logins");
 const { PAGES, sectionTarget } = await import("./bot-panel/page-registry");
 const { openBotSettings } = await import("./bot-panel/panel-link");
@@ -252,7 +243,6 @@ const engine = (extra: Partial<InstanceInfo> & { capabilities?: Record<string, u
   instanceId: "claude", driverKind: "claudeAgent", snapshot: { state: "available", authenticated: true },
   capabilities: { effortLevels: ["low", "medium", "high", "max"] }, ...extra,
 });
-const memoryDoc = (text: string): MemoryDoc => ({ path: "MEMORY.md", text, hash: "h1", exists: true });
 const switches = (html: string) => html.match(/role="switch"/g)?.length ?? 0;
 const pressed = (html: string, attr: string) => [...html.matchAll(new RegExp(`${attr}="([\\w-]+)" aria-pressed="true"`, "g"))].map((match) => match[1]);
 
@@ -272,7 +262,6 @@ beforeEach(() => {
     skills: [], loading: false, working: "", error: "", reviewing: null, toggle: vi.fn(() => Promise.resolve()),
     setWorking: vi.fn(), setError: vi.fn(), refresh: vi.fn(() => Promise.resolve()), putAssignments: vi.fn(() => Promise.resolve()),
   };
-  fixture.memory = { docs: null, error: false, mine: false, setDoc: vi.fn(), reload: vi.fn(() => Promise.resolve()) };
   patch.mockReset();
   onOpen.mockReset();
   onClose.mockReset();
@@ -352,8 +341,8 @@ describe("the bot panel in Simple mode", () => {
 
     click(find(panel(bot), "data-panel-tab", "library"));
     enableLegacyMemory();
-    (ofType(panel(bot), LibraryTab)!.props.onOpen as (page: string) => void)("memory");
-    expect(ofType(panel(bot), PageHeader)!.props).toMatchObject({ back: "Library", title: "What it remembers" });
+    (ofType(panel(bot), LibraryTab)!.props.onOpen as (page: string) => void)("skills");
+    expect(ofType(panel(bot), PageHeader)!.props).toMatchObject({ back: "Library", title: "Skills" });
     (ofType(panel(bot), PageHeader)!.props.onBack as () => void)();
 
     click(find(panel(bot), "data-panel-tab", "computer"));
@@ -396,12 +385,11 @@ describe("the bot panel in Simple mode", () => {
 
   it.each([
     ["overview", "details", undefined], ["identity", "details", undefined], ["slack", "details", undefined],
-    ["soul", "details", "settings"], ["skills", "library", "skills"], ["memory", "library", "memory"],
+    ["soul", "details", "settings"], ["skills", "library", "skills"],
     ["routines", "details", "routines"], ["access", "computer", undefined], ["model", "details", undefined],
     ["permissions", "details", "settings"], ["voice", "details", undefined], ["visibility", "details", undefined],
     ["history", "details", undefined], ["usage", "details", undefined],
   ] as const)("lands a deep link to %s on %s › %s", (section, tab, page) => {
-    if (section === "memory") enableLegacyMemory();
     expect([sectionTarget(section).tab, sectionTarget(section).page]).toEqual([tab, page]);
     const rendered = panel(makeBot(), section);
     if (page) expect(shown(rendered).page).toBe(page);
@@ -639,7 +627,7 @@ describe("the Details tab", () => {
     expect(order.every((index) => index > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     for (const gone of ['data-panel-row="thinking"', 'data-panel-edit="soul"', 'data-panel-row="approval"', 'data-panel-row="goal"', 'data-panel-row="call-mode"',
-      'data-panel-page="apps"', 'data-panel-page="memory"', 'data-panel-page="skills"', 'data-panel-page="folder"']) {
+      'data-panel-page="apps"', 'data-panel-page="skills"', 'data-panel-page="folder"']) {
       expect(rendered.html, gone).not.toContain(gone);
     }
     expect(rendered.html).not.toContain(">Settings<");
@@ -923,28 +911,13 @@ describe("the Library tab", () => {
     expect(dialog(makeBot()).html).not.toContain('data-bot-settings-section="memory"');
   });
 
-  it("says what it will hold while the bot has made nothing, then what it remembers, its skills and its folder", () => {
+  it("says what it will hold while the bot has made nothing, then its skills and folder", () => {
     enableLegacyMemory();
     const rendered = library(makeBot());
     expect(rendered.html).toContain('data-panel-empty="library"');
-    const order = ['data-panel-empty="library"', 'data-panel-page="memory"', 'data-panel-page="skills"', 'data-panel-page="folder"'].map((marker) => rendered.html.indexOf(marker));
+    const order = ['data-panel-empty="library"', 'data-panel-page="skills"', 'data-panel-page="folder"'].map((marker) => rendered.html.indexOf(marker));
     expect(order.every((index) => index > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-  });
-
-  it("values What it remembers by the notes in MEMORY.md, says Off when memory is off, and opens the memory page", () => {
-    enableLegacyMemory();
-    expect(rowValue(library(makeBot()), "memory")).toBeUndefined();
-    fixture.memory.docs = [memoryDoc("# Notes\n- Likes short replies\n- Uses Resolve\n- Works nights\n")];
-    const rendered = library(makeBot());
-    expect(rowValue(rendered, "memory")).toBe("3 notes");
-    click(find(rendered, "data-panel-page", "memory"));
-    expect(onOpen).toHaveBeenLastCalledWith("memory");
-    fixture.memory.docs = [memoryDoc("- One thing\n")];
-    expect(rowValue(library(makeBot()), "memory")).toBe("1 note");
-    fixture.memory.docs = [memoryDoc("# Empty\n")];
-    expect(rowValue(library(makeBot()), "memory")).toBe("Nothing yet");
-    expect(rowValue(library(makeBot({ memoryEnabled: false })), "memory")).toBe("Off");
   });
 
   it("values Skills by how many are on, and opens the skills page", () => {
@@ -1092,7 +1065,7 @@ describe("the Where it works page", () => {
 
 describe("the drill-in pages", () => {
   const PAGE = {
-    settings: SettingsPage, apps: AppsPage, routines: RoutinesPage, memory: MemoryPage, skills: SkillsPage, folder: FolderPage, browser: BrowserPage, where: WherePage,
+    settings: SettingsPage, apps: AppsPage, routines: RoutinesPage, skills: SkillsPage, folder: FolderPage, browser: BrowserPage, where: WherePage,
   } as const;
   // The walker reads only what a component returns, so each page is called as the function PageBody picks.
   const body = (page: keyof typeof PAGE, bot = makeBot()) => capture(() => PAGE[page]({ bot, derived: derived() }) as ReactNode);
@@ -1205,47 +1178,6 @@ describe("the drill-in pages", () => {
     expect(has(rendered, "data-panel-action", "routine-logs")).toBe(false);
     click(find(rendered, "data-panel-action", "new-routine"));
     expect(ofType(body("routines"), RoutineEditor)!.props).toMatchObject({ lockedBotId: "scout", routine: undefined });
-  });
-
-  it("lists what MEMORY.md remembers, forgets one line through the memory file route, and adds one", async () => {
-    enableLegacyMemory();
-    fixture.memory.docs = [memoryDoc("# Notes\n- Likes short replies\n\n- Uses Resolve Studio\n")];
-    const rendered = body("memory");
-    expect(rendered.html).toContain("Likes short replies");
-    expect(rendered.html).toContain("Uses Resolve Studio");
-    expect(rendered.html).not.toContain("# Notes");
-    // Memory upkeep is the page's one switch; the rest of advanced Memory stays out.
-    expect(switches(rendered.html)).toBe(1);
-    expect(rendered.html).toContain("Memory upkeep");
-    for (const text of ["Tidy now", "Obsidian", "Daily logs", "Journal"]) expect(rendered.html).not.toContain(text);
-    click(rendered.nodes.filter((node) => node.props.label === "Forget")[0]!);
-    await Promise.resolve();
-    expect(fixture.saveMemory).toHaveBeenLastCalledWith("scout", "MEMORY.md", "# Notes\n\n- Uses Resolve Studio\n", "h1", false);
-    await Promise.resolve();
-    expect(fixture.memory.setDoc).toHaveBeenLastCalledWith(expect.objectContaining({ text: "# Notes\n\n- Uses Resolve Studio\n", hash: "h2" }));
-
-    (find(body("memory"), "data-panel-form", "memory-add").props.onChange as (value: string) => void)("  Prefers the free version ");
-    (find(body("memory"), "data-panel-form", "memory-add").props.onSubmit as () => void)();
-    await Promise.resolve();
-    expect(fixture.saveMemory).toHaveBeenLastCalledWith("scout", "MEMORY.md", "# Notes\n- Likes short replies\n\n- Uses Resolve Studio\n- Prefers the free version\n", "h1", false);
-  });
-
-  it("says when memory is off, empty or unreadable, and re-reads on a conflict", async () => {
-    enableLegacyMemory();
-    expect(body("memory", makeBot({ memoryEnabled: false })).html).toContain("Memory is off for Scout.");
-    expect(has(body("memory", makeBot({ memoryEnabled: false })), "data-panel-form", "memory-add")).toBe(false);
-    fixture.memory.docs = [memoryDoc("")];
-    expect(body("memory").html).toContain("Nothing remembered yet.");
-    fixture.memory = { ...fixture.memory, docs: null, error: true };
-    expect(body("memory").html).toContain("Couldn&#x27;t read the memory file just now.");
-
-    fixture.memory = { ...fixture.memory, docs: [memoryDoc("- Old\n")], error: false };
-    fixture.saveMemory = vi.fn(() => Promise.resolve({ ok: false, conflict: true, current: "- New\n", currentHash: "h3" }));
-    click(find(body("memory"), "label", "Forget"));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(fixture.memory.reload).toHaveBeenCalled();
-    expect(body("memory").html).toContain("Scout changed this file while you were editing.");
   });
 
   it("switches skills, removes one, adds one from a link and browses the library or skills.sh", async () => {
@@ -1381,11 +1313,10 @@ describe("the bot settings dialog", () => {
     expect(ofType(rendered, BotPanel)).toBeUndefined();
     expect(rendered.html).not.toContain('id="bot-panel"');
     expect(rendered.html).toContain("Search settings");
-    for (const label of ["Overview", "Identity", "Soul", "Skills", "Memory", "Routines", "Access", "Model", "Permissions", "Voice &amp; alerts", "History", "Usage"]) {
+    for (const label of ["Overview", "Identity", "Soul", "Skills", "Routines", "Access", "Model", "Permissions", "Voice &amp; alerts", "History", "Usage"]) {
       expect(rendered.html).toContain(`>${label}</span>`);
     }
-    // The accordion keeps the Memory and Access sections, where the memory, upkeep, browser and record-steps switches live.
-    for (const section of ["memory", "access", "model", "permissions"]) expect(rendered.html).toContain(`data-bot-settings-section="${section}"`);
+    for (const section of ["access", "model", "permissions"]) expect(rendered.html).toContain(`data-bot-settings-section="${section}"`);
   });
 
   it("a stored section opens expanded in the full view", () => {

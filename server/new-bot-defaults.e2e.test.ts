@@ -25,14 +25,12 @@ it("applies independent creation templates through the real isolated HTTP routes
     };
     await api("PATCH", "/api/config", { newBotDefaults: defaults });
     expect((await api("GET", "/api/bots")).bots).toEqual(original);
-    expect((await api("GET", "/api/bot-defaults")).defaults).toEqual(defaults);
+    expect((await api("GET", "/api/bot-defaults")).defaults).toEqual({ ...defaults, memory: {} });
     const first = (await api("POST", "/api/bots", {}, 201)).bot;
     const second = (await api("POST", "/api/bots", { name: "Second" }, 201)).bot;
     expect(first.name.length).toBeGreaterThan(0);
     for (const bot of [first, second]) {
       expect(bot).toMatchObject({ title: "Template", soul: "Standing instructions", notifications: false, computer: "off" });
-      const memory = await api("GET", `/api/bots/${bot.id}/memory/file?path=MEMORY.md`);
-      expect(JSON.stringify(memory)).toContain("Synthetic default memory");
       expect((await api("GET", `/api/bots/${bot.id}/skills`)).skills).toHaveLength(1);
     }
     const routines = (await api("GET", "/api/routines")).routines;

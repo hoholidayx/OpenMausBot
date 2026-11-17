@@ -12,7 +12,6 @@ export const CLAUDE_ALWAYS_LOADED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "tool_result_read",
   "list_bots",
   "attach_file",
-  "memory_update",
   "message_person",
   "send_voice_note",
   "create_options_card",

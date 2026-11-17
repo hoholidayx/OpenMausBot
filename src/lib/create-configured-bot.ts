@@ -58,12 +58,6 @@ export async function createConfiguredBot(
         throw new Error(t("newBot.threadApprovalNotGranted"));
       }
     }
-    for (const [path, text] of Object.entries(template.memory)) {
-      if (preset?.notes.includes(path)) continue;
-      await request(`/api/bots/${bot.id}/memory/file`, {
-        method: "PUT", body: JSON.stringify({ path, text }),
-      });
-    }
     for (const skill of template.skills) {
       if (preset?.skills.includes(skill.name)) continue;
       await request(`/api/bots/${bot.id}/skill-template`, { method: "POST", body: JSON.stringify(skill) });

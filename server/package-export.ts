@@ -16,10 +16,6 @@ import {
   pictureMatchesMime,
   RELEASE_NOTES_MAX,
   redactPackageSecrets,
-  SEED_FILE_MAX_BYTES,
-  SEED_MAX_BYTES,
-  SEED_MAX_FILES,
-  utf8Bytes,
   type PackageAgent,
   type PackageConnection,
   type PackageDefinition,
@@ -302,7 +298,6 @@ export interface TeamExportInput {
   published: PublishedTeam | null;
   skillsByBot?: ReadonlyMap<string, readonly ExportablePackageSkill[]>;
   skillSelection?: "all" | "chosen";
-  memoryByBot?: ReadonlyMap<string, ReadonlyArray<{ path: string; text: string }>>;
   avatars?: Readonly<Record<string, unknown>>;
   mcpServers?: Readonly<Record<string, unknown>>;
   skipped?: readonly TeamExportSkip[];
@@ -597,21 +592,6 @@ export function createTeamPackageExport(input: TeamExportInput): TeamExportResul
     if (assignedSkills?.length) agent.skills = assignedSkills;
     const assignedConnections = agentConnections.get(bot.id);
     if (assignedConnections?.length) agent.connections = assignedConnections;
-    const memory: Record<string, string> = {};
-    let files = 0;
-    let total = 0;
-    for (const note of input.memoryByBot?.get(bot.id) ?? []) {
-      if (!note.text.trim()) continue;
-      const bytes = utf8Bytes(note.text);
-      if (bytes > SEED_FILE_MAX_BYTES || files >= SEED_MAX_FILES || total + bytes > SEED_MAX_BYTES) {
-        skipped.push({ part: `agents[${key}].seed.memory[${JSON.stringify(note.path)}]`, reason: "notes_too_large" });
-        continue;
-      }
-      memory[note.path] = note.text;
-      files += 1;
-      total += bytes;
-    }
-    if (files) agent.seed = { memory };
     return agent;
   });
 

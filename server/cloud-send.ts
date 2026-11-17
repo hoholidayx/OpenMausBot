@@ -38,7 +38,7 @@ export interface CloudSendSources {
   onePassword(): { connectedAt: number; grants: Record<string, LoginBots>; itemGrants?: Record<string, LoginBots> } | null;
   /** Saved Vault secrets, never a value. Linked password-manager items are not listed: they stay linked. */
   secrets?(): ReadonlyArray<{ id: string; name: string; updatedAt: number }>;
-  settings(): { profile?: { name?: string; email?: string; aboutMe?: string }; language?: string };
+  settings(): { profile?: { name?: string; email?: string }; language?: string };
   /** What only a move carries, of the bots it carries (cloud-send-kinds.ts), and a bot's parts only a move compares.
    * `only`: a move of that one bot into a team. */
   move?: { items(bots: ReadonlySet<string>, only?: BotRecord): CloudSendItem[]; botParts(bot: BotRecord): Record<string, string> };
@@ -136,7 +136,7 @@ export function cloudSendSummary(sources: CloudSendSources, { move = false, bot:
   }
   const { profile = {}, language } = sources.settings();
   items.push({ key: itemKey.setting("profile"), kind: "setting", label: "profile",
-    parts: { name: partHash(profile.name), email: partHash(profile.email), about: partHash(profile.aboutMe) } });
+    parts: { name: partHash(profile.name), email: partHash(profile.email) } });
   items.push({ key: itemKey.setting("language"), kind: "setting", label: "language", parts: { value: partHash(language) } });
   if (move && sources.move) items.push(...sources.move.items(carried).filter((item) => !chosen || item.kind !== "call"));
   return { v: 1, appVersion: sources.appVersion, items };

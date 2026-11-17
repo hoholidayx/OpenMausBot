@@ -25,7 +25,6 @@ import type { createApprovalModeSupport } from "../harness-capabilities.ts";
 import type { ProviderRegistry } from "../harness/registry.ts";
 import type { hostedModelPolicy } from "../hosted-models.ts";
 import { MAX_MCP_SERVERS, mcpServerNameError } from "../mcp-registry.ts";
-import type { MemoryUpkeep } from "../memory-upkeep.ts";
 import { phoneAppsFor } from "../phones/access.ts";
 import { profileSnapshot } from "../profile-revision.ts";
 import { recordProfileChange } from "../profile-versions.ts";
@@ -48,7 +47,6 @@ export interface BotPatchRouteDeps {
   sessions: Pick<SessionRegistry, "isLive">;
   browserRuntime: Pick<BrowserRuntime, "heldBy">;
   browserLive: Pick<BrowserLive, "closeForBot">;
-  memoryUpkeep: Pick<MemoryUpkeep, "dropBot">;
   cacheKeepWarm: Pick<CacheKeepWarm, "refresh">;
   hostedModels: ReturnType<typeof hostedModelPolicy>;
   supportsApprovalMode: ReturnType<typeof createApprovalModeSupport>;
@@ -93,7 +91,7 @@ export interface BotPatchRouteDeps {
 
 export function createBotPatchRoutes(deps: BotPatchRouteDeps): RouteHandler {
   const {
-    store, cfg, registry, sessions, browserRuntime, browserLive, memoryUpkeep, cacheKeepWarm, hostedModels, supportsApprovalMode, activeVpsThreads,
+    store, cfg, registry, sessions, browserRuntime, browserLive, cacheKeepWarm, hostedModels, supportsApprovalMode, activeVpsThreads,
     hostedWorkspace: HOSTED_WORKSPACE, hostedFullAccessRefusal: HOSTED_FULL_ACCESS_REFUSAL, desktopManaged: DESKTOP_MANAGED,
     broadcast, wireBot, publicGroupState, audienceChanged, storedAvatarExists, requestedTaskBot, threadBusy, activeGroupTurnForBot,
     checkedModelSelection, engineSwitchNeedsAsk, currentBrowserSession, interruptAllDirectThreads, cancelGroupTurnOperations,
@@ -311,14 +309,6 @@ export function createBotPatchRoutes(deps: BotPatchRouteDeps): RouteHandler {
         if (!toolsOff) return json(res, 400, { error: `toolsOff must be a list of ${TOOL_GROUPS.join(", ")}` });
         patch.toolsOff = toolsOff.length ? toolsOff : undefined;
       }
-      if (body.memoryEnabled !== undefined) {
-        if (typeof body.memoryEnabled !== "boolean") return json(res, 400, { error: "memoryEnabled must be true or false" });
-        if (existingBot && (existingBot.busy || activeGroupTurnForBot(existingBot.id)) &&
-            body.memoryEnabled !== (existingBot.memoryEnabled !== false)) {
-          return json(res, 409, { error: "stop this bot's turn before changing its memory setting" });
-        }
-        patch.memoryEnabled = body.memoryEnabled;
-      }
       // null drops the per-tool grants; {} means no tools.
       if (body.connectorTools !== undefined) {
         if (body.connectorTools === null) {
@@ -358,10 +348,6 @@ export function createBotPatchRoutes(deps: BotPatchRouteDeps): RouteHandler {
           }
         }
         patch.mcpServers = requestedMcpServers;
-      }
-      if (body.memoryUpkeep !== undefined) {
-        if (typeof body.memoryUpkeep !== "boolean") return json(res, 400, { error: "memoryUpkeep must be true or false" });
-        patch.memoryUpkeep = body.memoryUpkeep;
       }
       // true/false overrides the workspace, null follows it.
       if (body.cacheKeepWarm !== undefined) {
@@ -645,12 +631,6 @@ export function createBotPatchRoutes(deps: BotPatchRouteDeps): RouteHandler {
         sectionKey(existingBot?.section) !== sectionKey(section);
       let bot: BotRecord | null;
       const freshBrowserBot = store.bot(m[1]);
-      // Rechecked: the awaits above can yield after the first memory check.
-      if (freshBrowserBot && body.memoryEnabled !== undefined &&
-          body.memoryEnabled !== (freshBrowserBot.memoryEnabled !== false) &&
-          (freshBrowserBot.busy || activeGroupTurnForBot(freshBrowserBot.id))) {
-        return json(res, 409, { error: "stop this bot's turn before changing its memory setting" });
-      }
       if (Object.hasOwn(body, "toolScope")) {
         if (auth.kind === "session" && !sessions.isLive(auth.session.id)) {
           return json(res, 401, { error: "unauthorized: this session has expired or was revoked" });
@@ -706,7 +686,6 @@ export function createBotPatchRoutes(deps: BotPatchRouteDeps): RouteHandler {
       }
       if (!bot) return json(res, 404, { error: "no such bot" });
       if (body.applyToAllThreads === true && requestedApprovalMode !== "custom") store.setAllThreadApprovalMode(bot.id, requestedApprovalMode);
-      if (body.memoryUpkeep === false || body.memoryEnabled === false) memoryUpkeep.dropBot(bot.id);
       if (body.cacheKeepWarm !== undefined) cacheKeepWarm.refresh();
       if (computerSpecified && requestedComputer !== undefined) store.clearAutoSurfacePins(m[1], requestedComputer);
       if (normalizedSelection && movedTask) store.patchTask(bot.id, movedTask.threadId, { modelSelection: undefined,

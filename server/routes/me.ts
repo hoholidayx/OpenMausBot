@@ -1,11 +1,9 @@
-// GET and PUT /api/me: a person's own profile on a Team Cloud (people-about.ts): the name and picture they go by and their
-// "About you", read into their own turns only, with the address of their verified sign-in. Anywhere else the server's one
-// profile (Settings → Profile) is the person's, and this answers 404.
+// A Team Cloud profile stores the name and picture a person goes by and the address of their verified sign-in.
 import { botAvatarUrlSchema } from "../../shared/bot-avatar.ts";
 import type { CloudTeam } from "../cloud-team.ts";
 import type { MemberProfile, MemberProfilePatch } from "../host/cloud-team-host.ts";
 import { LEGACY_MEMORY_DISABLED } from "../legacy-memory.ts";
-import { ABOUT_ME_MAX, PERSON_NAME_MAX, type SeedField } from "../people-about.ts";
+import { PERSON_NAME_MAX, type SeedField } from "../people-about.ts";
 import { personKey } from "../person-key.ts";
 import type { RequestAuth } from "../request-auth.ts";
 import { WELCOME_HINT, type TeamWelcomeStore } from "../team-welcome.ts";
@@ -14,7 +12,6 @@ import { PASS, type RouteHandler } from "./table.ts";
 
 export interface MeRouteDeps {
   team: CloudTeam | null;
-  legacyMemory?: boolean;
   session(auth: RequestAuth): SessionRecord | null;
   /** The person's own welcome to the team (team-welcome.ts): who invited them, whether they saw it, its steps they finished. */
   welcome: Pick<TeamWelcomeStore, "read" | "save">;
@@ -51,16 +48,14 @@ export function createMeRoutes(deps: MeRouteDeps): RouteHandler {
     const body = await readBody(req, 64 * 1024);
     const given = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
     const patch: MemberProfilePatch = {};
-    for (const key of ["aboutMe", "name", "avatarUrl"] as const) {
+    if (given.aboutMe !== undefined) return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
+    for (const key of ["name", "avatarUrl"] as const) {
       if (given[key] === undefined) continue;
       if (typeof given[key] !== "string") return json(res, 400, { error: `${key} must be text` });
       patch[key] = given[key];
     }
-    if (!Object.keys(patch).length) return json(res, 400, { error: "send { name, avatarUrl, aboutMe }: what to change about you" });
-    if (patch.aboutMe !== undefined && deps.legacyMemory === false) return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
+    if (!Object.keys(patch).length) return json(res, 400, { error: "send { name, avatarUrl }: what to change about you" });
     if (given.fillEmpty !== undefined && given.fillEmpty !== true) return json(res, 400, { error: "fillEmpty is true or absent" });
-    if (given.fillEmpty === true && patch.aboutMe !== undefined) return json(res, 400, { error: "Only your name and picture fill in from your computer" });
-    if (patch.aboutMe !== undefined && patch.aboutMe.length > ABOUT_ME_MAX * 2) return json(res, 400, { error: `About you is at most ${ABOUT_ME_MAX} characters` });
     if (patch.name !== undefined && patch.name.trim().length > PERSON_NAME_MAX) return json(res, 400, { error: `Your name is at most ${PERSON_NAME_MAX} characters` });
     if (patch.avatarUrl && !botAvatarUrlSchema.safeParse(patch.avatarUrl).success) return json(res, 400, { error: "Your picture must be one you uploaded here" });
     if (given.fillEmpty === true) {

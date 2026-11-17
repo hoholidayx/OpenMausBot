@@ -15,11 +15,11 @@ const SECONDARY = "ui-button min-h-9 px-4 text-[14px]";
 const LINE = "text-[13px] leading-relaxed text-ink-secondary";
 
 /** A Bot as one heading and a count per kind; a kind it has none of is left out. */
-export function BotCounts({ heading, skills, routines, memories, notes, skillsOff }: {
-  heading: string; skills: number; routines: number; memories: number; notes: number; skillsOff: readonly string[];
+export function BotCounts({ heading, skills, routines, skillsOff }: {
+  heading: string; skills: number; routines: number; skillsOff: readonly string[];
 }) {
   const rows = [
-    [t("grokMove.count.skills"), skills], [t("grokMove.count.routines"), routines], [t("grokMove.count.memories"), memories], [t("grokMove.count.notes"), notes],
+    [t("grokMove.count.skills"), skills], [t("grokMove.count.routines"), routines],
   ] as const;
   return (
     <section data-grok-move-bot className="flex flex-col gap-1.5">
@@ -307,7 +307,7 @@ export function GrokMoveDialog({ onClose, inline = false }: { onClose: () => voi
           ) : preview ? (
             <>
               {preview.plans.map((plan) => (
-                <BotCounts key={plan.packageId} heading={plan.addedAs} skills={plan.skills.length} routines={plan.routines} memories={plan.memories} notes={plan.notes}
+                <BotCounts key={plan.packageId} heading={plan.addedAs} skills={plan.skills.length} routines={plan.routines}
                   skillsOff={plan.skills.filter((skill) => !skill.on).map((skill) => skill.name)} />
               ))}
               <GrokMoveLines paused={preview.plans.some((plan) => plan.routines > 0) ? t("grokMove.pausedPreview") : null} apps={preview.plans.reduce((total, plan) => total + plan.apps, 0)}

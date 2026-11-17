@@ -1,5 +1,5 @@
 // Real server, fake engine: a bot at Full access and one at Approve for me (auto) change a profile, a working folder,
-// a teammate's profile, a skill, the team and team memory with no card of OpenMausBot's own. Each change leaves one
+// a teammate's profile, a skill and the team with no card of OpenMausBot's own. Each change leaves one
 // applied notice in the conversation, and its Undo puts the change back.
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync } from "node:fs";
@@ -145,19 +145,4 @@ describe.each([["Full", "full"], ["Auto", "auto"]] as const)("a bot at %s", (pre
     expect((await undo(chief.threadId, created.body.requestId)).body).toMatchObject({ alreadyUndone: true });
   });
 
-  it("saves a team fact with no card, and Undo takes it back out", async () => {
-    const chief = await bot(`${prefix} Chief`);
-    const token = await mint(chief.id, chief.threadId);
-    const saved = await api("POST", "/api/internal/team-memory", { fromBotId: chief.id, fromThreadId: chief.threadId,
-      kind: "term", name: `${prefix} OKR`, detail: "The quarter's three goals." }, token);
-    expect(saved.status, JSON.stringify(saved.body)).toBe(201);
-    expect(saved.body.state).toBe("applied");
-    const section = encodeURIComponent(`${prefix} team`);
-    const terms = async () => ((await api("GET", `/api/team-memory?section=${section}`)).body.entries as any[]).filter((entry) => entry.status === "accepted").map((entry) => entry.name);
-    expect(await terms()).toContain(`${prefix} OKR`);
-    await notice(chief.threadId, saved.body.requestId);
-    await decided(saved.body.requestId, level);
-    expect((await undo(chief.threadId, saved.body.requestId)).body).toMatchObject({ ok: true, undone: true });
-    expect(await terms()).not.toContain(`${prefix} OKR`);
-  });
 });

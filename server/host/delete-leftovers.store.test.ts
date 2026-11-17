@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_DIR } from "../config.ts";
 import type { ModelSelection } from "../contracts.ts";
-import { journalFile } from "../memory-journal.ts";
+import { journalFile } from "../retired-memory-data.ts";
 import * as mdb from "../message-db.ts";
 import { Store } from "../store.ts";
 import { createDeleteLeftovers, engineSessionFolders, type DeleteLeftoversDeps } from "./delete-leftovers.ts";

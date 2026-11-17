@@ -112,23 +112,6 @@ let child: ChildProcess;
 let connectorStub: Server;
 let connectorStubPort = 0;
 
-type DeferredGate = {
-  wait: Promise<void>;
-  release: () => void;
-  entered: Promise<void>;
-  enter: () => void;
-};
-const deferredGate = (): DeferredGate => {
-  let enter!: () => void;
-  const entered = new Promise<void>((resolve) => {
-    enter = resolve;
-  });
-  let release!: () => void;
-  const wait = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return { wait, release, entered, enter };
-};
 let home: string;
 let staticDir: string;
 let fakeClaudeDump: string;
@@ -146,7 +129,6 @@ let fakeSshLog: string;
 let fakeSshUnavailable: string;
 let stderr = "";
 let connectorAccounts: Array<{ id: string; alias?: string; status: string; toolkit: { slug: string } }> = [];
-let connectorAccountsGate: DeferredGate | null = null;
 // Project keys served by the stubbed marketplace catalog; empty means composio falls back to its curated list.
 let connectorCatalogToolkits: Array<{ slug: string; name: string }> = [];
 const connectorLinkRequests: Array<{ toolkit: string; alias?: string }> = [];
@@ -872,12 +854,6 @@ beforeAll(async () => {
       return res.end(JSON.stringify(operation === "register" ? { ok: true, expiresAt: body.expiresAt } : { ok: true }));
     }
     if (req.url?.startsWith("/api/v3.1/connected_accounts") || req.url?.startsWith("/api/v3/toolkits")) {
-      if (req.url.startsWith("/api/v3.1/connected_accounts") && connectorAccountsGate) {
-        const gate = connectorAccountsGate;
-        connectorAccountsGate = null;
-        gate.enter();
-        await gate.wait;
-      }
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({
         items: req.url.startsWith("/api/v3.1/connected_accounts") ? connectorAccounts : connectorCatalogToolkits,
@@ -8057,7 +8033,7 @@ describe("harness HTTP API", () => {
   it("keeps skill authoring on by default and persists an explicit opt-out", async () => {
     const before = await api("GET", "/api/config");
     expect(before.status).toBe(200);
-    expect(before.body.features).toEqual({ browser: false, skillAuthoring: true, skillReview: false, skillReviewSteps: 10, skillsLibrary: false, shareLearnedSkills: "off", showToolCalls: false, sharedComputers: false, claudeUserMcp: false, claudeUserSkills: false, autoRecall: true, roomMemoryCapture: false, parallelRoomJobs: false, llmThreadTitles: true, savedSteps: true, savedStepsHere: process.platform === "darwin", usbPhoneTakeover: false });
+    expect(before.body.features).toEqual({ browser: false, skillAuthoring: true, skillReview: false, skillReviewSteps: 10, skillsLibrary: false, shareLearnedSkills: "off", showToolCalls: false, sharedComputers: false, claudeUserMcp: false, claudeUserSkills: false, legacyMemory: false, autoRecall: false, roomMemoryCapture: false, parallelRoomJobs: false, llmThreadTitles: true, savedSteps: true, savedStepsHere: process.platform === "darwin", usbPhoneTakeover: false });
     const untouched = JSON.parse(readFileSync(join(home, ".openmausbot", "config.json"), "utf8"));
     expect(untouched.features?.skillAuthoring).toBeUndefined();
     expect(untouched.features?.skillReview).toBeUndefined();
@@ -8067,7 +8043,7 @@ describe("harness HTTP API", () => {
       features: { skillAuthoring: false },
     });
     expect(saved.status).toBe(200);
-    expect(saved.body.features).toEqual({ browser: false, skillAuthoring: false, skillReview: false, skillReviewSteps: 10, skillsLibrary: false, shareLearnedSkills: "off", showToolCalls: false, sharedComputers: false, claudeUserMcp: false, claudeUserSkills: false, autoRecall: true, roomMemoryCapture: false, parallelRoomJobs: false, llmThreadTitles: true, savedSteps: true, savedStepsHere: process.platform === "darwin", usbPhoneTakeover: false });
+    expect(saved.body.features).toEqual({ browser: false, skillAuthoring: false, skillReview: false, skillReviewSteps: 10, skillsLibrary: false, shareLearnedSkills: "off", showToolCalls: false, sharedComputers: false, claudeUserMcp: false, claudeUserSkills: false, legacyMemory: false, autoRecall: false, roomMemoryCapture: false, parallelRoomJobs: false, llmThreadTitles: true, savedSteps: true, savedStepsHere: process.platform === "darwin", usbPhoneTakeover: false });
 
     const disk = JSON.parse(readFileSync(join(home, ".openmausbot", "config.json"), "utf8"));
     // Earlier browser coverage may have persisted its own toggle: opting out must preserve sibling settings.
@@ -8075,7 +8051,7 @@ describe("harness HTTP API", () => {
 
     const tools = await api("PATCH", "/api/config", { features: { showToolCalls: true } });
     expect(tools.status).toBe(200);
-    expect(tools.body.features).toEqual({ browser: false, skillAuthoring: false, skillReview: false, skillReviewSteps: 10, skillsLibrary: false, shareLearnedSkills: "off", showToolCalls: true, sharedComputers: false, claudeUserMcp: false, claudeUserSkills: false, autoRecall: true, roomMemoryCapture: false, parallelRoomJobs: false, llmThreadTitles: true, savedSteps: true, savedStepsHere: process.platform === "darwin", usbPhoneTakeover: false });
+    expect(tools.body.features).toEqual({ browser: false, skillAuthoring: false, skillReview: false, skillReviewSteps: 10, skillsLibrary: false, shareLearnedSkills: "off", showToolCalls: true, sharedComputers: false, claudeUserMcp: false, claudeUserSkills: false, legacyMemory: false, autoRecall: false, roomMemoryCapture: false, parallelRoomJobs: false, llmThreadTitles: true, savedSteps: true, savedStepsHere: process.platform === "darwin", usbPhoneTakeover: false });
 
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     try {
@@ -10986,61 +10962,6 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it.each([
-    ["direct", false], ["room", false], ["direct", true], ["room", true],
-  ] as const)("rechecks memory policy after connector validation when a %s turn starts (enabled=%s)", async (kind, enabled) => {
-    const gate = deferredGate();
-    let botId = "";
-    let roomId = "";
-    let pending: ReturnType<typeof api> | undefined;
-    try {
-      expect((await api("PUT", "/api/config", { composio: { apiKey: "ak_good" } })).status).toBe(200);
-      const created = await api("POST", "/api/bots", { name: "Memory policy race", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } });
-      expect(created.status).toBe(201);
-      botId = created.body.bot.id;
-      expect((await api("PATCH", `/api/bots/${botId}`, { computer: "off", composio: false, memoryEnabled: !enabled })).status).toBe(200);
-      if (kind === "room") {
-        const room = await api("POST", "/api/groups", { name: "Memory policy race", memberIds: [botId] });
-        expect(room.status).toBe(201);
-        roomId = room.body.group.id;
-        expect((await api("PATCH", `/api/groups/${roomId}/setup`, { action: "skip" })).status).toBe(200);
-      }
-      connectorAccountsGate = gate;
-      pending = api("PATCH", `/api/bots/${botId}`, { memoryEnabled: enabled, connectorTools: { gmail: { tools: "*" } } });
-      await Promise.race([
-        gate.entered,
-        pending.then(({ status }) => { throw new Error(`memory patch returned ${status} before connector validation was held`); }),
-      ]);
-      rmSync(fakeClaudeDump, { force: true });
-      const route = kind === "room" ? `/api/groups/${roomId}/messages` : `/api/bots/${botId}/messages`;
-      expect((await api("POST", route, { text: "hold the memory policy turn" })).status).toBe(202);
-      await readJsonFileWhenReady(fakeClaudeDump);
-      gate.release();
-      const blocked = await pending;
-      pending = undefined;
-      expect(blocked.status).toBe(409);
-      expect(blocked.body.error).toMatch(/stop this bot's turn before changing its memory setting/);
-      const current = (await api("GET", "/api/bots?messages=0")).body.bots.find((bot: { id: string }) => bot.id === botId);
-      expect(current.memoryEnabled).toBe(!enabled);
-      expect(current.connectorTools).toBeUndefined();
-      expect((await api("PATCH", `/api/bots/${botId}`, { memoryEnabled: !enabled })).status).toBe(200);
-    } finally {
-      gate.release();
-      connectorAccountsGate = null;
-      await pending?.catch(() => undefined);
-      if (roomId) await api("POST", `/api/groups/${roomId}/interrupt`, {}).catch(() => undefined);
-      if (botId) {
-        await api("POST", `/api/bots/${botId}/interrupt`, {}).catch(() => undefined);
-        await expect.poll(async () => (await api("GET", "/api/bots?messages=0")).body.bots.find((bot: { id: string }) => bot.id === botId)?.busy,
-          { timeout: 5_000 }).toBe(false).catch(() => undefined);
-      }
-      if (roomId) await api("DELETE", `/api/groups/${roomId}`).catch(() => undefined);
-      if (botId) await api("DELETE", `/api/bots/${botId}`).catch(() => undefined);
-      await api("PUT", "/api/config", { composio: { apiKey: "" } });
-      rmSync(fakeClaudeDump, { force: true });
-    }
-  });
-
   it("serves the grant editor's tool inventory grouped by service", async () => {
     // Broker mode: clear any project key an earlier test left behind.
     expect((await api("PUT", "/api/config", { composio: { apiKey: "" } })).status).toBe(200);
@@ -11299,7 +11220,7 @@ describe("section context API", () => {
   });
 });
 
-describe("bot memory API", () => {
+describe("bot files and settings", () => {
   const workspaceOf = (botId: string) => join(home, ".openmausbot", "workspaces", botId);
 
   it("lets a bot attach a file it made, and serves it only through that message", async () => {
@@ -11860,59 +11781,6 @@ describe("bot memory API", () => {
     }
   });
 
-  it("reads empty memory for a fresh bot and 404s a bot that does not exist", async () => {
-    const bot = (await api("POST", "/api/bots")).body.bot;
-    try {
-      const fresh = await api("GET", `/api/bots/${bot.id}/memory`);
-      expect(fresh.status).toBe(200);
-      expect(fresh.body).toMatchObject({ text: "", truncated: false, topics: [], logs: [] });
-      expect((await api("GET", "/api/bots/does-not-exist/memory")).status).toBe(404);
-    } finally {
-      await api("DELETE", `/api/bots/${bot.id}`);
-    }
-  });
-
-  it("round-trips a MEMORY.md edit and rejects non-string or oversized text", async () => {
-    const bot = (await api("POST", "/api/bots")).body.bot;
-    try {
-      const saved = await api("PUT", `/api/bots/${bot.id}/memory`, { text: "# Memory\n- prefers pnpm\n" });
-      expect(saved.status).toBe(200);
-      expect(saved.body.truncated).toBe(false);
-      const read = await api("GET", `/api/bots/${bot.id}/memory`);
-      expect(read.body.text).toBe("# Memory\n- prefers pnpm\n");
-      expect(readFileSync(join(workspaceOf(bot.id), "MEMORY.md"), "utf8")).toContain("prefers pnpm");
-
-      expect((await api("PUT", `/api/bots/${bot.id}/memory`, { text: 7 })).status).toBe(400);
-      expect((await api("PUT", `/api/bots/${bot.id}/memory`, {})).status).toBe(400);
-      const big = await api("PUT", `/api/bots/${bot.id}/memory`, { text: "x".repeat(256 * 1024 + 1) });
-      expect(big.status).toBe(400);
-      expect(big.body.error).toContain("256KB");
-      expect((await api("GET", `/api/bots/${bot.id}/memory`)).body.text).toBe("# Memory\n- prefers pnpm\n");
-      expect((await api("PUT", "/api/bots/does-not-exist/memory", { text: "x" })).status).toBe(404);
-    } finally {
-      await api("DELETE", `/api/bots/${bot.id}`);
-    }
-  });
-
-  it("lists memory/ topic files", async () => {
-    const bot = (await api("POST", "/api/bots")).body.bot;
-    try {
-      const memDir = join(workspaceOf(bot.id), "memory");
-      mkdirSync(memDir, { recursive: true });
-      writeFileSync(join(memDir, "deploys.md"), "- deploy = pnpm ship\n");
-      writeFileSync(join(memDir, "my notes.md"), "spaced");
-      writeFileSync(join(memDir, "notes.txt"), "not a topic");
-      const listed = await api("GET", `/api/bots/${bot.id}/memory`);
-      // newest first, but both were written in the same instant: compare as a set
-      expect(listed.body.topics.map((t: { name: string; bytes: number }) => [t.name, t.bytes]).sort()).toEqual([
-        ["deploys.md", 21],
-        ["my notes.md", 6],
-      ]);
-    } finally {
-      await api("DELETE", `/api/bots/${bot.id}`);
-    }
-  });
-
   const soulFileOf = (botId: string) => join(home, ".openmausbot", "bots", botId, "SOUL.md");
 
   it("round-trips soul through both PATCH routes and mirrors it to SOUL.md", async () => {
@@ -12163,7 +12031,7 @@ describe("bot memory API", () => {
         bytes: 78,
       });
       expect(before.body.sections.map((s: { id: string }) => s.id)).not.toContain("soul");
-      expect(before.body.sections.map((s: { id: string }) => s.id)).toContain("memory");
+      expect(before.body.sections.map((s: { id: string }) => s.id)).not.toContain("memory");
       expect(before.body.sections.map((s: { id: string }) => s.id)).not.toContain("cloud-home");
       expect((await api("GET", "/api/config")).body).not.toHaveProperty("cloudHome");
       expect(before.body.totalBytes).toBe(

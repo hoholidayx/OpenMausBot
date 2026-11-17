@@ -1,14 +1,7 @@
-import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { DATA_DIR } from "./config.ts";
 import { factIdentity, isExpired, isMemoryDate, lineFactIdentity, notebookIdentities, parseMemoryEntries, withoutExpired } from "./memory-entries.ts";
-import { parseTopicHeader, renderTopicIndex, TOPIC_INDEX_MAX_TOPICS } from "./memory-topics.ts";
-import { closeMessageDb } from "./message-db.ts";
-import { ensureWorkspace, loadMemory, memorySystemPrompt, searchMemoryFiles, updateMemory, writeMemoryFile, writeMemoryTopic, WORKSPACES_DIR } from "./workspace.ts";
 
-const BOT = "bot-memory-entries";
 
 describe("memory entry grammar", () => {
   it("parses dates, sources, until marks and strike-throughs", () => {
@@ -81,69 +74,5 @@ describe("fact identity keeps meaning", () => {
     expect(ids.has("Likes tea")).toBe(true);
     expect(ids.has("Lives in Pune")).toBe(false);
     expect(lineFactIdentity("- 2026-09-10 · Balance is -10")).toBe("Balance is -10");
-  });
-});
-
-describe("topic headers and the index", () => {
-  it("reads title, description and aliases in both list styles", () => {
-    expect(parseTopicHeader("---\ntitle: Clients\ndescription: \"Who we bill\"\naliases: [customers, accounts]\n---\nbody")).toEqual({
-      title: "Clients",
-      description: "Who we bill",
-      aliases: ["customers", "accounts"],
-    });
-    expect(parseTopicHeader("---\naliases:\n  - food\n  - lunch\ntags: dining\n---\n").aliases).toEqual(["food", "lunch", "dining"]);
-    expect(parseTopicHeader("no frontmatter here")).toEqual({ aliases: [] });
-    expect(parseTopicHeader("# Dining\n\n---\naliases: [Bhel, Irani Cafe]\n---\n- Loves pasta\n")).toEqual({ title: "Dining", aliases: ["Bhel", "Irani Cafe"] });
-    expect(parseTopicHeader("# Dining\n\n- Loves pasta\n")).toEqual({ title: "Dining", aliases: [] });
-  });
-
-  it("lists topics by name, the archive last, and caps the list", () => {
-    const text = renderTopicIndex([
-      { name: "archive.md", header: { aliases: [] } },
-      { name: "dining.md", header: { title: "Dining", aliases: ["food"] } },
-    ]);
-    expect(text.split("\n")).toEqual([
-      "- memory/dining.md — Dining (also: food)",
-      "- memory/archive.md — older notes moved out of MEMORY.md, kept for the record",
-    ]);
-    expect(renderTopicIndex([{ name: "archive.md", header: { title: "Archive", description: "expired notes moved out by the tidy-up", aliases: [] } }]))
-      .toBe("- memory/archive.md — older notes moved out of MEMORY.md, kept for the record");
-    const many = Array.from({ length: TOPIC_INDEX_MAX_TOPICS + 5 }, (_, i) => ({ name: `t${String(i).padStart(2, "0")}.md`, header: { aliases: [] } }));
-    expect(renderTopicIndex(many)).toContain("…and 5 more in memory/");
-  });
-});
-
-describe("memory with until dates and topics, on disk", () => {
-  beforeEach(() => {
-    closeMessageDb();
-    rmSync(DATA_DIR, { recursive: true, force: true });
-    rmSync(WORKSPACES_DIR, { recursive: true, force: true });
-  });
-
-  it("appends an until mark, validates it, and hides the entry after that day", () => {
-    const now = new Date(2026, 8, 10, 12);
-    const ok = updateMemory(BOT, { action: "append", text: "Exams this weekend", until: "2026-09-14" }, { now, source: 'chat "Plans"' });
-    expect(ok).toMatchObject({ ok: true, entry: '- 2026-09-10 · from chat "Plans" · Exams this weekend · until 2026-09-14' });
-    expect(updateMemory(BOT, { action: "append", text: "x", until: "soon" }).ok).toBe(false);
-    expect(updateMemory(BOT, { action: "remove", oldText: "Exams", until: "2026-09-14" }).ok).toBe(false);
-    updateMemory(BOT, { action: "append", text: "Likes tea" }, { now });
-    expect(loadMemory(BOT, { now: new Date(2026, 8, 14, 23) })?.text).toContain("Exams this weekend");
-    const after = loadMemory(BOT, { now: new Date(2026, 8, 15, 1) });
-    expect(after?.text).not.toContain("Exams this weekend");
-    expect(after?.text).toContain("Likes tea");
-    expect(after?.expired).toBe(1);
-  });
-
-  it("lists topic notes with their aliases in the prompt, and search finds a topic by alias", () => {
-    ensureWorkspace(BOT);
-    writeMemoryFile(BOT, "- 2026-09-10 · Likes tea\n");
-    writeMemoryTopic(BOT, "dining.md", "---\ntitle: Dining\naliases: [food, lunch, restaurants]\n---\n- Loves pasta\n");
-    writeFileSync(join(WORKSPACES_DIR, BOT, "memory", "notes.md"), "plain topic\n");
-    const prompt = memorySystemPrompt(BOT, { managedWrites: true, fileTools: true });
-    expect(prompt).toContain(`Your topic notes (not loaded; paths are relative to ${JSON.stringify(join(WORKSPACES_DIR, BOT))}, not your working folder; when a request touches one of these topics, read that file with your file tools before you answer):`);
-    expect(prompt).toContain("- memory/dining.md — Dining (also: food, lunch, restaurants)");
-    expect(prompt).toContain("- memory/notes.md");
-    expect(memorySystemPrompt(BOT, { fileTools: false })).toContain("look it up with session_search before you answer");
-    expect(searchMemoryFiles(BOT, "restaurants").map((hit) => hit.file)).toContain("memory/dining.md");
   });
 });

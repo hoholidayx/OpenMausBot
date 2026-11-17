@@ -179,14 +179,10 @@ afterAll(async () => {
   console.info(JSON.stringify({ logPath: fixture.info.logPath, evidencePath, fixtureRemoved: !existsSync(fixture.info.dataDir) }));
 });
 
-it("keeps activity, shared memory and policy changes admin-only", async () => {
+it("keeps activity and policy changes admin-only", async () => {
   const b = await bot("Trust authority");
   expect((await api("GET", `/api/bots/${b.id}/activity`)).status).toBe(200);
   expect((await api("GET", `/api/bots/${b.id}/activity`, undefined, member)).status).toBe(403);
-  expect((await api("GET", "/api/team-memory?section=", undefined, member)).status).toBe(403);
-  expect((await api("POST", "/api/team-memory?section=", { kind: "term", name: "Denied", detail: "not admin" }, member)).status).toBe(403);
-  expect((await api("PATCH", "/api/team-memory/fixture?section=", { detail: "not admin" }, member)).status).toBe(403);
-  expect((await api("DELETE", "/api/team-memory/fixture?section=", undefined, member)).status).toBe(403);
   for (const patch of [{ outbound: { policy: "allow" } }, { connectorScopes: null }, { fallback: [] }]) {
     expect((await api("PATCH", `/api/bots/${b.id}`, patch, member)).status).toBe(403);
   }
@@ -624,54 +620,6 @@ it("tells a scoped bot its multi-execute arguments were unreadable, not that it 
   const resent = await relay(token, "COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS", arguments: {} }] });
   expect(resent.body.result.content[0].text).toBe("relay-ok");
   expect(relayed).toHaveLength(before + 1);
-});
-
-it("applies a bot's team fact at Ask with an Undo only an admin may use, and still refuses restricted memory", async () => {
-  const b = await bot("Team facts");
-  const token = await mint(b.id, b.threadId, "agents");
-  const propose = (detail: string) => api("POST", "/api/internal/team-memory",
-    { fromBotId: b.id, fromThreadId: b.threadId, kind: "person", name: "Alex", detail }, token);
-  const remembered = async () => (await api("GET", "/api/team-memory?section=")).body.entries
-    .filter((entry: any) => entry.name === "Alex" && entry.status === "accepted").map((entry: any) => entry.detail);
-  const first = await propose("original");
-  expect(first.status, JSON.stringify(first.body)).toBe(201);
-  expect(first.body).toMatchObject({ status: "applied", state: "applied" });
-  expect(await remembered()).toEqual(["original"]);
-  expect((await cards(b.threadId)).find((row: any) => row.card?.requestId === first.body.requestId).card)
-    .toMatchObject({ title: "Remembered for the team", answered: "allow", autoApplied: true, options: [] });
-  const replacement = await propose("replacement");
-  expect(replacement.body.state).toBe("applied");
-  expect(await remembered()).toEqual(["replacement"]);
-  expect((await api("POST", `/api/threads/${b.threadId}/undo`, { requestId: replacement.body.requestId }, member)).status).toBe(403);
-  expect((await api("POST", `/api/threads/${b.threadId}/undo`, { requestId: replacement.body.requestId })).body).toMatchObject({ ok: true, undone: true });
-  expect(await remembered()).toEqual(["original"]);
-  await api("PATCH", `/api/bots/${b.id}`, { visibility: "admins" });
-  expect((await propose("private")).status).toBe(403);
-  const publicBot = await bot("Public room participant");
-  await api("PATCH", `/api/bots/${b.id}`, { visibility: null });
-  const room = await api("POST", "/api/groups", { name: "Restricted room", memberIds: [publicBot.id, b.id] });
-  expect(room.status, JSON.stringify(room.body)).toBe(201);
-  const roomThread = room.body.group.threadId;
-  await api("PATCH", `/api/bots/${b.id}`, { visibility: "admins" });
-  const roomToken = await mint(publicBot.id, roomThread, "agents");
-  expect((await api("POST", "/api/internal/team-memory", { fromBotId: publicBot.id, fromThreadId: roomThread,
-    kind: "term", name: "Private room term", detail: "cannot share with sibling bots" }, roomToken)).status).toBe(403);
-  expect((await api("POST", "/api/team-memory?section=", { kind: "term", name: "Human", detail: "approved by admin" })).status).toBe(201);
-});
-
-it("puts a bot's fact into every teammate's prompt at once, and Undo takes it back out", async () => {
-  const b = await bot("Team context");
-  const token = await mint(b.id, b.threadId, "agents");
-  const name = "Payroll drive";
-  const detail = "APPLIED_PLACE_7Q: the shared payroll folder";
-  const proposed = await api("POST", "/api/internal/team-memory", { fromBotId: b.id, fromThreadId: b.threadId, kind: "place", name, detail }, token);
-  expect(proposed.body).toMatchObject({ status: "applied", state: "applied" });
-  expect(JSON.stringify((await api("GET", `/api/bots/${b.id}/system-prompt`)).body)).toContain(detail);
-  expect((await api("POST", `/api/threads/${b.threadId}/undo`, { requestId: proposed.body.requestId })).body).toMatchObject({ ok: true, undone: true });
-  expect(JSON.stringify((await api("GET", `/api/bots/${b.id}/system-prompt`)).body)).not.toContain(detail);
-  expect((await api("GET", "/api/team-memory?section=")).body.entries.some((entry: any) => entry.name === name)).toBe(false);
-  expect((await cards(b.threadId)).find((row: any) => row.card?.requestId === proposed.body.requestId).card).toMatchObject({ undone: true });
-  expect((await api("POST", `/api/threads/${b.threadId}/undo`, { requestId: proposed.body.requestId })).body).toMatchObject({ alreadyUndone: true });
 });
 
 it("settles only the source task after approval or Stop, leaving the selected sibling unchanged", async () => {

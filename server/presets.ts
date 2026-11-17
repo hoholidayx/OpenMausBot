@@ -1,4 +1,4 @@
-// A preset is an allowlist (persona, looks, playbooks, skills, notes): nothing it says can widen what a bot may do.
+// A preset is an allowlist (persona, looks, playbooks, skills): nothing it says can widen what a bot may do.
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -18,10 +18,6 @@ import {
   PACKAGE_FORMAT,
   PACKAGE_V2_VERSION,
   parsePackageDocument,
-  SEED_FILE_MAX_BYTES,
-  SEED_MAX_BYTES,
-  SEED_MAX_FILES,
-  utf8Bytes,
   type PackageDocument,
   type PackagePlaybook,
   type PackagePreset,
@@ -176,7 +172,7 @@ export function createPresetStore(file: string = PRESETS_FILE): PresetStore {
   };
   const sameFilePreset = (row: StoredPreset, candidate: StoredPreset, state: PresetFile, content: InstallContent) =>
     row.source === "file" && candidate.source === "file" && row.packageId === candidate.packageId && row.release === candidate.release && row.key === candidate.key &&
-    canonicalJson(storedPresetObject(row)) === canonicalJson(storedPresetObject(candidate)) &&
+    canonicalJson(storedPresetObject({ ...row, seed: undefined })) === canonicalJson(storedPresetObject(candidate)) &&
     canonicalJson(usedContent(row, state.content[row.installId])) === canonicalJson(usedContent(candidate, content));
 
   return {
@@ -224,7 +220,6 @@ export function createPresetStore(file: string = PRESETS_FILE): PresetStore {
           bot: structuredClone(preset.bot) as Record<string, unknown>,
           ...(preset.playbooks ? { playbooks: [...preset.playbooks] } : {}),
           ...(preset.skills ? { skills: [...preset.skills] } : {}),
-          ...(preset.seed ? { seed: structuredClone(preset.seed) } : {}),
           addedAt: Date.now(),
         };
         const own = org ? state.presets.findIndex((candidate) => ownRow(candidate) && candidate.key === preset.key) : -1;
@@ -325,7 +320,7 @@ export function listBotPresets(store: Pick<PresetStore, "list" | "resolve">, sta
       skills: resolved.skills.map((skill) => ({ name: skill.name, description: skill.description })),
       skillsEnabled: row.source === "org",
       playbooks: resolved.playbooks.map((playbook) => playbook.name),
-      notes: Object.keys(preset.seed?.memory ?? {}),
+      notes: [],
       addedAt: row.addedAt,
     });
   }
@@ -341,10 +336,6 @@ export interface PresetApplyDeps {
     install(botId: string, source: string, files: Array<{ path: string; content: string }>): SkillListing | { error: string };
     setEnabled(botId: string, name: string, enabled: boolean): SkillListing | { error: string };
     installOrg(botId: string, source: string, skillMd: string, stamp: SkillPackageStamp): SkillListing | { error: string };
-  };
-  memory?: {
-    writeIndex(botId: string, text: string): void;
-    writeTopic(botId: string, name: string, text: string): void;
   };
 }
 
@@ -391,15 +382,7 @@ export function applyPresetToBot(botId: string, resolved: ResolvedPreset, deps: 
     }
     skills.push(name);
   }
-  const memory = deps.memory;
-  if (!memory) return { skills, notes: 0 };
-  let notes = 0;
-  for (const [path, value] of Object.entries(preset.seed?.memory ?? {})) {
-    if (path === "MEMORY.md") memory.writeIndex(botId, value);
-    else memory.writeTopic(botId, path.slice("memory/".length), value);
-    notes += 1;
-  }
-  return { skills, notes };
+  return { skills, notes: 0 };
 }
 
 export interface DefaultsPreset {
@@ -415,7 +398,6 @@ function isPortableSource(value: string): boolean {
 export function presetFromDefaults(defaults: NewBotDefaults | undefined, options: {
   name?: string;
   description?: string;
-  includeNotes: boolean;
   avatar?: { mime: "image/png" | "image/jpeg" | "image/webp"; data: string } | null;
 }): { value: DefaultsPreset | null; skipped: TeamExportSkip[] } {
   const skipped: TeamExportSkip[] = [];
@@ -460,24 +442,7 @@ export function presetFromDefaults(defaults: NewBotDefaults | undefined, options
       enabled: template.enabled,
     });
   }
-  const memory: Record<string, string> = {};
-  if (options.includeNotes) {
-    let files = 0;
-    let total = 0;
-    for (const path of Object.keys(defaults?.memory ?? {}).sort((a, b) => (a === "MEMORY.md" ? -1 : b === "MEMORY.md" ? 1 : a.localeCompare(b)))) {
-      const value = defaults!.memory[path]!;
-      if (!value.trim()) continue;
-      const bytes = utf8Bytes(value);
-      if (bytes > SEED_FILE_MAX_BYTES || files >= SEED_MAX_FILES || total + bytes > SEED_MAX_BYTES) {
-        skipped.push({ part: `${part}.seed.memory[${JSON.stringify(path)}]`, reason: "notes_too_large" });
-        continue;
-      }
-      memory[path] = value;
-      files += 1;
-      total += bytes;
-    }
-  }
-  const hasContent = Object.keys(bot).length > 0 || skills.length > 0 || Object.keys(memory).length > 0;
+  const hasContent = Object.keys(bot).length > 0 || skills.length > 0;
   if (!hasContent) {
     skipped.push({ part, reason: "preset_empty" });
     return { value: null, skipped };
@@ -492,7 +457,6 @@ export function presetFromDefaults(defaults: NewBotDefaults | undefined, options
         ...(description ? { description } : {}),
         bot,
         ...(skills.length ? { skills: skills.map((skill) => skill.name) } : {}),
-        ...(Object.keys(memory).length ? { seed: { memory } } : {}),
       },
       skills,
     },

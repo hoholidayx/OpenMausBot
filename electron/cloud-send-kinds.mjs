@@ -131,27 +131,19 @@ export function createMoveKinds({ localJson, localBytes, localSend, entry, persi
     return answer.ok ? {} : Object.fromEntries(parts.filter((part) => MOVE_BOT_PARTS[part]).map((part) => [part, refusal(answer, "My Cloud refused this setting.")]));
   }
 
-  /** Each bot's memory and journal, then what bots learned about the person and the teams' context and memory, merged
-   * into My Cloud's: nothing is lost, nothing is doubled. */
-  async function moveMemory(ctx, bots) {
-    let merged = 0;
-    for (const bot of bots) {
-      try {
-        const held = await localJson(`/api/cloud-send/memory?bot=${bot.id}`);
-        const answer = await ctx.session.call("POST", "/api/cloud-send/memory", { v: 1, bot: bot.id, files: list(held?.files), journal: list(held?.journal) });
-        if (!answer.ok) throw new Error(refusal(answer, "My Cloud could not keep this bot's memory."));
-        merged += (answer.body?.files ?? 0) + (answer.body?.journal ?? 0);
-        if (list(answer.body?.failed).length) failed(ctx, `memory:${bot.id}`, "memory", bot.name, "My Cloud could not keep some of this bot's memory notes: they are too long.", true);
-      } catch (error) { failed(ctx, `memory:${bot.id}`, "memory", bot.name, error?.message); }
-    }
+  async function moveDepartmentContext(ctx) {
     try {
       const shared = await localJson("/api/cloud-send/memory");
-      const answer = await ctx.session.call("POST", "/api/cloud-send/memory", { v: 1, about: shared?.about ?? { learned: [], removed: [] }, teams: list(shared?.teams) });
-      if (!answer.ok) throw new Error(refusal(answer, "My Cloud could not keep what your bots learned and your teams' notes."));
-      merged += (answer.body?.about ?? 0) + (answer.body?.teams ?? 0);
-      if (list(answer.body?.failed).length) failed(ctx, "memory:shared", "memory", "About me and teams", "My Cloud has no room for some of what your bots learned about you.", true);
-    } catch (error) { failed(ctx, "memory:shared", "memory", "About me and teams", error?.message); }
-    ctx.result.memory = merged;
+      const teams = list(shared?.teams).map(({ section, context }) => ({ section, context }));
+      const answer = await ctx.session.call("POST", "/api/cloud-send/memory", { v: 1, teams });
+      if (!answer.ok) throw new Error(refusal(answer, "My Cloud could not keep your department context."));
+      ctx.result.memory = answer.body?.teams ?? 0;
+      if (list(answer.body?.failed).length) {
+        failed(ctx, "memory:shared", "memory", "Department context", "My Cloud could not keep some department context.", true);
+      }
+    } catch (error) {
+      failed(ctx, "memory:shared", "memory", "Department context", error?.message);
+    }
   }
 
   /** Each conversation's own settings My Cloud's copy lacks: its model, approval, snooze and project; a room's time limit
@@ -263,5 +255,5 @@ export function createMoveKinds({ localJson, localBytes, localSend, entry, persi
     }
   }
 
-  return { sendKind, sendBotFields, moveMemory, moveSettings, moveFiles };
+  return { sendKind, sendBotFields, moveDepartmentContext, moveSettings, moveFiles };
 }

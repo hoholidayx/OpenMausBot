@@ -5,13 +5,6 @@ const DATED = /^(- (\d{4}-\d{2}-\d{2}) · (?:from [^·\n]* · )?)(.*)$/;
 const UNTIL_MARK = / · until (\d{4}-\d{2}-\d{2})(?= · |$)/;
 const TRAILING_MARKS = /(?: · (?:updated|confirmed|until|expired|superseded|moved) \d{4}-\d{2}-\d{2})+$/;
 const BULLET = /^\s*(?:[-*•]|\d+[.)])\s+/;
-/** A safety or health fact always loads: neither organize nor the size rule moves one out of MEMORY.md. */
-const ALWAYS_CORE = /\b(?:allerg\w*|anaphyla\w*|intoleran\w*|vegetarian|vegan|halal|kosher|gluten|lactose|diet\w*|diabet\w*|asthma\w*|epilep\w*|pregnan\w*|medicat\w*|medicine|medical|disabilit\w*|wheelchair|blind|deaf|health)\b/i;
-
-export function alwaysCore(body: string): boolean {
-  return ALWAYS_CORE.test(body);
-}
-
 export interface MemoryEntryLine {
   line: number;
   end: number;
@@ -29,13 +22,9 @@ export function isMemoryDate(value: unknown): value is string {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
-export function untilMark(until: string | undefined): string {
-  return until ? ` · until ${until}` : "";
-}
-
 const togglesFence = (line: string) => (line.match(/```/g)?.length ?? 0) % 2 === 1;
 
-/** Undated hand-written lines are not entries and upkeep never touches them. */
+/** Dated entries can span multiple lines. */
 export function parseMemoryEntries(text: string): MemoryEntryLine[] {
   const out: MemoryEntryLine[] = [];
   const lines = text.split("\n");
@@ -94,25 +83,4 @@ export function lineFactIdentity(line: string): string {
 
 export function notebookIdentities(text: string): Set<string> {
   return new Set(text.split("\n").map(lineFactIdentity).filter(Boolean));
-}
-
-export function withoutSuperseded(text: string): string {
-  const dropped = new Set<number>();
-  for (const entry of parseMemoryEntries(text)) {
-    if (entry.struck) for (let line = entry.line; line < entry.end; line++) dropped.add(line);
-  }
-  return text.split("\n").filter((_, index) => !dropped.has(index)).join("\n");
-}
-
-/** Case, width, curly quotes and spacing aside, so a passage matches however the note was typed. */
-export function foldForMatch(text: string): string {
-  return text.normalize("NFKC").toLowerCase().replace(/[‘’ʼ]/g, "'").replace(/[“”]/g, "\"").replace(/\s+/g, " ").trim();
-}
-
-/** Whether a note mentions `passage` as whole words ("IST" is not in "dentist"); null for a passage too short to name anything. */
-export function passageMatcher(passage: string): ((text: string) => boolean) | null {
-  const folded = foldForMatch(passage);
-  if ((folded.match(/[\p{L}\p{N}]/gu)?.length ?? 0) < 3) return null;
-  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${folded.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}])`, "u");
-  return (text) => pattern.test(foldForMatch(text));
 }

@@ -69,7 +69,7 @@ describe("the import", () => {
       "PATCH /api/bots/id-Desk/skills/greet",
     ]);
     expect(fixture.requests[1]![2]).toEqual({ enabled: true });
-    expect(report.bots).toEqual([{ name: "Desk", skills: 2, skillsOff: ["Risky"], routines: 1, notes: 1, memories: 1, apps: 2 }]);
+    expect(report.bots).toEqual([{ name: "Desk", skills: 2, skillsOff: ["Risky"], routines: 1, apps: 2 }]);
     expect(JSON.stringify(fixture.requests)).not.toContain("/api/webhooks");
     expect(JSON.stringify(fixture.requests)).not.toContain("connected-apps");
   });

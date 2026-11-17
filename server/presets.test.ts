@@ -20,7 +20,6 @@ async function installation() {
   const { Store } = await import("./store.ts");
   const { RoutineManager } = await import("./routines.ts");
   const skills = await import("./skills.ts");
-  const workspace = await import("./workspace.ts");
   const sections = await import("./section-context.ts");
   const presets = await import("./presets.ts");
   const importer = await import("./package-import.ts");
@@ -42,14 +41,13 @@ async function installation() {
     store,
     routines,
     skills: { install: skills.installSkill, setEnabled: skills.setSkillEnabled, installOrg: skills.installOrgSkill },
-    memory: { writeIndex: workspace.writeMemoryFile, writeTopic: workspace.writeMemoryTopic },
     mcp: { servers: () => mcp.servers, refusal: () => undefined, persist: (next: Record<string, unknown>) => { mcp.servers = next; } },
     sections: { writeBrief: (section: string, text: string) => void sections.writeSectionContext(section, text) },
     images: { save: () => "/api/attachments/fixture.png" },
     defaultSelection: () => ({ instanceId: "claude", model: "default-model" }),
     presets: presetStore,
   };
-  const applyDeps = { store, skills: deps.skills, memory: deps.memory };
+  const applyDeps = { store, skills: deps.skills };
   const org = (packageId = "pkg-1") => ({
     adminOrigin: "https://admin.example.com", organizationId: "org-1", packageId, ref: "acme/sales-skills", sha256: "a".repeat(64),
     publisher: { organizationId: "org-acme", slug: "acme", name: "Acme Partners" },
@@ -60,7 +58,7 @@ async function installation() {
     document.package.publisher = { organization: "acme", name: "Acme Partners" };
     return document;
   };
-  return { store, skills, workspace, presets, importer, exporter, parts, parsePackageDocument, presetStore, presetFile, deps, applyDeps, org, orgDocument };
+  return { store, skills, presets, importer, exporter, parts, parsePackageDocument, presetStore, presetFile, deps, applyDeps, org, orgDocument };
 }
 
 afterEach(async () => {
@@ -184,7 +182,7 @@ describe("preset store", () => {
 });
 
 describe("creating a bot from a preset", () => {
-  it("adds a file preset's skills switched off, its playbooks and starter notes, and stamps where it came from", async () => {
+  it("adds a file preset's skills switched off, its playbooks, and stamps where it came from", async () => {
     const app = await installation();
     const input = fixture("full-team.v2.json");
     input.package.presets[0].seed = { memory: { "MEMORY.md": "- Greets by name.\n", "memory/tone.md": "Warm.\n" } };
@@ -192,11 +190,9 @@ describe("creating a bot from a preset", () => {
     if (imported.alreadyAdded) throw new Error("unexpected");
     const resolved = app.presetStore.resolve(imported.presets![0]!.id)!;
     const bot = app.store.createBot({ name: "Sky", modelSelection: { instanceId: "claude", model: "default-model" } });
-    expect(app.presets.applyPresetToBot(bot.id, resolved, app.applyDeps)).toEqual({ skills: ["objection-handling"], notes: 2 });
+    expect(app.presets.applyPresetToBot(bot.id, resolved, app.applyDeps)).toEqual({ skills: ["objection-handling"], notes: 0 });
     expect(app.skills.listSkills(bot.id)).toEqual([expect.objectContaining({ name: "objection-handling", enabled: false, source: "package:sales-desk" })]);
     expect(app.skills.skillPackageStamps(bot.id)).toEqual([]);
-    expect(app.workspace.readMemoryFile(bot.id).text).toBe("- Greets by name.\n");
-    expect(app.workspace.readMemoryTopic(bot.id, "tone.md")).toBe("Warm.\n");
     const record = app.store.bot(bot.id)!;
     expect(record.playbooks).toEqual([expect.objectContaining({ key: "qualify", name: "Qualify a lead" })]);
     expect(record.installedPackage).toEqual({ id: "sales-desk", name: "Sales desk", release: "1.3.0", requiredApps: [], source: "file",
@@ -243,9 +239,9 @@ describe("sharing my New bot defaults as a preset", () => {
     ...overrides,
   });
 
-  it("keeps only the allowlist: name, look, instructions, skills and (when asked) starter notes", async () => {
+  it("keeps only the allowlist: name, look, instructions and skills", async () => {
     const app = await installation();
-    const built = app.presets.presetFromDefaults(defaults(), { name: "Support agent", description: "Kind and precise.", includeNotes: true,
+    const built = app.presets.presetFromDefaults(defaults(), { name: "Support agent", description: "Kind and precise.",
       avatar: { mime: "image/png", data: PNG } });
     expect(built.skipped).toEqual([]);
     expect(built.value!.preset).toEqual({
@@ -253,11 +249,10 @@ describe("sharing my New bot defaults as a preset", () => {
       bot: { name: "Sky", title: "Support", description: "Answers customers.", soul: "Be kind.\n",
         appearance: { color: "blue", mascotExpression: "happy", avatar: { mime: "image/png", data: PNG, crop: "rounded" } } },
       skills: ["follow-up"],
-      seed: { memory: { "MEMORY.md": "- Customers first.\n", "memory/tone.md": "Warm.\n" } },
     });
     expect(JSON.stringify(built.value)).not.toMatch(/opus|secret|full|Bash|crm|work|Ops|Daily/);
-    expect(app.presets.presetFromDefaults(defaults(), { includeNotes: false }).value!.preset).not.toHaveProperty("seed");
-    const empty = app.presets.presetFromDefaults({ profile: { approvalMode: "auto", computer: "local" }, memory: {}, skills: [], routines: [] }, { includeNotes: true });
+    expect(app.presets.presetFromDefaults(defaults(), {}).value!.preset).not.toHaveProperty("seed");
+    const empty = app.presets.presetFromDefaults({ profile: { approvalMode: "auto", computer: "local" }, memory: {}, skills: [], routines: [] }, {});
     expect(empty).toEqual({ value: null, skipped: [{ part: "presets[new-bot-defaults]", reason: "preset_empty" }] });
   });
 
@@ -268,7 +263,7 @@ describe("sharing my New bot defaults as a preset", () => {
         { name: "follow-up", description: "follow-up steps.", source: "fixture", text: skillText("follow-up"), enabled: true, warnings: [] },
         { name: "research-brief", description: "research-brief steps.", source: "fixture", text: skillText("research-brief", "Different."), enabled: true, warnings: [] },
       ],
-    }), { includeNotes: true });
+    }), {});
     const bot = { id: "b1", threadId: "t1", name: "Morgan", color: "green", section: "Sales desk", createdAt: 1 } as BotRecord;
     const exported = app.exporter.createTeamPackageExport({
       team: "Sales desk", bots: [bot], groups: [], routines: [], published: null,
@@ -285,7 +280,7 @@ describe("sharing my New bot defaults as a preset", () => {
 
   it("saves a library file of the preset and its skills, redacted, with a stable id and the next release", async () => {
     const app = await installation();
-    const built = app.presets.presetFromDefaults(defaults({ profile: { name: "Sky", soul: "Use password=Hunter2-Secret-99 for the portal.\n" } }), { name: "Support agent", includeNotes: true });
+    const built = app.presets.presetFromDefaults(defaults({ profile: { name: "Sky", soul: "Use password=Hunter2-Secret-99 for the portal.\n" } }), { name: "Support agent" });
     const first = app.exporter.createLibraryPackageExport({ published: null, preset: built.value, authorName: "Mira" });
     expect(first.filename).toBe("support-agent-1.0.0.openmaus.json");
     expect(first.redacted).toEqual(["presets[new-bot-defaults].bot.soul"]);
@@ -308,7 +303,7 @@ describe("sharing my New bot defaults as a preset", () => {
       skills: Array.from({ length: 17 }, (_, index) => ({
         name: `big-${index}`, description: `big-${index} steps.`, source: "fixture", text: skillText(`big-${index}`, "a".repeat(250_000)), enabled: true, warnings: [],
       })),
-    }), { includeNotes: false });
+    }), {});
     const tooLarge = caught(() => app.exporter.createLibraryPackageExport({ published: null, preset: big.value }));
     expect((tooLarge as Error).message).toBe("This preset is too large to share (4 MB). Leave out starter notes or some skills and try again.");
     expect(tooLarge).toMatchObject({ errorKey: "serverError.preset.tooLarge" });
@@ -319,7 +314,6 @@ describe("sharing my New bot defaults as a preset", () => {
     const bot = app.store.createBot({ name: "Sky", modelSelection: { instanceId: "claude", model: "default-model" } });
     app.presets.applyPresetToBot(bot.id, app.presetStore.resolve(imported.presets![0]!.id)!, app.applyDeps);
     expect(app.skills.listSkills(bot.id)).toEqual([expect.objectContaining({ name: "follow-up", enabled: false })]);
-    expect(app.workspace.readMemoryTopic(bot.id, "tone.md")).toBe("Warm.\n");
   });
 
   it("records what was last shared and starts over from an unreadable record", async () => {

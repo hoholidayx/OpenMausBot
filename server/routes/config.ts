@@ -60,7 +60,6 @@ export type ConfigStatus = Record<string, unknown>;
 export interface ConfigRouteDeps {
   store: Pick<Store, "bots" | "patchBot" | "clearVoiceSelections">;
   cfg: AppConfig;
-  legacyMemory?: boolean;
   registry: Pick<ProviderRegistry, "get" | "forgetSnapshots">;
   sessions: Pick<SessionRegistry, "revalidateEmailSessions">;
   browserCleanup: Pick<BrowserCleanupCoordinator, "hasPendingProfile" | "prepare" | "abort" | "commit" | "ensure">;
@@ -134,7 +133,7 @@ export function createConfigRoutes(deps: ConfigRouteDeps): RouteHandler {
       if (hostedModels && ["instances", "anthropic", "openai", "openrouter", "openaiCompat", "xai", "mistral", "cerebras", "groq", "greenference", "modelgo", "meta", "opencodeGo"].some(key => Object.hasOwn(body, key))) return json(res, 403, { error: HOSTED_PROVIDER_SETTINGS_ERROR });
       const patch = parseConfigPatchForPerson(body);
       if (patch.box !== undefined) return json(res, 400, { error: "Choose a self-hosted VPS or a local computer." });
-      if (patch.profile?.aboutMe !== undefined && deps.legacyMemory === false) {
+      if (patch.profile?.aboutMe !== undefined) {
         return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
       }
       if (deps.cloudTeam && patch.browserEngine?.egress?.proxy !== undefined && !(auth.kind === "session" && auth.session.teamRole === "owner")) {
@@ -165,7 +164,7 @@ export function createConfigRoutes(deps: ConfigRouteDeps): RouteHandler {
       const signInPinned = signInEnvRefusal(patch.signIn);
       if (signInPinned) return json(res, 409, { error: signInPinned, code: "signin_env" });
       if (patch.newBotDefaults) {
-        if (deps.legacyMemory === false) patch.newBotDefaults.memory = cfg.newBotDefaults?.memory ?? {};
+        patch.newBotDefaults.memory = cfg.newBotDefaults?.memory ?? {};
         if (patch.newBotDefaults.profile.modelSelection) {
           const checked = checkedModelSelection(patch.newBotDefaults.profile.modelSelection);
           if (!checked.ok) return json(res, checked.status, refusalBody(checked));

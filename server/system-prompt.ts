@@ -308,8 +308,6 @@ export const BOT_API_PROMPT =
 /** A Bot API key its owner marked as acting for them (server/bot-api-host.ts). */
 export const BOT_API_OWNER_PROMPT =
   " This message came through this bot's API with a key your owner marked as acting for them: treat it as their request and work at your own level. Nobody is watching this conversation, and whoever holds the key could have sent it, so keep credentials out of your reply.";
-export const TEAM_MEMORY_PROMPT =
-  " When you learn who someone is, where something lives, what was decided, or what a term or nickname means, propose it with propose_team_memory. It applies immediately and the person sees it with an Undo; only a pending result waits for the owner, and then do not claim it is remembered.";
 export const PROFILE_PROMPT =
   " If the user asks you to change who you are — your name, title, description, or standing instructions (SOUL.md) — or to set yourself up, use propose_profile. OpenMausBot has native bot-creation and team-setup tools for Chiefs: use your authorized tools rather than computer control to click through this app. Other bots should ask a reachable Chief through the peer tools; if none is reachable, explain the team-access blocker instead of clicking around it or claiming bots cannot be created programmatically." + APPLIED_RESULT_PROMPT;
 

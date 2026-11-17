@@ -3,13 +3,11 @@
 // name. While they are written the card takes no pick, and they change only in the change that ends that wait, so a
 // letter key always picks a job the person could read. Without anything to go on the fixed answers (initial-greeting.ts)
 // show; when no one can write them, the card keeps what it shows.
-import { redactSecretsInText } from "../shared/redact.ts";
 import { appLabel } from "./app-event-catalog.ts";
 import type { AppConfig } from "./config.ts";
 import type { ProviderAdapter } from "./contracts.ts";
 import { hasSetupChoices, setupChoices } from "./initial-greeting.ts";
 import { isPickedBotName } from "./names.ts";
-import { LEARNED_LINE } from "./profile-learned.ts";
 import { openSetupOffer, type SetupRequestStore } from "./setup-request.ts";
 import type { SideJobText } from "./side-jobs.ts";
 import type { BotRecord, Message, Store } from "./store.ts";
@@ -21,8 +19,6 @@ export interface SuggestionFacts {
   department?: string;
   /** Display names of the connected apps this bot may use. */
   apps: readonly string[];
-  /** Single-person installs only: aboutMeExcerpt(cfg.profile.aboutMe). */
-  aboutMe?: string;
   /** What the person's other bots do (title, else the first line of the description), never their names. */
   otherJobs: readonly string[];
   /** The app's language as an English name ("Spanish", "Brazilian Portuguese"). */
@@ -49,7 +45,6 @@ export function setupSuggestionPrompt(facts: SuggestionFacts): string {
     ["Bot's department", factLine(facts.department, 60)],
   ].filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`);
   const apps = facts.apps.map((app) => factLine(app, 40)).filter(Boolean).slice(0, 15);
-  const about = factLine(facts.aboutMe, 1500);
   const jobs = facts.otherJobs.map((job) => factLine(job, 120)).filter(Boolean).slice(0, 12);
   const rules = [
     named.length
@@ -60,9 +55,7 @@ export function setupSuggestionPrompt(facts: SuggestionFacts): string {
     apps.length
       ? "Name a connected app only where the job happens inside it, one app per option, written as listed. Never name an app that is not connected."
       : "No apps are connected: say email, calendar or spreadsheet in general words and name no apps.",
-    about
-      ? 'Use what the person says about themselves to choose jobs that fit their life or work, in general words (like "my shop" or "my work"), and name their line of work in at most two options.'
-      : "Nothing is known about the person, so don't guess who they are or what they do.",
+    "Nothing is known about the person, so don't guess who they are or what they do.",
     ...(jobs.length ? ["Leave out every job the person's other bots already do, even when it is part of this bot's job and even when a connected app could do it (if another bot plans meals, offer nothing about meals or recipes). This rule comes before rule 1. Don't mention other bots."] : []),
     "Prefer first jobs where the bot finds, checks, sorts, drafts or reminds over ones where it pays, books or sends things to other people.",
     "Never make things up, and keep private details out, even ones the person wrote: no names of people, places or businesses (connected app names are fine), no dates, no amounts, no health details.",
@@ -89,7 +82,6 @@ export function setupSuggestionPrompt(facts: SuggestionFacts): string {
     "[FACTS]",
     ...named,
     `Connected apps: ${apps.length ? apps.join(", ") : "none"}`,
-    ...(about ? [`About the person: ${about}`] : []),
     ...(jobs.length ? [`Jobs the person's other bots already do: ${jobs.join("; ")}`] : []),
     "[/FACTS]",
     "",
@@ -149,24 +141,10 @@ export function parseSetupSuggestions(reply: string, languageCode: string): stri
   return kept.length >= MIN_COUNT ? kept : null;
 }
 
-const EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
-const PHONE = /\+?\d[\d\s().-]{7,}\d/g;
-
-/** What the prompt may quote of About me: never the lines learned from chats, never secrets, email addresses or phone
- * numbers. `redact` is shared/redact.ts's redactSecretsInText. */
-export function aboutMeExcerpt(text: string | undefined, redact: (text: string) => string): string | undefined {
-  const kept = (text ?? "").split("\n").filter((line) => !LEARNED_LINE.test(line)).join(" ");
-  const clean = factLine(redact(kept).replace(EMAIL, "[email]").replace(PHONE, "[phone]"), 1600);
-  if (!clean) return undefined;
-  if (clean.length <= 1500) return clean;
-  const cut = clean.slice(0, 1500);
-  return cut.slice(0, Math.max(cut.lastIndexOf(" "), 1000)).trim();
-}
-
 /** The fixed answers are as good when there is nothing to go on, and they show without a wait. */
 export function worthAsking(facts: SuggestionBasis, apps: SuggestionApps): boolean {
   if (!hasSetupChoices(facts.languageCode)) return true;
-  return Boolean(facts.name || facts.title || facts.department || facts.aboutMe || facts.otherJobs.length
+  return Boolean(facts.name || facts.title || facts.department || facts.otherJobs.length
     || (apps && ("later" in apps || apps.known.length)));
 }
 
@@ -362,18 +340,15 @@ export function createSetupSuggestions(deps: SetupSuggestionsDeps) {
   };
 }
 
-/** What a bot's card is written from, as this place may send it. On a shared place, never the profile's About me or
- * other people's bots: the card can reach other members. Never names the server picked, the profile's name, email
+/** What a bot's card is written from, as this place may send it. On a shared place, omit other people's bots: the card can reach other members. Never names the server picked, the profile's name, email
  * addresses or anything the person wrote in a chat. */
-export function suggestionBasis(bot: BotRecord, place: { bots: readonly BotRecord[]; shared: boolean; aboutMe?: string; languageCode: string; canBrowse: boolean }): SuggestionBasis {
+export function suggestionBasis(bot: BotRecord, place: { bots: readonly BotRecord[]; shared: boolean; languageCode: string; canBrowse: boolean }): SuggestionBasis {
   let language = "English";
   try { language = new Intl.DisplayNames(["en"], { type: "language" }).of(place.languageCode) ?? "English"; } catch { language = "English"; }
-  const aboutMe = place.shared ? undefined : aboutMeExcerpt(place.aboutMe, redactSecretsInText);
   return {
     ...(typedName(bot.name) ? { name: bot.name } : {}),
     ...(bot.title ? { title: bot.title } : {}),
     ...(bot.section ? { department: bot.section } : {}),
-    ...(aboutMe ? { aboutMe } : {}),
     otherJobs: place.shared ? [] : place.bots
       .filter((other) => other.id !== bot.id && !other.hidden && !other.movedTo && !other.defaultBot && !other.chiefOfStaff)
       .map((other) => other.title?.trim() || other.description?.split("\n")[0]?.trim() || "").filter(Boolean),
@@ -386,8 +361,7 @@ type EngineCapabilities = Partial<Pick<ProviderAdapter["capabilities"], "agentsM
 /** The server's side of the card's writer, read as each bot is made. */
 export interface SetupSuggestionsHost extends Pick<SetupSuggestionsDeps, "withinBudget" | "writer" | "log"> {
   store: SetupSuggestionsDeps["store"] & { readonly bots: readonly BotRecord[] };
-  includeAboutMe?: boolean;
-  config(): Pick<AppConfig, "features" | "profile">;
+  config(): Pick<AppConfig, "features">;
   /** Several people share this place. */
   shared(): boolean;
   /** The app's language code ("en", "pt-BR"). */
@@ -425,7 +399,7 @@ export function setupSuggestionsFor(host: SetupSuggestionsHost) {
     canSetUp: (bot) => host.engine(bot)?.agentsMcp === true,
     withinBudget: host.withinBudget,
     writer: host.writer,
-    facts: (bot) => suggestionBasis(bot, { bots: host.store.bots, shared: host.shared(), aboutMe: host.includeAboutMe === false ? undefined : host.config().profile?.aboutMe,
+    facts: (bot) => suggestionBasis(bot, { bots: host.store.bots, shared: host.shared(),
       languageCode: host.languageCode(), canBrowse: host.engine(bot)?.browserMcp === true && host.browserOn() && bot.browser !== false }),
     apps: (bot) => {
       if (!host.engine(bot)?.composioMcp || bot.composio === false || !host.apps.configured()) return null;

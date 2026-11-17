@@ -20,7 +20,7 @@ describe("the widget tools in the catalog", () => {
       PROFILE,
       { ...PROFILE, chief: true, skillAuthoring: true, sharedComputers: true, voiceNotes: true },
       { ...PROFILE, cloudHome: true },
-      { ...PROFILE, memoryEnabled: false },
+      PROFILE,
     ];
     for (const profile of profiles) {
       const names = availableTools(profile).map((tool) => tool.name);

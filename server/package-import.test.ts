@@ -17,7 +17,6 @@ async function installation(options: { refuse?: (name: string) => string | undef
   const { Store } = await import("./store.ts");
   const { RoutineManager } = await import("./routines.ts");
   const skills = await import("./skills.ts");
-  const workspace = await import("./workspace.ts");
   const sections = await import("./section-context.ts");
   const { saveImage } = await import("./attachments.ts");
   const { botAvatarUrlFromStoredPath } = await import("../shared/bot-avatar.ts");
@@ -37,7 +36,6 @@ async function installation(options: { refuse?: (name: string) => string | undef
     store,
     routines,
     skills: { install: skills.installSkill, setEnabled: skills.setSkillEnabled, installOrg: skills.installOrgSkill },
-    memory: { writeIndex: workspace.writeMemoryFile, writeTopic: workspace.writeMemoryTopic },
     mcp: {
       servers: () => mcp.servers,
       refusal: (name: string) => options.refuse?.(name),
@@ -50,7 +48,7 @@ async function installation(options: { refuse?: (name: string) => string | undef
   };
   const snapshot = () => JSON.stringify({ bots: store.bots.map((bot) => bot.id), groups: store.groups.map((group) => group.id),
     routines: routines.listRoutines().map((routine) => routine.id), sections: store.sections, servers: mcp.servers });
-  return { store, routines, skills, workspace, sections, importer, parsePackageDocument, deps, mcp, events, snapshot };
+  return { store, routines, skills, sections, importer, parsePackageDocument, deps, mcp, events, snapshot };
 }
 
 afterEach(async () => {
@@ -103,9 +101,7 @@ describe("importing a whole team", () => {
     expect(app.mcp.servers.crm).toMatchObject({ headers: { Authorization: "Bearer mine" } });
     expect(lead.mcpServers).toEqual(["crm-2"]);
     expect(byKey.get("writer")!.mcpServers).toBeUndefined();
-    expect(app.workspace.readMemoryFile(lead.id).text).toContain("short summaries");
-    expect(app.workspace.readMemoryTopic(lead.id, "pricing.md")).toContain("49 per seat");
-    expect(result.notes).toBe(2);
+    expect(result.notes).toBe(0);
     expect(result.brief).toBe(true);
     expect(result.skipped).toEqual([{ part: "presets[support]", reason: "presets_not_supported_yet" }]);
     expect(app.events.filter((kind) => kind === "bot")).toHaveLength(3);

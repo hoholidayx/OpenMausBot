@@ -8,14 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { soulFile, soulHash } from "./bot-folder.ts";
 import { flushProfileHistory, readHistory, recordProfileChange } from "./profile-versions.ts";
 import { DATA_DIR } from "./config.ts";
-import {
-  beginMemoryTurn,
-  endMemoryTurn,
-  flushMemoryJournal,
-  journalFile,
-  journalMemoryWrite,
-  resetMemoryJournalState,
-} from "./memory-journal.ts";
+import { journalFile } from "./retired-memory-data.ts";
 import type { ModelSelection } from "./contracts.ts";
 import * as mdb from "./message-db.ts";
 import { hasTeamAuthority } from "./peer-roster.ts";
@@ -2744,42 +2737,23 @@ describe("soul", () => {
     expect(existsSync(join(DATA_DIR, "bots", bot.id))).toBe(false);
   });
 
-  it("deleteBot removes the memory journal, the memory index, and the in-memory baseline", async () => {
-    resetMemoryJournalState();
+  it("deletes only the removed bot's retired memory data", () => {
     const store = new Store(selection);
     const bot = store.createBot();
     const other = store.createBot();
-    journalMemoryWrite(bot.id, "memory/notes.md", "vendor list\n", { actor: "person", via: "ui" });
-    journalMemoryWrite(other.id, "memory/notes.md", "other notes\n", { actor: "person", via: "ui" });
-    await flushMemoryJournal(bot.id);
-    await flushMemoryJournal(other.id);
-    mdb.indexMemoryFile(bot.id, "memory/notes.md", "vendor list\n", { mtimeMs: 1, bytes: 12 });
-    mdb.indexMemoryFile(other.id, "memory/notes.md", "other notes\n", { mtimeMs: 2, bytes: 12 });
-    beginMemoryTurn(bot.id, bot.threadId);
-    expect(endMemoryTurn(bot.threadId)).toEqual([]);
-    expect(existsSync(journalFile(bot.id))).toBe(true);
-    expect(mdb.indexedMemoryFiles(bot.id).map((file) => file.path)).toContain("memory/notes.md");
-
-    expect(store.deleteBot(bot.id)).toBe(true);
-
-    expect(existsSync(journalFile(bot.id))).toBe(false);
-    expect(mdb.indexedMemoryFiles(bot.id)).toEqual([]);
-    expect(mdb.recallMemory("vendor", bot.id)).toEqual([]);
-    expect(existsSync(journalFile(other.id))).toBe(true);
-    expect(mdb.indexedMemoryFiles(other.id).map((file) => file.path)).toEqual(["memory/notes.md"]);
-    expect(mdb.recallMemory("notes", other.id).map((hit) => hit.file)).toEqual(["memory/notes.md"]);
-    beginMemoryTurn(bot.id, "after-delete");
-    expect(endMemoryTurn("after-delete")).toEqual([]);
-    expect(existsSync(journalFile(bot.id))).toBe(false);
-
-    mdb.closeMessageDb();
+    mkdirSync(join(DATA_DIR, "memory-journal"), { recursive: true });
+    writeFileSync(journalFile(bot.id), "old journal");
+    writeFileSync(journalFile(other.id), "other journal");
     const raw = new DatabaseSync(join(DATA_DIR, "messages.db"));
     try {
-      expect(() => raw.exec("INSERT INTO memory_fts(memory_fts) VALUES('integrity-check')")).not.toThrow();
-      const gone = raw.prepare("SELECT COUNT(*) AS n FROM memory_files WHERE bot_id = ?").get(bot.id) as { n: number };
-      const kept = raw.prepare("SELECT COUNT(*) AS n FROM memory_files WHERE bot_id = ?").get(other.id) as { n: number };
-      expect(gone.n).toBe(0);
-      expect(kept.n).toBe(1);
+      raw.exec("CREATE TABLE memory_files(bot_id TEXT, path TEXT)");
+      const insert = raw.prepare("INSERT INTO memory_files VALUES (?, ?)");
+      insert.run(bot.id, "memory/old.md");
+      insert.run(other.id, "memory/old.md");
+      expect(store.deleteBot(bot.id)).toBe(true);
+      expect(existsSync(journalFile(bot.id))).toBe(false);
+      expect(existsSync(journalFile(other.id))).toBe(true);
+      expect(raw.prepare("SELECT bot_id FROM memory_files").all()).toEqual([{ bot_id: other.id }]);
     } finally {
       raw.close();
     }

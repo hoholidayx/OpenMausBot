@@ -6,7 +6,7 @@
 // The export's shape, the repairs for what a chat window does to it and its credential refusal adapt an MIT-licensed
 // importer; see NOTICE.
 import {
-  AGENT_MAX_SKILLS, PACKAGE_FORMAT, PACKAGE_MAX_CONNECTIONS, PACKAGE_V2_VERSION, SEED_FILE_MAX_BYTES,
+  AGENT_MAX_SKILLS, PACKAGE_FORMAT, PACKAGE_MAX_CONNECTIONS, PACKAGE_V2_VERSION,
   parsePackageDocument, utf8Bytes, type PackageDocument, type PackageRoutineSchedule,
 } from "./package-format.ts";
 import { BOT_PROFILE_LIMITS } from "./bot-profile.ts";
@@ -390,8 +390,6 @@ function serverAddress(raw: string): string | null {
 }
 
 const VALID_HEADER = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/;
-/** Where a Bot's event routines are kept for rebuilding: a topic of the new bot's memory. */
-export const GROK_NOTES_FILE = "memory/grok-bot-event-routines.md";
 
 export interface GrokMovePlan {
   name: string;
@@ -400,41 +398,8 @@ export interface GrokMovePlan {
   /** `folder` is the skill's name here. `on`: the skill scan passed it, so the move switches it on. */
   skills: Array<{ folder: string; name: string; on: boolean }>;
   routines: number;
-  /** Routines not created, saved in GROK_NOTES_FILE: on an event, or with a schedule that can't be read. */
-  notes: number;
-  memories: number;
   /** Apps to connect again here: all but those whose server name is already here. */
   apps: number;
-}
-
-const sameFact = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
-const dedupe = (lines: string[], seen: Set<string>) => lines.filter((line) => {
-  const key = sameFact(line);
-  if (seen.has(key)) return false;
-  seen.add(key);
-  return true;
-});
-
-function memoryNotes(bot: GrokBot): { count: number; text: string | null } {
-  const seen = new Set<string>();
-  const facts = dedupe(bot.memories.map((line) => line.replace(/\s*\n\s*/g, " ")), seen);
-  const about = dedupe(bot.userFacts.map((line) => line.replace(/\s*\n\s*/g, " ")), seen);
-  const count = facts.length + about.length;
-  if (!count) return { count, text: null };
-  const part = (heading: string, items: string[]) => (items.length ? `## ${heading}\n\n${items.map((item) => `- ${item}`).join("\n")}\n\n` : "");
-  return { count, text: `# Notes from Grok Bot\n\n${part("What I remember", facts)}${part("About the person", about)}`.trimEnd() + "\n" };
-}
-
-function eventNotes(name: string, routines: readonly GrokRoutine[]): string {
-  const sections = routines.flatMap((routine) => [
-    `## ${routine.name || "routine"}`, "",
-    `- Trigger: ${routine.trigger || "unknown"}`,
-    `- Details: ${routine.details || routine.when || "n/a"}`, "",
-    routine.instruction, "",
-  ]);
-  return [`# ${name}: Grok Bot routines that run on an event`, "",
-    "These start on something happening instead of a schedule, so they were not turned into routines. Set up each one again here.", "",
-    ...sections].join("\n");
 }
 
 /** One Grok Bot as one bot in an openmaus.package v2 file, and how much of it comes over. `takenServers` holds server names
@@ -461,14 +426,10 @@ export function grokMovePlan(bot: GrokBot, options: { timeZone?: string; takenSe
   const routineKeys = new Set<string>();
   const routineNames = new Set<string>();
   const routines: NonNullable<PackageDocument["package"]["routines"]> = [];
-  const unscheduled: GrokRoutine[] = [];
   for (const [index, routine] of bot.routines.entries()) {
     if (!routine.instruction) continue;
     const schedule = routineSchedule(routine, timeZone);
-    if (!schedule) {
-      unscheduled.push(routine);
-      continue;
-    }
+    if (!schedule) continue;
     if (routines.length >= MAX_ROUTINES) continue;
     const label = oneLine(routine.name) || "routine";
     const base = clip(`${name}: ${label}`, 74);
@@ -486,14 +447,6 @@ export function grokMovePlan(bot: GrokBot, options: { timeZone?: string; takenSe
       durationMinutes: 30,
       enabledAfterInstall: false,
     });
-  }
-
-  const memory = memoryNotes(bot);
-  const seed: Record<string, string> = {};
-  if (memory.text && utf8Bytes(memory.text) <= SEED_FILE_MAX_BYTES) seed["MEMORY.md"] = memory.text;
-  if (unscheduled.length) {
-    const notes = eventNotes(name, unscheduled);
-    if (utf8Bytes(notes) <= SEED_FILE_MAX_BYTES) seed[GROK_NOTES_FILE] = notes;
   }
 
   const connectionKeys = new Set<string>();
@@ -543,7 +496,6 @@ export function grokMovePlan(bot: GrokBot, options: { timeZone?: string; takenSe
         appearance: { color: BOT_COLORS[hash % BOT_COLORS.length]! },
         ...(skills.length ? { skills: skills.map((skill) => skill.name) } : {}),
         ...(connections.length ? { connections: connections.map((connection) => connection.key) } : {}),
-        ...(Object.keys(seed).length ? { seed: { memory: seed } } : {}),
       }],
       ...(routines.length ? { routines } : {}),
       ...(connections.length ? { connections } : {}),
@@ -558,8 +510,6 @@ export function grokMovePlan(bot: GrokBot, options: { timeZone?: string; takenSe
   }
   return {
     name, packageId, document, skills: planned, routines: routines.length,
-    notes: seed[GROK_NOTES_FILE] ? unscheduled.length : 0,
-    memories: seed["MEMORY.md"] ? memory.count : 0,
     apps,
   };
 }

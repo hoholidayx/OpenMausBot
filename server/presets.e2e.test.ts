@@ -50,7 +50,7 @@ it("shares New bot defaults as a preset, imports it, and creates bots from file 
     const preset = saved.document.package.presets[0];
     expect(preset).toMatchObject({ key: "new-bot-defaults", name: "Support agent", skills: ["follow-up"],
       bot: { name: "Sky", title: "Support", appearance: { color: "blue", avatar: { mime: "image/png", crop: "circle" } } },
-      seed: { memory: { "MEMORY.md": "- Customers first.\n", "memory/tone.md": "Warm.\n" } } });
+    });
     expect(JSON.stringify(saved.document)).not.toMatch(/Presets-Fixture-77|"approvalMode"|"composio"|"browser"|"alwaysAllow"|Bash\(|"modelSelection"|Check the inbox|"enabled"/);
     expect(saved.document.package.agents).toEqual([]);
     expect(() => parsePackageDocument(saved.document)).not.toThrow();
@@ -71,13 +71,12 @@ it("shares New bot defaults as a preset, imports it, and creates bots from file 
     const fileId = imported.body.presets[0].id as string;
     const listed = (await ok("GET", "/api/bot-presets")).presets;
     expect(listed).toEqual([expect.objectContaining({ id: fileId, source: "file", name: "Support agent", packageName: "Support agent", release: "1.0.0",
-      skillsEnabled: false, skills: [{ name: "follow-up", description: "follow-up steps." }], notes: ["MEMORY.md", "memory/tone.md"] })]);
+      skillsEnabled: false, skills: [{ name: "follow-up", description: "follow-up steps." }], notes: [] })]);
     expect(listed[0]).not.toHaveProperty("publisherName");
 
     const fromFile = await ok("POST", "/api/bots", { name: "Sky", title: "Support", useDefaults: false, preset: fileId });
     const fromFileSkills = (await ok("GET", `/api/bots/${fromFile.bot.id}/skills`)).skills;
     expect(fromFileSkills).toEqual([expect.objectContaining({ name: "follow-up", enabled: false })]);
-    expect((await ok("GET", `/api/bots/${fromFile.bot.id}/memory/file?path=${encodeURIComponent("memory/tone.md")}`)).text).toBe("Warm.\n");
     const bots = (await ok("GET", "/api/bots")).bots as Array<{ id: string; installedPackage?: Record<string, unknown>; approvalMode?: string }>;
     const created = bots.find((bot) => bot.id === fromFile.bot.id)!;
     expect(created.installedPackage).toMatchObject({ id: "support-agent", source: "file", presetKey: "new-bot-defaults" });

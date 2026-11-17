@@ -55,7 +55,7 @@ describe("what a move asks of a server", () => {
       messagesTail: () => ({ messages: [], hasMore: false }), skills: () => [], logins: { listSecrets: () => [], secret: () => null, changes: () => [], get: () => null, onePasswordConnectedAt: () => null, onePasswordGrants: () => ({}), onePasswordItemGrants: () => ({}), onePasswordToken: () => null },
       config: () => ({}), move: { dataDir: "/data", store: { bots: [], bot: () => undefined } as never, routines: () => ({ listRoutines: () => [routine], listRuns: () => [], adopt() {} }) as never,
         calls: () => null, webhooks: () => null, appEvents: () => null, claudeCodeSkills: () => [], instanceExists: () => true, owner: () => null,
-        teamMemory: { list: () => [], adopt: () => 0 } as never, aboutMe: () => "", saveAboutMe() {} } });
+      } });
     const sent = (await ask(route, "/api/cloud-send")).body.items;
     expect(sent.map((item: { key: string }) => item.key)).not.toContain("routine:r1");
     expect(sent.find((item: { kind: string }) => item.kind === "bot").parts.pinned).toBeUndefined();

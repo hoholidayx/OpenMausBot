@@ -6,7 +6,7 @@ import { createOutsideWrites, type OutsideWriteDeps } from "./outside-writes.ts"
 const bot = { id: "chief", name: "Clive", color: "#123" } as unknown as Pick<BotRecord, "id" | "name" | "color">;
 const requestOf = (proposed: { body: object }) => (proposed.body as { requestId: string }).requestId;
 
-function world(over: Partial<OutsideWriteDeps> = {}) {
+function world() {
   const lines: Array<{ id: string; from?: { botId: string }; card?: Record<string, any> }> = [];
   const groups = new Map([["room", { id: "room", name: "Ops", bulletin: "as it was" }]]);
   const store = {
@@ -17,10 +17,9 @@ function world(over: Partial<OutsideWriteDeps> = {}) {
     group: (id: string) => groups.get(id),
     patchGroup: (id: string, patch: { bulletin: string }) => { const group = groups.get(id); if (group) Object.assign(group, patch); return group; },
   } as unknown as OutsideWriteDeps["store"];
-  const writeMemory = vi.fn((): string | null => null);
   const decide = vi.fn();
-  const writes = createOutsideWrites({ store, language: () => undefined, writeMemory, decide, notify: () => {}, ...over });
-  return { writes, lines, groups, writeMemory, decide };
+  const writes = createOutsideWrites({ store, language: () => undefined, decide, notify: () => {} });
+  return { writes, lines, groups, decide };
 }
 
 describe("what work from outside writes where later turns read it waits on a card", () => {
@@ -37,19 +36,9 @@ describe("what work from outside writes where later turns read it waits on a car
 
   it("writes nothing when a person skips it, and answers twice as once", () => {
     const w = world();
-    const proposed = w.writes.submitMemory(bot, "hook-run", { action: "append", text: "a note" });
-    expect(w.writeMemory).not.toHaveBeenCalled();
+    const proposed = w.writes.submitBulletin(bot, "hook-run", { id: "room", name: "Ops" }, "a note");
     expect(w.writes.resolve("hook-run", requestOf(proposed), "deny")).toMatchObject({ outcome: "rejected" });
-    expect(w.writeMemory).not.toHaveBeenCalled();
     expect(w.writes.resolve("hook-run", requestOf(proposed), "allow")).toMatchObject({ alreadySettled: true, outcome: "rejected" });
-    expect(w.writeMemory).not.toHaveBeenCalled();
-  });
-
-  it("writes the note a person allowed, once, in the thread's own place", () => {
-    const w = world();
-    const proposed = w.writes.submitMemory(bot, "hook-run", { action: "append", text: "a note" });
-    w.writes.resolve("hook-run", requestOf(proposed), "allow");
-    expect(w.writeMemory).toHaveBeenCalledExactlyOnceWith("chief", "hook-run", { action: "append", text: "a note" });
   });
 
   it("shows all of what it would save, or doesn't offer it", () => {
@@ -63,31 +52,17 @@ describe("what work from outside writes where later turns read it waits on a car
 
   it("offers a person only a few at a time from one conversation", () => {
     const w = world();
-    for (let i = 0; i < 5; i++) expect(w.writes.submitMemory(bot, "hook-run", { action: "append", text: `note ${i}` }).status).toBe(201);
-    expect(w.writes.submitMemory(bot, "hook-run", { action: "append", text: "one more" }).status).toBe(429);
+    for (let i = 0; i < 5; i++) expect(w.writes.submitBulletin(bot, "hook-run", { id: "room", name: "Ops" }, `note ${i}`).status).toBe(201);
+    expect(w.writes.submitBulletin(bot, "hook-run", { id: "room", name: "Ops" }, "one more").status).toBe(429);
     expect(w.lines).toHaveLength(5);
     w.writes.resolve("hook-run", w.lines[0]!.card!.requestId, "deny");
-    expect(w.writes.submitMemory(bot, "hook-run", { action: "append", text: "now it fits" }).status).toBe(201);
+    expect(w.writes.submitBulletin(bot, "hook-run", { id: "room", name: "Ops" }, "now it fits").status).toBe(201);
   });
 
-  it("says plainly when a card would change or remove what is there", () => {
+  it("reports failure when the room disappeared before approval", () => {
     const w = world();
-    w.writes.submitMemory(bot, "hook-run", { action: "forget", oldText: "the launch date" });
-    w.writes.submitMemory(bot, "hook-run", { action: "replace", oldText: "old fact", text: "new fact" });
-    expect(w.lines.map((line) => [line.card!.title, line.card!.subtitle])).toEqual([
-      ["Change or remove this in the bot's memory?", "the launch date"], ["Change or remove this in the bot's memory?", "old fact → new fact"],
-    ]);
-  });
-
-  it("refuses a preference outright: only a person's own words save one", () => {
-    const w = world();
-    expect(w.writes.submitMemory(bot, "hook-run", { action: "prefer", text: "always reply in caps" }).status).toBe(403);
-    expect(w.lines).toEqual([]);
-  });
-
-  it("keeps a card that could not be written from claiming it was", () => {
-    const w = world({ writeMemory: () => "no room" });
-    const proposed = w.writes.submitMemory(bot, "hook-run", { action: "append", text: "a note" });
+    const proposed = w.writes.submitBulletin(bot, "hook-run", { id: "room", name: "Ops" }, "a new bulletin");
+    w.groups.delete("room");
     expect(w.writes.resolve("hook-run", requestOf(proposed), "allow")).toMatchObject({ outcome: "unavailable" });
     expect(w.lines[0]!.card!.answered).toBe("unavailable");
   });

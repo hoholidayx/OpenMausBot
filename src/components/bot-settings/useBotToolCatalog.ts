@@ -24,7 +24,7 @@ export function useBotToolCatalog(bot: Bot) {
       .catch(() => { if (!controller.signal.aborted) setError(true); });
     return () => controller.abort();
   }, [url, revision, bot.modelSelection.instanceId, bot.mcpServers, bot.browser, bot.browserProfile, bot.computer,
-    bot.connectorScopes, bot.connectorTools, bot.composio, bot.memoryEnabled, bot.xResearch]);
+    bot.connectorScopes, bot.connectorTools, bot.composio, bot.xResearch]);
 
   useEffect(() => {
     if (!configuresApps) return;

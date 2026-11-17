@@ -7,7 +7,7 @@ import { WATCHER_OPTIONS_CARD_BOT_ID } from "../../shared/options-card.ts";
 import { DATA_TOOLS } from "../data/tools.ts";
 import { EMAIL_TOOLS } from "../email/tools.ts";
 import { availableTools, catalogProfileFromEnv } from "./agents-catalog.ts";
-import { CORE_TOOLS, OWN_SWITCH_TOOLS, serverTurnedOff, TOOL_GROUP_MEMBERS, toolsOffNames } from "./agents-tool-groups.ts";
+import { CORE_TOOLS, RESEARCH_TOOL_NAMES, serverTurnedOff, TOOL_GROUP_MEMBERS, toolsOffNames } from "./agents-tool-groups.ts";
 
 /** Every host switch on: a Chief's MausBot on a server with a cloud computer, images, hosting and research. */
 const FULLEST = {
@@ -25,7 +25,7 @@ const EVERY_TOOL = new Set([
 ]);
 const buckets: Array<[string, ReadonlySet<string>]> = [
   ...TOOL_GROUPS.map((group): [string, ReadonlySet<string>] => [group, TOOL_GROUP_MEMBERS[group].tools]),
-  ...Object.entries(OWN_SWITCH_TOOLS),
+  ["research", RESEARCH_TOOL_NAMES],
   ["core", CORE_TOOLS],
 ];
 
@@ -52,7 +52,7 @@ describe("tool groups on the agents server", () => {
     for (const tool of ["show_html", "publish_page", "unpublish_page", "publish_app", "check_app_hosting", "join_meeting", "post_meeting_notes", "generate_image"]) {
       expect(left).not.toContain(tool);
     }
-    expect(left).toEqual(expect.arrayContaining(["show_widget", "memory_update", "x_search", "message_person", "app_settings"]));
+    expect(left).toEqual(expect.arrayContaining(["show_widget", "x_search", "message_person", "app_settings"]));
   });
 
   it("is the same list for a variable naming no group, an unknown one or none", () => {

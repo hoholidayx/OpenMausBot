@@ -85,14 +85,6 @@ export function shareLearnedSkillsMode(config: FeatureFlagConfig | null | undefi
   return config?.features?.shareLearnedSkills ?? "ask";
 }
 
-export function roomMemoryCaptureEnabled(config: FeatureFlagConfig | null | undefined): boolean {
-  return config?.features?.roomMemoryCapture === true;
-}
-
-export function legacyMemoryEnabled(config: FeatureFlagConfig | null | undefined): boolean {
-  return config?.features?.legacyMemory === true;
-}
-
 export function savedStepsEnabled(config: FeatureFlagConfig | null | undefined): boolean {
   return config?.features?.savedSteps !== false;
 }

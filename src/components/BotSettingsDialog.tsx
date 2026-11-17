@@ -13,7 +13,6 @@ import { SlackSection } from "./bot-settings/SlackSection";
 import { useSlackManagementUrl } from "./bot-settings/useSlackManagement";
 import { SoulSection } from "./bot-settings/SoulSection";
 import { SkillsSection } from "./bot-settings/SkillsSection";
-import { MemorySection } from "./bot-settings/MemorySection";
 import { RoutinesSection } from "./bot-settings/RoutinesSection";
 import { AccessSection } from "./bot-settings/AccessSection";
 import { BotToolsDialog } from "./bot-settings/BotToolsDialog";
@@ -24,7 +23,6 @@ import { HistorySection } from "./bot-settings/HistorySection";
 import { UsageSection } from "./bot-settings/UsageSection";
 import { VisibilitySection } from "./bot-settings/VisibilitySection";
 import { t } from "@/lib/i18n";
-import { legacyMemoryEnabled } from "@/lib/feature-flags";
 import { useAdvancedMode } from "@/lib/interface-mode";
 import { BotPanel } from "./bot-panel/PanelShell";
 import { LibraryTab } from "./bot-panel/LibraryTab";
@@ -34,8 +32,8 @@ import { HistoryRollbackDialog, useBotHistory, useBotOverview } from "./bot-sett
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { ShareBotButton, useTeamName } from "./bot-access/ShareBotButton";
 
-/** Where the Library's memory, skills and folder rows lead in Advanced settings. */
-const LIBRARY_LINKS: Partial<Record<SimplePageId, BotSettingsSection>> = { memory: "memory", skills: "skills", folder: "access" };
+/** Where the Library's skills and folder rows lead in Advanced settings. */
+const LIBRARY_LINKS: Partial<Record<SimplePageId, BotSettingsSection>> = { skills: "skills", folder: "access" };
 
 export function BotSettingsDialog({ bot, overlay = false }: {
   bot: Bot;
@@ -58,7 +56,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const ownerOrAdmin = useOwnerOrAdmin();
   const teamName = useTeamName();
   const sections = BOT_SECTIONS
-    .filter((entry) => entry.id !== "memory" || legacyMemoryEnabled(state.config))
     .filter((entry) => entry.id !== "slack" || slackUrl !== null)
     .filter((entry) => entry.id !== "visibility" || (!window.ogb && ownerOrAdmin === true && !teamName));
   // Connected apps load only once the person searches; their names find the Access section.
@@ -132,8 +129,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
         return slackUrl ? <SlackSection managementUrl={slackUrl} /> : null;
       case "skills":
         return <SkillsSection bot={bot} />;
-      case "memory":
-        return <MemorySection bot={bot} active={!collapsed && section === "memory"} onToggle={(enabled) => derived.patch({ memoryEnabled: enabled })} />;
       case "library":
         return <LibraryTab bot={bot} onOpen={(page) => dispatch({ type: "toggleSettings", open: true, section: LIBRARY_LINKS[page] ?? "overview" })} />;
       case "routines":
@@ -233,7 +228,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
             const { id, icon: Icon } = entry;
             const label = sectionLabel(entry);
             const matched = sectionMatches(entry, q, appNames);
-            if (!matched && id !== "memory") return null;
+            if (!matched) return null;
             const open = !collapsed && section === id;
             return (
               <div
@@ -267,14 +262,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                     )}
                   />
                 </button>
-                {/* Memory stays mounted (hidden when collapsed) so its unsaved draft survives. */}
-                {id === "memory" ? (
-                  <div hidden={!open} className="px-4 pb-4 pt-1">
-                    {renderSectionBody("memory")}
-                  </div>
-                ) : (
-                  open && <div className="px-4 pb-4 pt-1">{renderSectionBody(id)}</div>
-                )}
+                {open && <div className="px-4 pb-4 pt-1">{renderSectionBody(id)}</div>}
               </div>
             );
           })}

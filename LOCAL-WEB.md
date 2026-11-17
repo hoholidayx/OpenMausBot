@@ -28,11 +28,10 @@ Set the same data directory for every management command. `OPENMAUSBOT_NODE` sel
 executable. `start` chooses an installed Node 24+ when it is not set. The
 process record preserves the chosen ports and executable for status and stop.
 
-Legacy OpenMausBot memory is off on this checkout. The server reads
-`OMB_LEGACY_MEMORY` at startup. To opt in for a launch, run
-`OMB_LEGACY_MEMORY=1 ./manage.py restart`. Leave it unset or set it to `0`
-to keep legacy memory off. `GET /api/config` reports the effective value in
-`features.legacyMemory`. See [the memory guide](docs/memory.md#legacy-memory-switch).
+To give a bot background notes, place a maintainer-edited `MEMORY.md` in
+`<data directory>/bots/<botId>/`. The server reads the file for the bot's
+turns. See [the memory guide](docs/memory.md) for file limits and how to
+review and carry over older notes.
 
 Run the service-manager regression checks with
 `python3 -m unittest discover -s tests -p test_manage.py`.

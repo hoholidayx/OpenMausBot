@@ -87,7 +87,7 @@ describe("Move from Grok Bot", () => {
     expect(host.querySelector('[data-grok-move="preview"]')).not.toBeNull();
     expect(shown()).toContain("What would come over");
     expect(host.querySelector("h3")?.textContent).toBe("Job Search");
-    expect(counts()).toEqual({ Skills: 2, Routines: 1, Memories: 2, "Routines saved as notes": 1 });
+    expect(counts()).toEqual({ Skills: 2, Routines: 1 });
     expect(shown()).toContain("Routines come over paused.");
     expect(shown()).toContain("2 apps need connecting again here");
     expect(shown()).toContain("A safety check keeps these skills off: Quick installer");
@@ -102,14 +102,13 @@ describe("Move from Grok Bot", () => {
     await importIt();
     expect(host.querySelector('[data-grok-move="report"]')).not.toBeNull();
     expect(host.querySelector("h3")?.textContent).toBe("Job Search is here");
-    expect(counts()).toEqual({ Skills: 2, Routines: 1, Memories: 2, "Routines saved as notes": 1 });
+    expect(counts()).toEqual({ Skills: 2, Routines: 1 });
     expect(shown()).toContain("Routines are paused. Turn each one off in Grok Bot, then on here.");
     expect(shown()).toContain("2 apps need connecting again here");
     const lines = [...host.querySelectorAll("[data-grok-move-body] p")].map((line) => line.textContent);
     expect(lines.indexOf(FILES_STAY)).toBe(lines.indexOf("Routines are paused. Turn each one off in Grok Bot, then on here.") + 1);
     plain();
     expect(f.api.mock.calls.map(([path]) => path)).toContain("/api/bots/b1/skills/greet");
-    expect(f.track).toHaveBeenCalledOnce();
     expect(button("Move another Bot")).toBeDefined();
     expect(button("Done")).toBeDefined();
   });

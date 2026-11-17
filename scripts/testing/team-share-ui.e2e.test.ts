@@ -55,7 +55,6 @@ describe("Share team in the real renderer", () => {
       await api(`/api/bots/${scout.id}/skill-template`, "POST", { name, description: "Filler step.", source: "fixture",
         text: `---\nname: ${name}\ndescription: Filler step.\n---\n\n${body}`, enabled: false });
     }
-    await api(`/api/bots/${info!.botId}/memory/file`, "PUT", { path: "MEMORY.md", text: "- Prefers short summaries.\n" });
     await api("/api/routines", "POST", { name: "Daily digest", prompt: "Summarize new leads.", botId: scout.id, enabled: true,
       schedule: { type: "daily", time: "09:00", weekdays: [1, 2, 3, 4, 5] }, durationMinutes: 30 });
     // Capture the saved file instead of letting the headless browser download it.
@@ -75,7 +74,7 @@ describe("Share team in the real renderer", () => {
     const saveDisabled = () => evaluate(`[...document.querySelectorAll('[role=dialog] button')].find((button) => button.textContent === "Save file").disabled`);
     await expect.poll(snapshot, { timeout: 20_000 }).toContain("This department is too large to share (4 MB).");
     let dialog = await snapshot();
-    for (const line of ["research-brief", "fill-01", "fill-30", "Starter notes are included", "Save file"]) expect(dialog).toContain(line);
+    for (const line of ["research-brief", "fill-01", "fill-30", "Save file"]) expect(dialog).toContain(line);
     expect(dialog).not.toContain("What's in the file");
     expect(await saveDisabled()).toBe(true);
     await ui("screenshot", "--out", join(ROOT, ".omb-scratch", "verify-evidence", "share-team-refused.png"));
@@ -85,11 +84,7 @@ describe("Share team in the real renderer", () => {
     dialog = await snapshot();
     for (const line of ["Chief of Staff", "Never included: chat history", "Save file"]) expect(dialog).toContain(line);
     expect(dialog).not.toContain("too large to share");
-    // Starter notes are in by default; unticking takes them out, ticking puts them back.
-    await click("Include starter notes (each bot's MEMORY.md and topic notes)");
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain("Starter notes are not included");
-    await click("Include starter notes (each bot's MEMORY.md and topic notes)");
-    await expect.poll(snapshot, { timeout: 10_000 }).toContain("Starter notes are included");
+    expect(dialog).not.toContain("Include starter notes");
     // 31 ticked on one bot cannot fit: a sentence, the boxes stay, no Save.
     await click("fill-01");
     await expect.poll(snapshot, { timeout: 20_000 }).toContain("Scout has more than 30 skills. Choose fewer skills and try again.");
@@ -124,7 +119,7 @@ describe("Share team in the real renderer", () => {
     await evaluate(`(() => { const input = document.querySelector('[role=dialog] input[type=file]'); const transfer = new DataTransfer(); transfer.items.add(new File([window.__shareText], 'sales-desk-1.0.0.openmaus.json', { type: 'application/json' })); input.files = transfer.files; input.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
     await expect.poll(snapshot, { timeout: 10_000 }).toContain("2 bots · shared department");
     const preview = await snapshot();
-    for (const line of ["Shared instructions", "Routines: 1 · paused", "Starter notes: 1", "Included skills (added switched off)"]) {
+    for (const line of ["Shared instructions", "Routines: 1 · paused", "Included skills (added switched off)"]) {
       expect(preview).toContain(line);
     }
     expect(preview).not.toContain("Connections to finish");

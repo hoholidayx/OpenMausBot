@@ -236,12 +236,10 @@ const featureConfigSchema = z.object({
   /** A new bot's setup card offers answers its engine writes for it, when there is something to go on. On unless false. */
   smartSetupChoices: z.boolean().optional(),
   /** Recall matching passages from the bot's memory into each turn. On unless false. */
-  autoRecall: z.boolean().optional(),
   /** One shared skills store that bots read by assignment. Off unless true. */
   skillsLibrary: z.boolean().optional(),
   shareLearnedSkills: z.enum(["off", "ask", "auto"]).optional(),
   /** Memory upkeep also reads a member bot's room turns. Off unless true. */
-  roomMemoryCapture: z.boolean().optional(),
   /** Room jobs to several members run side by side, each in a thread of its own. Off unless true. */
   parallelRoomJobs: z.boolean().optional(),
   acpPlanLines: z.boolean().optional(), // An ACP agent's plan as activity lines. Off unless true.
@@ -484,7 +482,7 @@ export interface AppConfig extends HelperConfig {
   context?: { rebuildBytes?: number; compactAt?: number; autoCompact?: boolean; roomCompactAt?: number; roomSessions?: boolean; replayToolHistory?: boolean };
   memory?: { captureQuietMs?: number; tidyHour?: number };
   localVm?: { mode?: "shared" | "per-bot" | "pool"; maxInstances?: number; idleTimeoutMinutes?: number; preserveInstalledApps?: boolean; memoryGb?: number; cpus?: number };
-  features?: { skillAuthoring?: boolean; skillReview?: boolean; skillReviewSteps?: number; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; claudeUserSkills?: boolean; llmThreadTitles?: boolean; smartSetupChoices?: boolean; autoRecall?: boolean; skillsLibrary?: boolean; shareLearnedSkills?: "off" | "ask" | "auto"; roomMemoryCapture?: boolean; parallelRoomJobs?: boolean; acpPlanLines?: boolean; agentsToolBridge?: boolean; savedSteps?: boolean; usbPhoneTakeover?: boolean; cloudComputerAutoReplace?: boolean; phonePush?: boolean };
+  features?: { skillAuthoring?: boolean; skillReview?: boolean; skillReviewSteps?: number; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; claudeUserSkills?: boolean; llmThreadTitles?: boolean; smartSetupChoices?: boolean; skillsLibrary?: boolean; shareLearnedSkills?: "off" | "ask" | "auto"; parallelRoomJobs?: boolean; acpPlanLines?: boolean; agentsToolBridge?: boolean; savedSteps?: boolean; usbPhoneTakeover?: boolean; cloudComputerAutoReplace?: boolean; phonePush?: boolean };
   onboarding?: { completedAt?: string; version?: number; reelSeen?: boolean; hintsSeen?: string[]; firstTurnAt?: string };
   browserProfiles?: BrowserProfile[];
   browserEngine?: BrowserEngineConfig;
@@ -629,25 +627,6 @@ export function skillReviewSteps(cfg: AppConfig): number {
   const raw = cfg.features?.skillReviewSteps;
   const value = typeof raw === "number" && Number.isFinite(raw) ? Math.round(raw) : DEFAULT_SKILL_REVIEW_STEPS;
   return Math.min(MAX_SKILL_REVIEW_STEPS, Math.max(MIN_SKILL_REVIEW_STEPS, value));
-}
-
-export function autoRecallEnabled(cfg: AppConfig): boolean {
-  return cfg.features?.autoRecall !== false;
-}
-
-export function roomMemoryCaptureEnabled(cfg: AppConfig): boolean {
-  return cfg.features?.roomMemoryCapture === true;
-}
-
-export const DEFAULT_CAPTURE_QUIET_MS = 2 * 60_000;
-export const DEFAULT_TIDY_HOUR = 3;
-
-export function captureQuietMs(cfg: AppConfig): number {
-  return cfg.memory?.captureQuietMs ?? DEFAULT_CAPTURE_QUIET_MS;
-}
-
-export function tidyHour(cfg: AppConfig): number {
-  return cfg.memory?.tidyHour ?? DEFAULT_TIDY_HOUR;
 }
 
 export function showToolCallsEnabled(cfg: AppConfig): boolean {

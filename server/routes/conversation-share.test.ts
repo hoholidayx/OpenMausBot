@@ -12,9 +12,8 @@ const deps = (team: boolean): ConversationShareDeps => ({
   team: team ? { id: "acme", name: "Acme" } : null,
   store: () => ({ bot: () => ({ id: "scout", name: "Scout" }), taskByThread: () => ({ threadId: "t1", title: "Plan" }), messagesFor: () => [{ id: "m1" }], onChange: () => () => {} }) as never,
   shares: { get: () => undefined, share, readers: () => null, personLeft: () => [] } as never,
-  saves: { add, list: () => [], remove: () => "gone", personLeft: () => {} } as never,
-  starter: () => undefined, audienceOf: () => "team", sees: () => true, levelOf: () => "edit", levelFor: () => "edit",
-  people: () => [], nameOf: (email) => email, language: () => undefined, busy: () => false, routinesIn: () => 0, outside: () => false,
+  starter: () => undefined, audienceOf: () => "team", sees: () => true, levelFor: () => "edit",
+  people: () => [], nameOf: (email) => email, language: () => undefined, busy: () => false, routinesIn: () => 0,
   audienceChanged: vi.fn(), changed: vi.fn(), inbox: () => ({ keepOne: () => null }), looking: () => false, notify: vi.fn(),
   botOf: () => "scout", handTo: vi.fn(),
 });

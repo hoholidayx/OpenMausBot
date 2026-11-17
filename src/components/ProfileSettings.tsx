@@ -1,13 +1,11 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import { t } from "@/lib/i18n";
-import { legacyMemoryEnabled } from "@/lib/feature-flags";
 import { avatarMarks } from "@/lib/avatar-marks";
 import { saveTeamProfile } from "@/lib/own-profile";
 import { IMAGE_MAX_BYTES, imageAttachmentFromFile, isImageFile } from "@/lib/composer-attachments";
 import type { LocaleKey } from "@/locales";
 import { botAvatarUrlFromStoredPath } from "../../shared/bot-avatar";
-import { AboutMeSettings } from "./AboutMeSettings";
 import { EveryBotRules } from "./EveryBotRules";
 import { SETTINGS_INPUT, SettingsField } from "./SettingsPrimitives";
 import { profileInitials } from "./SidebarProfileMenu";
@@ -201,7 +199,6 @@ export function ProfileFields() {
           className={SETTINGS_INPUT}
         />
       </SettingsField>
-      {legacyMemoryEnabled(state.config) && <AboutMeSettings />}
       <EveryBotRules />
     </div>
   );

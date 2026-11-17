@@ -1,6 +1,5 @@
 // `hookCoverage`: "full" when a hook or protocol delivered untruncated results, "preview" when only the driver's bounded
 // preview, "none" when the turn showed no tool activity.
-import type { MemoryJournalEntry } from "./memory-journal.ts";
 import type { Message } from "./store.ts";
 import { isLegacyMemoryTool } from "./legacy-memory.ts";
 
@@ -21,7 +20,6 @@ export function toolEvidence(activities: readonly Message[], turnId: string): bo
 
 export const MAX_TOOLS = 8;
 export const MAX_FILES = 20;
-export const MAX_MEMORY = 20;
 export const REPLY_CHARS = 200;
 export const RENDER_BYTES = 1_500;
 
@@ -32,7 +30,6 @@ export interface DigestInput {
   at: number;
   durationMs: number;
   activities: readonly Message[];
-  memory: readonly MemoryJournalEntry[];
   files?: DigestFiles;
   reply: string;
   usage?: TurnDigest["usage"];
@@ -56,11 +53,6 @@ export function buildTurnDigest(input: DigestInput): TurnDigest {
   const tools = ranked.slice(0, MAX_TOOLS);
   const toolsDropped = ranked.length - tools.length;
 
-  const memory = input.memory.slice(0, MAX_MEMORY).map((row) => ({
-    path: fitBytes(row.path, 512),
-    kind: (row.kind === "edited" ? "updated" : row.kind) as "created" | "updated" | "deleted",
-  }));
-
   const digest: TurnDigest = {
     turnId: input.turnId,
     botId: input.botId,
@@ -71,8 +63,7 @@ export function buildTurnDigest(input: DigestInput): TurnDigest {
     toolCalls: ranked.reduce((sum, tool) => sum + tool.count, 0),
     ...(toolsDropped > 0 ? { toolsDropped } : {}),
     ...(input.files ? { files: boundFiles(input.files) } : {}),
-    memory,
-    ...(input.memory.length > memory.length ? { memoryDropped: input.memory.length - memory.length } : {}),
+    memory: [],
     // The digest's copy of the reply is stored and replayed like the reply itself, so it is scrubbed the same way.
     reply: firstSentence(redactSecretsInText(input.reply)),
     ...(input.usage ? { usage: input.usage } : {}),
@@ -103,9 +94,9 @@ function firstSentence(reply: string): string {
   return sentence.slice(0, REPLY_CHARS);
 }
 
-export function renderDigest(d: TurnDigest, includeLegacyMemory = true): string {
+export function renderDigest(d: TurnDigest): string {
   const parts: string[] = ["[digest]"];
-  const tools = includeLegacyMemory ? d.tools : d.tools.filter((tool) => !isLegacyMemoryTool(tool.name));
+  const tools = d.tools.filter((tool) => !isLegacyMemoryTool(tool.name));
   if (tools.length) {
     // Every entry ends at "×N" or "(N failed)": the phones split the tools part on exactly that.
     parts.push(`tools: ${digestTools({ tools, toolsDropped: d.toolsDropped })}${d.hookCoverage === "preview" ? " (from tool previews)" : ""}`);
@@ -122,8 +113,6 @@ export function renderDigest(d: TurnDigest, includeLegacyMemory = true): string 
     if (d.files.truncated) files.push(`+${d.files.truncated} more paths`);
     parts.push(files.length ? `files: ${files.join("; ")}` : "files: none changed");
   }
-  if (includeLegacyMemory && d.memory.length) parts.push(`memory: ${d.memory.map((m) => `${m.kind} ${m.path}`).join(", ")}`);
-  if (includeLegacyMemory && d.memoryDropped) parts.push(`+${d.memoryDropped} more memory changes`);
   if (d.reply) parts.push(`reply: ${d.reply}`);
   return fitBytes(parts.join(" · "), RENDER_BYTES);
 }
@@ -134,8 +123,8 @@ export function digestTools(d: Pick<TurnDigest, "tools" | "toolsDropped">): stri
 }
 
 /** Never multi-line, so it sits in a transcript replay or a room window like any speaker line. */
-export function digestPromptLine(d: TurnDigest, botName: string, includeLegacyMemory = true): string {
-  const body = renderDigest(d, includeLegacyMemory).replace(/^\[digest\]\s*/, "").replace(/\s+/g, " ").trim();
+export function digestPromptLine(d: TurnDigest, botName: string): string {
+  const body = renderDigest(d).replace(/^\[digest\]\s*/, "").replace(/\s+/g, " ").trim();
   return `[What ${botName} did in an earlier turn: ${body}]`;
 }
 

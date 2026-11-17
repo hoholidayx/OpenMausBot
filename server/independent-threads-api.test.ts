@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -10,7 +10,6 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb, type VerificationServer } from "../scripts/control-omb.ts";
 import { handleToolCall, request } from "../scripts/mcp-server.ts";
 import { readHandoffs } from "./testing/handoff-rows.ts";
-import { memoryDate } from "./workspace.ts";
 
 describe("independent bot tasks through the isolated control surface", () => {
   let session: VerificationServer;
@@ -80,7 +79,7 @@ describe("independent bot tasks through the isolated control surface", () => {
     const fake = pathToFileURL(join(process.cwd(), "server/testing/fake-claude-cli.ts")).href;
     writeFileSync(wrapper, [
       "#!/usr/bin/env node",
-      'import { join } from "node:path";',
+      'import { dirname, join } from "node:path";',
       'const at = process.argv.indexOf("--model");',
       'const model = (at < 0 ? "probe" : process.argv[at + 1]).replace(/[^\\w-]/g, "_");',
       'process.env.FAKE_CLAUDE_MODE = "slow";',
@@ -417,29 +416,23 @@ describe("independent bot tasks through the isolated control surface", () => {
     evidence.push({ deletedThreadId: threadId, replacementThreadId: fresh.threadId, blankReplacement: true, artifactRetained: true });
   }, 30_000);
 
-  it("rejects blank memory replacements, caps new titles, and retains project files after deletion", async () => {
+  it("caps new titles, and retains project files after deletion", async () => {
     const created = await tool("create_bot", { name: "Release review fixture", instance_id: "claude", model: models[0] });
     const botId = created.bot.id;
     const task = await api("POST", `/api/bots/${botId}/tasks`, { title: `  ${"t".repeat(120)}  ` });
     expect(task.status).toBe(201);
     expect(task.body.task.title).toBe("t".repeat(80));
     const threadId = task.body.task.threadId;
-    await control(["send", "--bot", botId, "--task", threadId, "--text", "REVIEW_MEMORY_OWNER"]);
-    const launched = await dump(models[0]);
-    const token = launched.mcpConfig.mcpServers.agents.env.OMB_COMMS_TOKEN;
-    expect((await internal(token, "POST", "/api/internal/memory", { action: "append", text: "A unique saved fact." })).status).toBe(200);
-    for (const text of ["", " \n\t "]) {
-      expect((await internal(token, "POST", "/api/internal/memory", { action: "replace", oldText: "unique saved fact", text })).status).toBe(400);
-      expect((await api("GET", `/api/bots/${botId}/memory`)).body.text).toBe(`- ${memoryDate()} · from chat "${"t".repeat(60)}…" · A unique saved fact.\n`);
-    }
+    await control(["send", "--bot", botId, "--task", threadId, "--text", "REVIEW_PROJECT_FILES"]);
     const project = join(session.info.dataDir, "task-workspaces", botId, threadId, "result.txt");
+    await expect.poll(() => existsSync(dirname(project)), { timeout: 10_000 }).toBe(true);
     writeFileSync(project, "Generated project files are retained.");
     await control(["interrupt", "--bot", botId, "--task", threadId]);
     await expect.poll(async () => (await botState(botId)).busy, { timeout: 10_000 }).toBe(false);
     expect((await api("DELETE", `/api/bots/${botId}/tasks/${threadId}`)).status).toBe(200);
     expect((await api("DELETE", `/api/bots/${botId}`)).status).toBe(200);
     expect(readFileSync(project, "utf8")).toBe("Generated project files are retained.");
-    evidence.push({ cappedTitleLength: 80, blankMemoryReplacementRejected: true, generatedFilesRetained: true });
+    evidence.push({ cappedTitleLength: 80, generatedFilesRetained: true });
   }, 30_000);
 
   it("exposes background waiting threads and pins paired approval answers to the displayed request", async () => {
@@ -521,20 +514,12 @@ describe("independent bot tasks through the isolated control surface", () => {
     const tokenA = launchedA.mcpConfig.mcpServers.agents.env.OMB_COMMS_TOKEN;
     const tokenB = launchedB.mcpConfig.mcpServers.agents.env.OMB_COMMS_TOKEN;
     expect(tokenA).not.toBe(tokenB);
-    const appended = await Promise.all([
-      internal(tokenA, "POST", "/api/internal/memory", { botId, threadId: taskA, action: "append", text: "A remembers apples." }),
-      internal(tokenB, "POST", "/api/internal/memory", { botId, threadId: taskB, action: "append", text: "B remembers berries." }),
-    ]);
-    expect(appended.map((result) => result.status)).toEqual([200, 200]);
-    const memory = (await api("GET", `/api/bots/${botId}/memory`)).body.text;
-    expect(memory).toContain("A remembers apples.");
-    expect(memory).toContain("B remembers berries.");
-    expect((await internal(tokenA, "POST", "/api/internal/memory", { action: "replace", oldText: "A remembers apples.", text: "A remembers apricots." })).status).toBe(200);
-    expect((await internal(tokenB, "POST", "/api/internal/memory", { action: "replace", oldText: "A remembers apples.", text: "stale overwrite" })).status).toBe(409);
-    const foreign = await tool("create_bot", { name: "Foreign memory owner" });
-    expect((await internal(tokenA, "POST", "/api/internal/memory", { botId: foreign.bot.id, action: "append", text: "foreign write" })).status).toBe(403);
-    expect((await internal(tokenA, "POST", "/api/internal/memory", { botId, threadId: taskB, action: "append", text: "wrong conversation" })).status).toBe(403);
-    expect((await api("GET", `/api/bots/${foreign.bot.id}/memory`)).body.text).toBe("");
+    const search = (token: string, owner: string, from: string) => internal(token, "GET",
+      `/api/internal/session-search?fromBotId=${owner}&fromThreadId=${from}&q=ONLY`);
+    expect((await search(tokenA, botId, taskA)).status).toBe(200);
+    const foreign = await tool("create_bot", { name: "Foreign conversation owner" });
+    expect((await search(tokenA, foreign.bot.id, taskA)).status).toBe(403);
+    expect((await search(tokenA, botId, taskB)).status).toBe(403);
 
     await tool("switch_task", { target_type: "bot", target_id: botId, task_id: taskA });
     await tool("switch_task", { target_type: "bot", target_id: botId, task_id: taskB });
@@ -552,8 +537,8 @@ describe("independent bot tasks through the isolated control surface", () => {
     await control(["interrupt", "--bot", botId, "--task", taskA]);
     await expect.poll(async () => (await botState(botId)).tasks.find((task: any) => task.taskId === taskA)?.busy).toBe(false);
     expect((await botState(botId)).tasks.find((task: any) => task.taskId === taskB)?.busy).toBe(true);
-    expect((await internal(tokenA, "POST", "/api/internal/memory", { action: "append", text: "expired write" })).status).toBe(401);
-    expect((await internal(tokenB, "POST", "/api/internal/memory", { action: "append", text: "B is still authorized." })).status).toBe(200);
+    expect((await search(tokenA, botId, taskA)).status).toBe(401);
+    expect((await search(tokenB, botId, taskB)).status).toBe(200);
     expect((await control(["wait", "--bot", botId, "--task", taskA, "--timeout", "1"])).status).toBe("settled");
     writeFileSync(modelFile(models[1], "gate"), "finish B");
     expect((await control(["wait", "--bot", botId, "--task", taskB, "--timeout", "10"])).status).toBe("settled");

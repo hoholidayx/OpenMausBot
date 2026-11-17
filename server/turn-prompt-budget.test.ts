@@ -9,7 +9,7 @@ import { meetingsUnavailablePrompt } from "./meetings/prompt.ts";
 import { REPLY_HABITS_PROMPT } from "./reply-habits.ts";
 import { setupSystemPrompt } from "./setup-mode.ts";
 import {
-  AGENTS_TOOL_BRIDGE_PROMPT, CREDENTIAL_PROMPT, PROFILE_PROMPT, SIGN_IN_PROMPT, TEAM_MEMORY_PROMPT, TRIGGER_PROMPT, botPersona, buildSystemPrompt,
+  AGENTS_TOOL_BRIDGE_PROMPT, CREDENTIAL_PROMPT, PROFILE_PROMPT, SIGN_IN_PROMPT, TRIGGER_PROMPT, botPersona, buildSystemPrompt,
   computerPrompt, longCommandsPrompt, type ComputerPromptKind, type PromptPart,
 } from "./system-prompt.ts";
 
@@ -23,7 +23,6 @@ function directChatParts(setup: boolean): PromptPart[] {
     { id: "credential", label: "Credentials", text: CREDENTIAL_PROMPT },
     { id: "routine", label: "Triggers", text: TRIGGER_PROMPT },
     { id: "profile", label: "Profile changes", text: PROFILE_PROMPT },
-    { id: "team-memory", label: "Team memory", text: TEAM_MEMORY_PROMPT },
   ];
 }
 
@@ -61,24 +60,23 @@ const PROMPT_BUDGET_BASELINE: Record<string, number> = {
   "reply-habits": 2855,
   "tool-bridge": 593,
   "sign-in": 2552,
-  "chief-of-staff": 4975,
+  "chief-of-staff": 4737,
   "setup": 2396,
   "meetings": 300,
   "credential": 1027,
   "routine": 3367,
   "profile": 1016,
-  "team-memory": 286,
   // Both sandbox kinds carry +130 bytes on purpose: the person's own files (C:\Users\…, /Users/…, Desktop) are reached only on This computer.
   "computer:vm-private": 5913,
   "computer:vm-shared": 5908,
   "computer:box": 4382,
   "computer:vps": 5026,
   "computer:local": 5335,
-  "claude:direct-chat": 8895,
-  "claude:setup-chat": 11291,
+  "claude:direct-chat": 8611,
+  "claude:setup-chat": 11007,
   "claude:volatile-note": 178,
-  "codex:direct-chat": 8895,
-  "codex:setup-chat": 11291,
+  "codex:direct-chat": 8611,
+  "codex:setup-chat": 11007,
   "codex:resumed-instructions": 213,
   "codex:volatile-note": 97,
 };

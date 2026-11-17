@@ -41,10 +41,9 @@ describe("ready-made bots", () => {
     }
   });
 
-  it("only ever bring paused routines and notes under the memory folder", () => {
+  it("only ever bring paused routines", () => {
     for (const bot of READY_BOTS) {
       for (const routine of bot.routines ?? []) expect(routine.enabled).toBe(false);
-      for (const path of Object.keys(bot.notes ?? {})) expect(path).toMatch(/^(MEMORY\.md|memory\/[a-z0-9-]+\.md)$/);
     }
   });
 });
@@ -64,11 +63,9 @@ describe("readyBotTemplate", () => {
     });
   });
 
-  it("adds notes beside the person's own and appends its routines paused", () => {
+  it("appends its routines paused", () => {
     const template = readyBotTemplate(defaults(), plant);
     expect(template.memory["MEMORY.md"]).toContain("The person's own default note");
-    expect(template.memory["MEMORY.md"]).toContain("memory/plants.md");
-    expect(template.memory["memory/plants.md"]).toContain("title: My plants");
     expect(template.routines.map((routine) => [routine.name, routine.enabled])).toEqual([["Mine", true], ["Weekly plant check", false]]);
   });
 
@@ -113,10 +110,8 @@ describe("the social media manager", () => {
     expect(social.routines![0]!.prompt).toContain("as drafts");
   });
 
-  it("brings its notes and leaves the person's approval level, so publishing asks as their other bots do", () => {
+  it("leaves the person's approval level, so publishing asks as their other bots do", () => {
     const template = readyBotTemplate(defaults(), social);
     expect(template.profile.approvalMode).toBe("ask");
-    expect(template.memory["memory/social.md"]).toContain("title: Social media");
-    expect(template.memory["MEMORY.md"]).toContain("memory/social.md");
   });
 });

@@ -28,11 +28,10 @@ export function isRoomContextMessage(m: Pick<Message, "kind" | "text" | "digest"
 
 export interface RoomTranscriptDeps {
   store: Pick<Store, "messagesFor">;
-  legacyMemory?: boolean;
   teammateReportContext(requestId: string, readerBotId?: string): string;
 }
 
-export function createRoomTranscript({ store, teammateReportContext, legacyMemory }: RoomTranscriptDeps) {
+export function createRoomTranscript({ store, teammateReportContext }: RoomTranscriptDeps) {
   function window(
     threadId: string,
     userName: PersonName,
@@ -49,7 +48,7 @@ export function createRoomTranscript({ store, teammateReportContext, legacyMemor
     const texts = shown
       .map((m) => {
         if (m.kind === "digest" && m.digest) {
-          return digestPromptLine(m.digest, m.from ? peerName(m.from.name) : "a bot", legacyMemory);
+          return digestPromptLine(m.digest, m.from ? peerName(m.from.name) : "a bot");
         }
         if (m.roomRequest?.phase === "result") {
           return teammateReportContext(m.roomRequest.id, readerBotId);

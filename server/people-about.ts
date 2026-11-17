@@ -1,17 +1,11 @@
-// A person on a Team Cloud: their "About you" (people/<person>/about.json) and their profile (people/<person>/profile.json:
-// the name and picture they chose, and the address of their verified sign-in). Each is that person's own, read into their
-// own turns and shown to them as "you". The server's one profile (config.json's profile) describes the owner of a My
-// Cloud, and on a team never anyone.
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { botAvatarUrlSchema } from "../shared/bot-avatar.ts";
 import { writeFileAtomic } from "./atomic.ts";
 
-export const ABOUT_ME_MAX = 4_000;
 export const PERSON_NAME_MAX = 120;
 const PERSON = /^p_[\w-]{22}$/;
-const record = z.object({ version: z.literal(1), aboutMe: z.string().max(ABOUT_ME_MAX * 2) }).strict();
 export const SEED_FIELDS = ["name", "avatarUrl"] as const;
 export type SeedField = (typeof SEED_FIELDS)[number];
 const profileRecord = z.object({
@@ -35,8 +29,6 @@ export interface PersonProfile {
 export type PersonProfilePatch = { name?: string; email?: string; avatarUrl?: string; seeded?: SeedField[] };
 
 export interface PeopleAbout {
-  read(person: string): string;
-  write(person: string, aboutMe: string): string;
   profile(person: string): PersonProfile;
   hasProfile(person: string): boolean;
   saveProfile(person: string, patch: PersonProfilePatch): PersonProfile;
@@ -60,22 +52,6 @@ export function createPeopleAbout(dataDir: string): PeopleAbout {
     }
   };
   return {
-    read(person) {
-      try {
-        const path = join(folder(person), "about.json");
-        if (!existsSync(path)) return "";
-        return record.parse(JSON.parse(readFileSync(path, "utf8"))).aboutMe.slice(0, ABOUT_ME_MAX);
-      } catch {
-        return "";
-      }
-    },
-    write(person, aboutMe) {
-      const path = join(folder(person), "about.json");
-      const text = aboutMe.replace(/\r\n/g, "\n").trim().slice(0, ABOUT_ME_MAX);
-      ensureFolder(person);
-      writeFileAtomic(path, JSON.stringify({ version: 1, aboutMe: text }) + "\n", { mode: 0o600 });
-      return text;
-    },
     profile: readProfile,
     hasProfile(person) {
       try {

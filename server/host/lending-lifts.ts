@@ -7,8 +7,6 @@ import { isAbsolute, join } from "node:path";
 
 import { CARRY_ON_MS } from "../computer-asks.ts";
 import type { DecisionRow } from "../decision-log.ts";
-import { readMemoryJournal } from "../memory-journal.ts";
-import { hashMemoryText } from "../memory-store.ts";
 import { buildNotification, type Notification } from "../notify.ts";
 import { redactSecretsInText } from "../redact.ts";
 import { serverLine } from "../server-lines.ts";
@@ -29,7 +27,7 @@ const BOT_FOLDER = /^.*[\\/](?:workspaces[\\/][^\\/]+|task-workspaces[\\/][^\\/]
 
 type Lift = NonNullable<NonNullable<Message["card"]>["lendingLift"]>;
 
-/** What a changed file says now, for the card: the lines a memory file's last change added, or the file itself. */
+/** What a changed file says now, for the card: from the file itself. */
 export function changedWords(botId: string, file: string): string | undefined {
   const clip = (text: string) => { const trimmed = text.trim(); return trimmed.length > WORDS_CHARS ? `${trimmed.slice(0, WORDS_CHARS)}…` : trimmed; };
   const path = isAbsolute(file) ? file : join(workspaceDir(botId), file);
@@ -38,10 +36,7 @@ export function changedWords(botId: string, file: string): string | undefined {
     if (stat.isSymbolicLink()) return `→ ${readlinkSync(path)}`;
     if (!stat.isFile()) return undefined;
     const text = readFileSync(path, "utf8");
-    const row = isAbsolute(file) ? undefined : readMemoryJournal(botId, 50).find((entry) => entry.path === file);
-    // Only while it describes what's there now: anything written since would go unshown.
-    const added = row?.afterHash && row.afterHash === hashMemoryText(text) ? row.diff.split("\n").filter((line) => line.startsWith("+") && !line.startsWith("+++")).map((line) => line.slice(1)).join("\n") : "";
-    return clip(added || text);
+    return clip(text);
   } catch {
     return undefined;
   }

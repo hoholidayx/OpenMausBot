@@ -74,11 +74,6 @@ export function configEntries(deps: Pick<RegistryDeps, "cfg" | "saveConfig" | "b
       value: z.union([z.literal(""), z.string().trim().email().max(320)]), allowed: "an email address, or empty to clear", current: () => cfg().profile?.email ?? "", patch: (email) => ({ profile: { email } }),
     }),
     section({
-      id: "profile.aboutMe", label: "About you", help: "What every bot knows about you.", where: "about-you", synonyms: ["about me", "about you", "profile", "bio"],
-      value: z.string().max(4000), allowed: "text up to 4000 characters, or empty to clear", current: () => cfg().profile?.aboutMe ?? "", read: () => cfg().profile?.aboutMe ?? "",
-      patch: (aboutMe) => ({ profile: { aboutMe } }), says: (text) => (text ? `Tell every bot this about you: ${quoted(text)}` : "Clear what every bot knows about you"),
-    }),
-    section({
       id: "bots.everyBotRules", label: "Rules for every bot", help: "Instructions every bot follows, ahead of its own.", where: "about-you", synonyms: ["rules", "rules for every bot", "instructions", "every bot"],
       value: z.string().max(4000), allowed: "text up to 4000 characters, or empty to clear", current: () => cfg().everyBotRules ?? "", read: () => cfg().everyBotRules ?? "",
       patch: (everyBotRules) => ({ everyBotRules }), says: (text) => (text ? `Make every bot follow: ${quoted(text)}` : "Clear the rules every bot follows"),

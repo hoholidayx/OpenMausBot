@@ -325,18 +325,6 @@ describe("whole-team export (package v2)", () => {
     expect(agents.map((agent) => agent.recordBrowserSteps)).toEqual([undefined, true]);
   });
 
-  it("adds starter notes only when asked, within the caps", () => {
-    expect(createTeamPackageExport(fixture()).document.package.agents.some((agent) => agent.seed)).toBe(false);
-    const withNotes = createTeamPackageExport({ ...fixture(), memoryByBot: new Map([["lead", [
-      { path: "MEMORY.md", text: "- Prefers short answers.\n" },
-      { path: "memory/pricing.md", text: "List price 49.\n" },
-      { path: "memory/huge.md", text: "x".repeat(300 * 1024) },
-      { path: "memory/empty.md", text: "   " },
-    ]]]) });
-    expect(withNotes.document.package.agents[0]?.seed).toEqual({ memory: { "MEMORY.md": "- Prefers short answers.\n", "memory/pricing.md": "List price 49.\n" } });
-    expect(withNotes.skipped).toContainEqual({ part: 'agents[morgan].seed.memory["memory/huge.md"]', reason: "notes_too_large" });
-  });
-
   it("removes secrets from text and says where", () => {
     const input = fixture();
     input.bots[1] = { ...input.bots[1]!, soul: "Log in with password=hunter2hunter2 first." };

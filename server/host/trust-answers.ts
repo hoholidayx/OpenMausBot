@@ -13,18 +13,17 @@ interface Remembered {
 export interface TrustAnswerDeps {
   store: Pick<Store, "messagesFor" | "bot" | "botByThread" | "patchMessage">;
   dataDir: string;
-  teamMemoryRequests: Remembered;
   outsideWrites: Remembered;
   outboundRequests: OutboundRequestService;
 }
 
-/** The person's answer to a team-memory, outside-write or "Send on your behalf?" card. */
+/** The person's answer to a outside-write or "Send on your behalf?" card. */
 export function createTrustAnswers(deps: TrustAnswerDeps) {
-  const { store, teamMemoryRequests, outsideWrites, outboundRequests } = deps;
+  const { store, outsideWrites, outboundRequests } = deps;
   const DATA_DIR = deps.dataDir;
 
   function resolveAndSendTrust(res: ServerResponse, threadId: string, requestId: string, behavior: "allow" | "deny" | "answer"): boolean {
-    const remembered = teamMemoryRequests.resolve(threadId, requestId, behavior) ?? outsideWrites.resolve(threadId, requestId, behavior);
+    const remembered = outsideWrites.resolve(threadId, requestId, behavior);
     if (remembered) {
       json(res, 200, remembered);
       return true;

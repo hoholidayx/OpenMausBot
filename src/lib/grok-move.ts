@@ -117,8 +117,6 @@ export interface GrokMovedBot {
   /** Skills left off: the skill scan flagged them, or they could not be switched on. */
   skillsOff: string[];
   routines: number;
-  notes: number;
-  memories: number;
   apps: number;
 }
 
@@ -141,7 +139,7 @@ export async function runGrokMove(preview: GrokPreview, dispatch: (action: Actio
         const on = skill.on && await api(`/api/bots/${bot.id}/skills/${encodeURIComponent(skill.folder)}`, { method: "PATCH", body: JSON.stringify({ enabled: true }) }).then(() => true, () => false);
         if (!on) skillsOff.push(skill.name);
       }
-      report.bots.push({ name: bot.name, skills: plan.skills.length, skillsOff, routines: plan.routines, notes: plan.notes, memories: plan.memories, apps: plan.apps });
+      report.bots.push({ name: bot.name, skills: plan.skills.length, skillsOff, routines: plan.routines, apps: plan.apps });
     } catch {
       report.failed.push(plan.name);
     }

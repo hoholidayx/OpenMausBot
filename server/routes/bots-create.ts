@@ -8,7 +8,6 @@ import type { AppConfig } from "../config.ts";
 import type { ModelSelection } from "../contracts.ts";
 import type { hostedModelPolicy } from "../hosted-models.ts";
 import { MAX_MCP_SERVERS, mcpServerNameError } from "../mcp-registry.ts";
-import { journalMemoryWrite } from "../memory-journal.ts";
 import { resolveBotCreationDefaults } from "../new-bot-defaults.ts";
 import { PRESET_UNAVAILABLE_MESSAGE, applyPresetToBot, presetOffered, type OrgInstallStatus, type PresetStore } from "../presets.ts";
 import { adminOnlyBotSetting, memberBotCreateViolation, type RequestAuth } from "../request-auth.ts";
@@ -16,7 +15,6 @@ import type { RoutineManager } from "../routines.ts";
 import { installOrgSkill, installSkill, parseSkillMd, setSkillEnabled } from "../skills.ts";
 import type { BotRecord, Store } from "../store.ts";
 import type { TeamPeople } from "../team-people.ts";
-import { writeMemoryFile, writeMemoryTopic } from "../workspace.ts";
 import { refusalBody, userError } from "../user-errors.ts";
 import type { ServerErrorBody } from "../../shared/server-text.ts";
 import { botLimitRefusal } from "../bot-limit.ts";
@@ -27,7 +25,6 @@ export type ModelSelectionCheck = { ok: true; selection: ModelSelection } | ({ o
 export interface BotCreateRouteDeps {
   store: Store;
   cfg: AppConfig;
-  legacyMemory?: boolean;
   presetStore: Pick<PresetStore, "resolve">;
   orgInstallStatuses(): ReadonlyMap<string, OrgInstallStatus>;
   /** A hosted (company) workspace: Full access comes only from its policy. */
@@ -219,16 +216,10 @@ export function createBotCreateRoutes(deps: BotCreateRouteDeps): RouteHandler {
           autoApprove: ordinary.approvalMode === "auto",
         });
         const presetSkills = new Set(preset?.preset.skills ?? []);
-        const presetNotes = new Set(Object.keys(preset?.preset.seed?.memory ?? {}));
-        for (const [file, text] of Object.entries(deps.legacyMemory === false ? {} : template.memory)) {
-          if (presetNotes.has(file)) continue;
-          journalMemoryWrite(bot.id, file, text, { actor: "person", via: "api" });
-        }
         if (preset) {
           applyPresetToBot(bot.id, preset, {
             store,
             skills: { install: installSkill, setEnabled: setSkillEnabled, installOrg: installOrgSkill },
-            ...(deps.legacyMemory !== false ? { memory: { writeIndex: writeMemoryFile, writeTopic: writeMemoryTopic } } : {}),
           });
         }
         for (const skill of template.skills) {

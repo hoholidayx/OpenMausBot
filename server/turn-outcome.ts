@@ -77,7 +77,7 @@ export function stoppedTurnOutcome(input: {
   if (input.turnId) {
     const digest = buildTurnDigest({
       turnId: input.turnId, botId: "", threadId: "", at: 0, durationMs: 0,
-      activities: input.activities, memory: [], reply: "", hookCoverage: "preview",
+      activities: input.activities, reply: "", hookCoverage: "preview",
     });
     parts.push(digest.toolCalls
       ? `Before it stopped it made ${digest.toolCalls} tool call${digest.toolCalls === 1 ? "" : "s"}: ${digestTools(digest)}.`

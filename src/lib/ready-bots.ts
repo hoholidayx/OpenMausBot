@@ -18,7 +18,6 @@ export interface ReadyBot {
   tryAsking: string[];
   /** Connected apps the bot works best with; suggested, never connected for the person. */
   apps: string[];
-  notes?: Record<string, string>;
   routines?: BotRoutineTemplate[];
 }
 
@@ -125,18 +124,14 @@ export const READY_BOTS: ReadyBot[] = [
       "Add every post to Postiz as a draft, unless the user gave it a time to go out: then schedule it for that time. Postiz's own calendar publishes scheduled posts, and the user reviews, edits or moves them there.",
       "Never publish a post straight away (type now) unless the user asks for that post to go out now.",
       "For each post, say which channel, when in the user's time zone, and whether it is a draft or scheduled. Postiz takes dates in UTC.",
-      "Keep to each platform's length and format rules, and to the voice, topics and channels in memory/social.md. Update that note whenever the user corrects you.",
+      "Keep to each platform's length and format rules and use the brand voice and channels specified for the task.",
       "On the weekly plan, propose next week's posts with a channel and time for each, then add them to Postiz as drafts.",
       "If the postiz tools are missing, say in one line that the user can connect Postiz in Apps, and offer to write the posts here meanwhile.",
     ].join("\n"),
     look: { color: "coral", mascotBody: "star" },
     tryAsking: ["Plan next week's posts for LinkedIn and X", "Draft three posts about our launch and add them to Postiz", "What is scheduled in Postiz this week?"],
     apps: ["postiz"],
-    notes: {
-      "MEMORY.md": "- Voice, topics and channels for social posts live in memory/social.md; read it before writing a post.\n",
-      "memory/social.md": "---\ntitle: Social media\naliases: [social, posts, brand voice, channels, postiz]\n---\n\n- Channels and who each is for:\n- Voice (words to use, words to avoid):\n- Topics, and what never to post about:\n- Good times to post:\n",
-    },
-    routines: [paused("Weekly post plan", "Plan next week's social posts from memory/social.md and add them to Postiz as drafts for me to review.", "10:00", [1])],
+    routines: [paused("Weekly post plan", "Plan next week's social posts and add them to Postiz as drafts for me to review.", "10:00", [1])],
   },
   {
     id: "ops",
@@ -215,15 +210,12 @@ export const READY_BOTS: ReadyBot[] = [
       "You plan trips.",
       "Ask for dates, budget, pace, and must-dos if they are missing, then propose a day-by-day plan with travel times between places.",
       "Prefer fewer, better stops over packed days. Flag bookings that sell out early.",
-      "Keep the user's travel preferences in memory/travel.md and use them every time.",
+      "Use the user's travel requirements when planning the itinerary.",
       "Never book or pay for anything; give links and options instead.",
     ].join("\n"),
     look: { color: "blue", mascotBody: "star" },
     tryAsking: ["Plan four relaxed days in Lisbon in May", "What should I book now for a Japan trip in autumn?", "Make a packing list for a rainy week in Scotland"],
     apps: ["googlecalendar"],
-    notes: {
-      "memory/travel.md": "---\ntitle: Travel preferences\naliases: [trips, holidays, flights, hotels]\n---\n\n- Home airport:\n- Budget style (budget / mid / comfort):\n- Pace (relaxed / balanced / packed):\n- Seat, diet, and accessibility needs:\n",
-    },
   },
   {
     id: "study",
@@ -235,15 +227,12 @@ export const READY_BOTS: ReadyBot[] = [
       "You help the user learn.",
       "Explain step by step with a simple example first, then the general idea. Check understanding with one short question before moving on.",
       "When asked to quiz, ask one question at a time, wait for the answer, and explain mistakes kindly.",
-      "Keep a list of weak topics in memory/study.md and suggest reviewing them.",
+      "Use the quiz answers to suggest topics to review.",
       "Do not write graded work for the user to hand in as their own; teach them to do it.",
     ].join("\n"),
     look: { color: "purple", mascotBody: "blob" },
     tryAsking: ["Explain recursion like I'm new to programming", "Quiz me on the French Revolution", "Make a one-week revision plan for my exam"],
     apps: [],
-    notes: {
-      "memory/study.md": "---\ntitle: Study progress\naliases: [revision, exam, quiz, weak topics]\n---\n\n- Subjects:\n- Exam dates:\n- Topics to review:\n",
-    },
   },
   {
     id: "humanizer",
@@ -256,14 +245,11 @@ export const READY_BOTS: ReadyBot[] = [
       "Keep the meaning and every fact exactly as given. Never add claims, numbers, names, or examples that were not in the draft.",
       "Remove filler and stock phrases, vary sentence length, prefer concrete words, and keep the user's own turns of phrase.",
       "Reply with the rewritten text first, then a short list of changes, each with the reason (for example: cut a cliché, split a long sentence).",
-      "If the user shares samples of their writing, note their voice in memory/voice.md and match it.",
+      "Match the voice of any writing samples provided for the task.",
     ].join("\n"),
     look: { color: "pink", mascotBody: "blob" },
     tryAsking: ["Make this email sound less robotic", "Rewrite this landing page intro in my voice", "Here are three posts I wrote; learn my style"],
     apps: [],
-    notes: {
-      "memory/voice.md": "---\ntitle: My writing voice\naliases: [tone, style, voice]\n---\n\n- Words and phrases I use:\n- Words and phrases I avoid:\n- Formality (casual / neutral / formal):\n",
-    },
   },
   {
     id: "design-critic",
@@ -307,19 +293,15 @@ export const READY_BOTS: ReadyBot[] = [
     description: "Keeps a private journal of your houseplants and reminds you when they need water or care.",
     soul: [
       "You look after the user's houseplants.",
-      "Keep one entry per plant in memory/plants.md: name, species, where it lives, light, how often to water, and the last time it was watered, repotted, or fed.",
-      "When the user says they watered or moved a plant, update its entry with today's date.",
+      "Use the plant details and care dates the user provides.",
+      "When the user waters or moves a plant, help plan their next check.",
       "On the weekly check, list which plants are due or overdue, and one seasonal tip if it is useful.",
       "When the user describes or shows a struggling plant, suggest the most likely causes in order and one thing to try first.",
     ].join("\n"),
     look: { color: "green", mascotBody: "drop" },
     tryAsking: ["Add my monstera: living room, bright indirect light", "I watered the fern and the pothos today", "Why are my snake plant's leaves going yellow?"],
     apps: [],
-    notes: {
-      "MEMORY.md": "- Plant entries live in memory/plants.md; update them whenever the user waters, moves, or repots a plant.\n",
-      "memory/plants.md": "---\ntitle: My plants\naliases: [plants, watering, houseplants, garden]\n---\n\n<!-- One entry per plant: name · species · location · light · water every N days · last watered -->\n",
-    },
-    routines: [paused("Weekly plant check", "Check memory/plants.md and tell me which plants are due or overdue for water or care.", "09:00", [6])],
+    routines: [paused("Weekly plant check", "Review the available plant details and tell me which plants are due or overdue for water or care.", "09:00", [6])],
   },
 ];
 
@@ -341,10 +323,6 @@ export function readyBotTemplate(defaults: NewBotDefaults, bot: ReadyBot): NewBo
     color: bot.look.color,
     mascotBody: bot.look.mascotBody,
   };
-  for (const [path, text] of Object.entries(bot.notes ?? {})) {
-    const own = template.memory[path]?.trimEnd();
-    template.memory[path] = own ? `${own}\n${text}` : text;
-  }
   template.routines = [...template.routines, ...(bot.routines ?? []).map((routine) => ({ ...routine, ...(bot.id === "social" ? { name: t("readyBots.routine.socialWeekly") } : {}), enabled: false }))];
   return template;
 }

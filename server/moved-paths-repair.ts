@@ -37,18 +37,7 @@ function instructionFiles(dataDir: string): string[] {
     try { return readdirSync(join(dataDir, path), { withFileTypes: true }).sort((a, b) => a.name < b.name ? -1 : 1); } catch { return []; }
   };
   const files: string[] = [];
-  const memory = (path: string): void => {
-    for (const entry of list(path)) {
-      if (entry.isDirectory()) memory(`${path}/${entry.name}`);
-      else files.push(`${path}/${entry.name}`);
-    }
-  };
   for (const bot of list("bots")) if (bot.isDirectory()) files.push(`bots/${bot.name}/SOUL.md`);
-  for (const workspace of list("workspaces")) {
-    if (!workspace.isDirectory()) continue;
-    files.push(`workspaces/${workspace.name}/MEMORY.md`);
-    memory(`workspaces/${workspace.name}/memory`);
-  }
   return files.filter((path) => INSTRUCTION_FILE.test(path));
 }
 function dataFolders(text: string, dataDir: string, found: Map<string, string>): void {

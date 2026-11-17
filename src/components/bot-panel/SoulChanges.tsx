@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { t } from "@/lib/i18n";
 import { fetchSoulChanges, undoSoulChange, type MemoryJournalRow } from "@/lib/memory";
 import { useStore, type Bot } from "@/state/store";
-import { MemoryJournalList } from "../bot-settings/MemorySection";
+import { SoulChangeList } from "./SoulChangeList";
 
 const SHOWN = 5;
 
@@ -32,7 +32,7 @@ export function SoulChanges({ bot }: { bot: Bot }) {
   return (
     <div data-panel-row="soul-changes" className="flex flex-col gap-1.5">
       <div className="text-[12px] font-medium text-ink-secondary">{t("memory.changes")}</div>
-      <MemoryJournalList rows={rows} botName={bot.name} reverting={reverting} onRevert={(row) => void undo(row)} />
+      <SoulChangeList rows={rows} botName={bot.name} reverting={reverting} onRevert={(row) => void undo(row)} />
     </div>
   );
 }

@@ -11,7 +11,7 @@ import { removeBotFolder, soulFile, soulHash, writeSoulMirror } from "./bot-fold
 import type { BotProfilePatch } from "./bot-profile.ts";
 import { DATA_DIR, EVENTS_DIR, NATIVE_DIR, loadBrowserProfileIdAliases } from "./config.ts";
 import * as mdb from "./message-db.ts";
-import { forgetBotMemoryJournal, journalFile } from "./memory-journal.ts";
+import { journalFile } from "./retired-memory-data.ts";
 import { runCommand, type Command } from "./commands.ts";
 import { workspaceDir } from "./workspace.ts";
 import type { Destination } from "./surface.ts";
@@ -75,7 +75,7 @@ export function isProjectEmoji(value: unknown): value is string {
 
 export interface TaskRecord extends Omit<WireTask, TaskWireDerivedKeys> {
   resumeCursors: Record<string, unknown>;
-  legacyMemoryDisabled?: true | 2;
+  legacyMemoryDisabled?: true | 2 | 3;
   lastInstanceId?: string;
   handedMessages?: Record<string, HandedState>;
   appliedCompactionId?: string;
@@ -1478,7 +1478,6 @@ export class Store {
       rmSync(journalFile(id), { force: true });
     } catch {}
     mdb.deleteBotMemoryFiles(id);
-    forgetBotMemoryJournal(id);
     try {
       rmSync(join(DATA_DIR, "skill-state", id), { recursive: true, force: true });
     } catch {}
