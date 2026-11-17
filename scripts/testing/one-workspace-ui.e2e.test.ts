@@ -115,14 +115,15 @@ const PAIR_FORM = "Boolean(document.querySelector('form input') && /pairing code
   it("someone with no Cloud move sees this computer's page as before, and the window never asks My Cloud", async () => {
     await blank();
     const before = world.cloudRequests.length;
-    expect((await fx.local("GET", "/api/move/freeze")).body.frozen).toBe(false);
+    expect(existsSync(join(fx.desktopDataDir, "moved.json"))).toBe(false);
     await world.window.loadURL(`${world.localOrigin}/`);
     await until(() => page<boolean>("Boolean(document.querySelector('#root')?.childElementCount)"), Boolean, 60_000);
     expect(new URL(world.window.url).pathname).toBe("/");
     expect(await screen()).toBeNull();
     expect(world.cloudRequests.length).toBe(before);
     // From here on this computer's copy is frozen, as the move leaves it.
-    expect((await fx.local("POST", "/api/move/freeze", { cloud: world.cloudOrigin })).body.frozen).toBe(true);
+    writeFileSync(join(fx.desktopDataDir, "moved.json"), JSON.stringify({ v: 1, at: Date.now(), cloud: world.cloudOrigin }));
+    await fx.relaunch({ kill: false });
   }, hostTimeout(120_000));
 
   it("this computer's frozen copy serves only its screen, never the workspace", async () => {

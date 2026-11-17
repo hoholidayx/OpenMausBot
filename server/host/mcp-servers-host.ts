@@ -1,11 +1,9 @@
 // Which config.json MCP servers each bot's turns start: every bot's and the bot's own, minus any that does not start.
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { writeFileAtomic } from "../atomic.ts";
-import type { AppConfig } from "../config.ts";
-import { launcherOf } from "../cloud-connections.ts";
-import { customMcpServers } from "../config.ts";
+import { customMcpServers, type AppConfig } from "../config.ts";
 import type { McpServerSpec, StdioMcpSpec } from "../contracts.ts";
 import { addBotMcpServer, claimBotMcpServers, keepForBot, withoutBotMcpServers, type BotKept, type BotMcpServerAdd } from "../mcp-bot-servers.ts";
 import { MCP_RESTART_ENV } from "../mcp-app-catalog.ts";
@@ -17,6 +15,10 @@ import type { McpKeys } from "../vault/mcp-keys.ts";
 import { canUseMcpServer } from "../../shared/tool-scope.ts";
 
 type Bot = { id: string; name: string; mcpServers?: string[]; toolScope?: unknown; alwaysAllow?: string[] };
+function launcherOf(command: string): string {
+  return basename(command.replaceAll("\\", "/")).toLowerCase().replace(/\.(?:exe|cmd|bat|ps1)$/u, "");
+}
+
 /** A server left out of a bot's turns, with why; `key`: its Vault key is off, as against it not starting. */
 export type McpServerOff = { name: string; error: string; key?: true };
 

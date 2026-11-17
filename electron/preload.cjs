@@ -75,7 +75,7 @@ function railKeepsItsSize() {
 if (typeof window !== "undefined") {
   for (const type of ["resize", "DOMContentLoaded"]) window.addEventListener(type, () => { leaveRailRoom(); railKeepsItsSize(); });
 }
-const REMOTE_SAFE = new Set(["platform", "app", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "permStatus", "workspaces", "rail", "cloudSendPage", "desktopNotices", "desktopNotifications", "desktopLanguage", "windowControls", "onOpenAppSettings", "windowFrame", "softwareRendering", "appUpdate"]);
+const REMOTE_SAFE = new Set(["platform", "app", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "permStatus", "workspaces", "rail", "desktopNotices", "desktopNotifications", "desktopLanguage", "windowControls", "onOpenAppSettings", "windowFrame", "softwareRendering", "appUpdate"]);
 /** My Cloud's own page once it is the person's home (main checks the sender again): it is this app's page then. */
 const HOME_PAGE = ["home", "onChatLink", "onPackageInstall", "exportDiagnostics", "openLogsFolder", "openAtLogin", "callActive"];
 function updaterOffered() {
@@ -139,9 +139,6 @@ const bridge = {
     // Remove from list, for a Cloud the window's rail lists as removable, from a click on the rail's own page (main refuses any other page).
     remove: (id) => isLocalPage || navigator.userActivation?.isActive === true
       ? ipcRenderer.invoke("workspaces:remove", String(id)) : Promise.reject(new Error("Choose Remove from list.")),
-    // Make a server of the person's own their bots' home, from a click on the rail's own page (main refuses any other page).
-    makeHome: (id) => isLocalPage || navigator.userActivation?.isActive === true
-      ? ipcRenderer.invoke("workspaces:make-home", String(id)) : Promise.reject(new Error("Choose Make my home.")),
     onChanged: (cb) => {
       const handler = () => cb();
       ipcRenderer.on("workspaces:changed", handler);
@@ -427,28 +424,6 @@ const bridge = {
       const handler = (_event, computerId) => cb(computerId);
       ipcRenderer.on("workspaces:open-settings", handler);
       return () => ipcRenderer.removeListener("workspaces:open-settings", handler);
-    },
-  },
-  // Either page: the one-time move's line.
-  cloudSendPage: {
-    notice: () => ipcRenderer.invoke("cloud-send:notice"),
-    dismiss: signature => ipcRenderer.invoke("cloud-send:dismiss", String(signature)),
-    moveRetry: () => ipcRenderer.invoke("cloud-send:move-retry"),
-    onNotice: cb => {
-      const handler = (_event, notice) => cb(notice);
-      ipcRenderer.on("cloud-send:notice-changed", handler);
-      return () => ipcRenderer.removeListener("cloud-send:notice-changed", handler);
-    },
-  },
-  // This computer's page only (never in REMOTE_SAFE, and main refuses any other): bots in two places, brought together on one.
-  twoPlaces: {
-    state: () => ipcRenderer.invoke("two-places:state"),
-    accept: key => ipcRenderer.invoke("two-places:accept", String(key)),
-    dismiss: key => ipcRenderer.invoke("two-places:dismiss", String(key)),
-    onChanged: cb => {
-      const handler = () => cb();
-      ipcRenderer.on("two-places:changed", handler);
-      return () => ipcRenderer.removeListener("two-places:changed", handler);
     },
   },
   // Who is signed in on this device: this app's own pages only (main checks the sender). No token ever comes through here.

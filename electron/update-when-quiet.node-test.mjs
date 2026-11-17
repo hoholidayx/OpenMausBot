@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 
-import { createOneHome, QUIET_MS } from "./one-home.mjs";
+import { QUIET_MS } from "./home-window.mjs";
 import { createUpdaterCoordinator } from "./updater-coordinator.mjs";
 import { AWAY_MS, awayNow, createQuietInstall, installFailed, launchAfter, OUT_OF_SIGHT_MS, QUIET_TRIES, REOPEN_MS, updateSeen } from "./update-when-quiet.mjs";
 import { quietSignals } from "./update-when-quiet-main.mjs";
@@ -100,23 +100,6 @@ test("quiet is checked again right before installing: someone who typed while th
   assert.equal(w.record.value, null, "nothing was tried");
 });
 
-test("never while the move is in a frozen phase, or waits for its quiet moment, or switches over", async () => {
-  for (const phase of ["wait", "freeze", "final", "check", "switch"]) {
-    const journal = { v: 1, phase, cloud: { origin: CLOUD, account: "acct-1", machine: CLOUD } };
-    const home = createOneHome({ journal: { read: () => journal, write: () => {} }, cloud: () => null, send: { snapshot: () => ({ running: null }) }, local: {}, session: async () => ({}) });
-    assert.equal(home.busy(), true, phase);
-    const w = world({ busy: home.busy() ? "move" : null });
-    assert.equal(await w.quiet.look(), false, phase);
-    assert.deepEqual(w.installs, [], phase);
-  }
-  const copying = { v: 1, phase: "copy", retryAt: 1, cloud: { origin: CLOUD, account: "acct-1", machine: CLOUD } };
-  let running = null;
-  const home = createOneHome({ journal: { read: () => copying, write: () => {} }, cloud: () => null, send: { snapshot: () => ({ running }) }, local: {}, session: async () => ({}) });
-  assert.equal(home.busy(), false, "a copy waiting to try again is not cut into");
-  running = { reason: "move" };
-  assert.equal(home.busy(), true, "a pass carrying things to My Cloud is");
-});
-
 test("never while a Live call runs here or on the Cloud the window shows, and My Cloud asleep is not asked", async () => {
   const asked = [];
   const reply = (body, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
@@ -124,7 +107,7 @@ test("never while a Live call runs here or on the Cloud the window shows, and My
   const signals = quietSignals({
     powerMonitor: { getSystemIdleTime: () => 700, getSystemIdleState: () => "idle", on: () => {} },
     window: () => null, lastInput: () => 0, busy: () => null,
-    local: (route) => { asked.push(route); return route === "/api/move/freeze" ? reply({ frozen: false }) : reply({ call: here }); },
+    local: (route) => { asked.push(route); return route === "/api/workspace/activity" ? reply({ frozen: false }) : reply({ call: here }); },
     place: () => CLOUD, asleep: () => asleep,
     cloudFetch: (url, init) => { asked.push(url); assert.equal(init.headers["x-omb-background"], "1"); return reply({ call: there }); },
   });
@@ -140,7 +123,7 @@ test("never while a Live call runs here or on the Cloud the window shows, and My
   asked.length = 0;
   asleep = true;
   assert.equal(await signals.work(), null);
-  assert.deepEqual(asked, ["/api/move/freeze", "/api/live/call"], "a sleeping Cloud is never woken to ask");
+  assert.deepEqual(asked, ["/api/workspace/activity", "/api/live/call"], "a sleeping Cloud is never woken to ask");
 });
 
 test("the server's own answer to the move (a turn, a routine run, a sign-in) holds it by what it is", async () => {

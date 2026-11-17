@@ -42,10 +42,6 @@ test("a server of the person's own their bots moved to is no Cloud: no sign-in, 
   await w.home.show();
   assert.deepEqual([w.local, w.went, w.fetched, w.pairs], [[false], [], [], 0], "never the sign-in screen, nor any Cloud or the Admin asked");
   assert.equal(w.home.cloudOrigin(), null);
-  const moving = world({ journal: null, marker: { frozen: true, cloud: garage, place: "Garage server" }, state: { status: "signed-out" }, ownMove: { phase: "final", name: "Garage server" } });
-  assert.deepEqual(moving.home.view(), { screen: "moving", name: "Garage server" });
-  moving.ownMove = { phase: "copy", name: "Garage server" };
-  assert.deepEqual(moving.home.view(), { screen: "opening" }, "still home here: nothing is stopped yet");
 });
 
 test("a frozen copy left on this computer's own page goes back to the server it names, or says where the bots are", async () => {
@@ -104,14 +100,6 @@ test("a frozen copy left on this computer's own page goes back to the server it 
   await waiting;
   assert.deepEqual(stuck.home.view(), { screen: "offline", reason: "Your bots are on Garage server." }, "the screen says where they are");
   assert.equal(stuck.timers.length, 1, "and looks again by itself");
-  // A move still under way is that screen's to say, not this one's.
-  const moving = world({ journal: null, marker, state: { status: "signed-out" }, ownMove: { phase: "final", name: "Garage server" }, url: `${LOCAL}${HOME_SCREEN_PATH}` });
-  await moving.home.show();
-  assert.deepEqual(moving.reopened, [], "an unfinished move is not opened");
-  assert.deepEqual(moving.home.view(), { screen: "moving", name: "Garage server" });
-  assert.equal(moving.home.failed(`${garage}/chats`, -105), true, "the move's own load failure is answered here too");
-  assert.deepEqual(moving.home.view(), { screen: "moving", name: "Garage server" }, "never the offline screen in the middle of a move");
-  assert.equal(moving.timers.length, 1, "and it looks again by itself");
   const keptBack = world({ journal: { ...done(), phase: "back" }, marker, state: { status: "signed-out" }, url: `${LOCAL}${HOME_SCREEN_PATH}` });
   await keptBack.home.show();
   assert.deepEqual(keptBack.reopened, [{ origin: garage, place: "Garage server" }], "a journal that keeps this computer does not hide the marker");

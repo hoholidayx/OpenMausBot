@@ -61,16 +61,6 @@ export function parseMemberClaim(body: Record<string, unknown>, team: CloudTeam)
   return { ok: true, member: { email: email.trim().toLowerCase(), role } };
 }
 
-/** A member's own connection (a Composio share, an MCP sign-in, a mailbox) has no path into a team. */
-export function personalConnectionRefusal(team: Pick<CloudTeam, "name">, what = "it"): string {
-  return `Personal connections never enter ${team.name}. Ask an admin to connect ${what} for ${team.name}.`;
-}
-
-/** A computer's one-time move goes to its owner's My Cloud only: nothing personal is carried into a team. */
-export function personalMoveRefusal(team: Pick<CloudTeam, "name">): UserError {
-  return userError("serverError.team.personalMove", { team: team.name });
-}
-
 /** On a team a login belongs to the whole team, so only an admin saves one. */
 export function memberLoginRefusal(team: Pick<CloudTeam, "name">): UserError {
   return userError("serverError.team.memberLogin", { team: team.name });

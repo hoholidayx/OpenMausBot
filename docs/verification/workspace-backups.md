@@ -7,7 +7,7 @@ encrypted `.ombbackup` download. Import uses a native file input, password,
 validated preview and an explicit **REPLACE** confirmation. It is replacement,
 not an additive team import. Click **Restart and restore** on the local desktop
 to quit and reopen it; closing only its window does not restart the server.
-A hosted server must restart before its browser's **Retry** can finish recovery.
+A self-hosted server must restart before its browser's **Retry** can finish recovery.
 No restore writes into a running Store. The native-button workflow is exercised
 by the [company-backup fixture](company-backups.md).
 
@@ -21,6 +21,10 @@ Saved account credentials and connections are not transferred. Reconnect on a
 new machine; existing credentials and connections on the destination remain
 unchanged. Conversations, drafts and user files are not automatically redacted
 and may still contain pasted secrets, so the archive must remain private.
+
+A workspace frozen by an earlier migration remains available for export.
+Restore the archive into a separate workspace. Device-specific migration
+markers stay on the original machine.
 
 ## Launch and drive
 

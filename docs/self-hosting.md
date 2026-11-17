@@ -769,8 +769,7 @@ OpenMausBot item pauses it with your Clouds. The server needs nothing turned on:
 it takes a computer from its owner's pairings only, and a phone code or another
 person's pairing is never asked. Set `features.sharedComputers` to `false` in the
 server's config to turn this off, or to `true` to let every paired session lend
-its computer. Nothing is shared without that Allow, unless you make the server
-your bots' home (below). In **Settings → Servers → Computer
+its computer. Sharing starts after you choose Allow. In **Settings → Servers → Computer
 access**, choose read-only folders and optionally allow edits. Unrestricted
 terminal and screen/app control are separate opt-ins, confirmed in a native
 dialog. They can access information outside the selected folders. Share only
@@ -779,36 +778,15 @@ A folder read takes a file of up to 2 MiB and a write at most 256 KiB;
 transfers do not follow links or delete files. Local screen control also needs OS permissions and a supported
 desktop driver. Microphone access is not included.
 
-**Make the server your bots' home.** Bots work together only within one
-place: bots on this computer can't reach bots on the server. To bring them
-together, right-click the server's circle at the window's left edge and choose
-**Make <server> my home**. The app moves this computer's bots, chats, memory,
-skills, logins, apps and keys, and routines there the way it moves them to My
-Cloud: everything is copied while you keep working, then at a quiet moment this
-computer stops for good, the rest goes, both sides are checked, and the server
-switches on what was on here, so no routine ever runs twice. The account area
-says how it goes, and after a day of failing it says the move needs you, with
-Try again. Afterwards the server is what the window opens, and this computer
-works for it by itself as it does for My Cloud: no access dialog, only the
-menu bar's item with Pause.
+**Move a workspace by backup.** In **Settings → Import & export**, export an
+encrypted full backup from the source and import it on the destination. Restore
+replaces the destination workspace after confirmation and restart. Reconnect
+external accounts and providers on the destination. Restored routines and
+webhooks start paused.
 
-Until then, a bot that asks for a teammate living in your other place says where
-that teammate lives and how to bring them together, instead of only that it
-can't reach it: the app tells each place of yours the names of the bots your
-other places have, and nothing more.
-
-This is offered only for a server that is yours alone: you paired with it as an
-admin, and its sign-in list names no members and no other admin (Settings →
-People). A server other people sign in to keeps the explicit **Share this
-computer?** flow above, and its bots stay where they are. Both sides need this
-release: an older server says to update it first.
-
-To move by hand instead, export a backup from this computer in **Settings →
-Import & export → Export backup**, then import it on the server in **Settings → Import & export
-→ Import backup**. API keys, engine sign-ins and paired devices stay where they
-are on both sides; routines arrive paused. An older desktop app's **Copy this
-computer here** is answered with "Update OpenMausBot to bring your bots here by
-itself."
+A copy frozen by an earlier migration is available for export. Use a separate
+destination for recovery to keep the original copy inactive. See the
+[workspace backup workflow](verification/workspace-backups.md).
 
 Only conversations you start yourself on that server can use what you share;
 other people's bots, routines and webhooks there cannot. Keys and sign-in

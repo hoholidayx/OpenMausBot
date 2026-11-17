@@ -38,6 +38,20 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); rmSync(dir, { recursive: true, force: true }); });
 
+it("drops saved migration sessions while restoring ordinary pairings", () => {
+  const ordinary = registry.issue({ label: "Existing device", scopes: ["admin", "client"] });
+  const retired = registry.issue({ label: "Transfer session", scopes: ["admin", "client"] });
+  registry.close();
+  const stored = JSON.parse(readFileSync(file(), "utf8"));
+  stored.sessions.find((row: { id: string }) => row.id === retired.session.id).moveIn = "old-bot";
+  writeFileSync(file(), JSON.stringify(stored));
+
+  registry = new SessionRegistry({ file: file(), now: () => clock });
+  expect(registry.authenticate(ordinary.token)?.id).toBe(ordinary.session.id);
+  expect(registry.authenticate(retired.token)).toBeNull();
+  registry.close();
+});
+
 describe("the native-app encoding of a pairing window", () => {
   it("redeems the same window as the typed code, and consumes it", () => {
     const { code, credential } = registry.openPairing({ label: "Pixel" });

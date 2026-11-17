@@ -121,6 +121,7 @@ describe("the Settings window", () => {
       expect(ascending(order(html, ['data-settings-block="bring-in"', 'data-import-section="grok"', "Move from Grok Bot", 'data-import-section="apps"',
         "From your AI apps", "Import backup", 'data-settings-block="take-out"', "Export full backup"]))).toBe(true);
       expect(html).not.toContain("Bring in a bot from another app");
+      expect(html).not.toMatch(/data-settings-block="move"|Move to My Cloud|Make .* my home/i);
     });
 
     it("draws the Grok Bot mark in the row's leading slot, and opens nothing until Start is pressed", () => {

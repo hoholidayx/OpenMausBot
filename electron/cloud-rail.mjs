@@ -32,7 +32,7 @@ const machineProgress = machine => {
 
 /** One saved place as a circle: what it is, its colour (and who may change it from the rail) and how it is doing, from
  * the session's word for it. */
-function circle(entry, { activeId, mine, state, offers, waiting }) {
+function circle(entry, { activeId, mine, state, waiting }) {
   const connected = state?.status === "connected" ? state : null;
   const listed = connected?.clouds?.find(cloud => cloud.origin === entry.origin) ?? null;
   const kind = entry.origin === mine || entry.home || entry.cloud ? "cloud" : entry.team ? "team" : "server";
@@ -44,8 +44,7 @@ function circle(entry, { activeId, mine, state, offers, waiting }) {
   const paint = railPaint(placeLook(entry, { clouds: connected?.clouds ?? null, homeOrigin: mine }), color);
   return { id: entry.id, name: entry.name, color, kind, opens: true, ...(paint ? { paint } : {}), ...(entry.id === activeId ? { active: true } : {}),
     ...(progress !== null ? { progress } : {}), ...(problem || waiting(entry.id) ? { attention: true } : {}), ...(listed?.managed === false ? serverState(listed, connected?.latestVersion ?? null) : {}),
-    ...(kind === "cloud" && cloudState(listed) === "ended" ? { ended: true } : {}), ...(listed?.removable && kind === "cloud" ? { removable: true, cloudId: listed.id } : {}), ...(kind === "server" ? { removable: true, forget: true } : {}),
-    ...(kind === "server" && offers(entry) ? { makeHome: true } : {}) };
+    ...(kind === "cloud" && cloudState(listed) === "ended" ? { ended: true } : {}), ...(listed?.removable && kind === "cloud" ? { removable: true, cloudId: listed.id } : {}), ...(kind === "server" ? { removable: true, forget: true } : {}) };
 }
 
 /** My Cloud's saved place that the verified session's list no longer has (its owner removed it from their list, or the Admin
@@ -62,7 +61,6 @@ const unlisted = (entry, { clouds, home, mine }) => Array.isArray(clouds) && (en
  * checkout or its setup), never an address. My Cloud's saved place leaves once the session's list doesn't have it (removed
  * from the list). Fewer than RAIL_MIN_PLACES places in all, This computer counted while it is one: no rail at all, the window
  * as it was, unless the person has a Cloud of their own: then its one circle is the rail, for the ＋ that buys another.
- * `offers(entry)`: a server connected by hand whose menu offers Make … my home (own-home-main.mjs). `waiting(id)`: inbox lines
  * wait in that place, and the window shows another (place-inbox-watch.mjs). `accounts`: the other accounts signed in on this
  * device, each with its places as they were kept: grouped by account after these (withAccounts). `profiles`: the workspaces
  * of this computer's own it may open (local-profiles.mjs; `active`: the one on screen, `settling`: it opens once that bot
@@ -70,7 +68,7 @@ const unlisted = (entry, { clouds, home, mine }) => Array.isArray(clouds) && (en
  * computer opens once that bot finishes.
  * @param {{ saved: { environments: any[], activeId: string }, home?: string | null, mine?: string | null, state?: any, offers?: (entry: any) => boolean, waiting?: (id: string) => boolean, accounts?: any[], profiles?: Array<{ id: string, name?: string | null, color?: string | null, swatch?: string | null, active?: boolean, settling?: string }>, computerSettling?: string | null }} input
  */
-export function railPlaces({ saved, home = null, mine = null, state = null, offers = () => false, waiting = () => false, accounts = [], profiles = [], computerSettling = null }) {
+export function railPlaces({ saved, home = null, mine = null, state = null, waiting = () => false, accounts = [], profiles = [], computerSettling = null }) {
   const connected = state?.status === "connected" ? state : null;
   const clouds = Array.isArray(connected?.clouds) ? connected.clouds : [];
   const order = entry => { const at = clouds.findIndex(cloud => cloud.origin === entry.origin); return at === -1 ? clouds.length : at; };
@@ -78,7 +76,7 @@ export function railPlaces({ saved, home = null, mine = null, state = null, offe
   const remote = saved.environments.filter(entry => entry.kind !== "local" && entry.origin && !(connected && unlisted(entry, { clouds: connected.clouds, home, mine })))
     .map((entry, index) => ({ entry, index }))
     .sort((a, b) => rank(a.entry) - rank(b.entry) || order(a.entry) - order(b.entry) || a.index - b.index)
-    .map(({ entry }) => circle(entry, { activeId: saved.activeId, mine, state: connected, offers, waiting }));
+    .map(({ entry }) => circle(entry, { activeId: saved.activeId, mine, state: connected, waiting }));
   const making = otherOwnClouds(clouds).filter(cloud => !cloud.origin && ["checkout", "setting_up"].includes(cloud.status))
     .map(cloud => ({ id: `${PENDING}${cloud.id}`, name: cloud.name, color: swatchColor(cloud.color), kind: "cloud", opens: true, progress: cloudSetupProgress(cloud) ?? 0,
       ...(cloud.status === "checkout" ? { waiting: true } : {}), cloudId: cloud.id }));
@@ -109,13 +107,13 @@ const CHOICES = Object.freeze(["link", "address"]);
  * page (`lists`) reads the list and opens or adds a place; ＋'s buying sheet also runs on a page `trusted` vouches for
  * (the rail's, or this computer's own). Any other page learns only whether the rail stands beside it (`beside`).
  * `places()` is railPlaces' list now; `open(id)` main's own switch; `add` the ＋ sheet's fixed actions; `account()` the
- * MausBot Cloud sign-in; `targets()` the pages told when something changed; `makeHome(id)` starts the move to a server
- * of the person's own (own-home-main.mjs `start`). `switchAccount(id)`: that account becomes the one in use (cloud-accounts.mjs).
+ * MausBot Cloud sign-in; `targets()` the pages told when something changed.
+ * `switchAccount(id)`: that account becomes the one in use (cloud-accounts.mjs).
  * `openProfile(id)`: the window shows that workspace of this computer's own (local-profiles.mjs `open`). `local`: those
  * workspaces' ＋, names, colours and removal (local-profiles.mjs), and the end of a switch still waiting when another place opens.
  * `ask(id, run)`: a circle's click, listed at once, `run` told when a newer one came (place-switch.mjs); `switching()`: the place it opens, or null.
  */
-export function installCloudRail({ ipcMain, guard, trusted, lists = trusted, beside = () => false, places, open, add, account, openCloud, targets, makeHome = null, forget = null, switchAccount = null, openProfile = null, local = null, ask = (_id, run) => run(() => false), switching = () => null, t = nativeText.englishText.t }) {
+export function installCloudRail({ ipcMain, guard, trusted, lists = trusted, beside = () => false, places, open, add, account, openCloud, targets, forget = null, switchAccount = null, openProfile = null, local = null, ask = (_id, run) => run(() => false), switching = () => null, t = nativeText.englishText.t }) {
   let sent = "";
   const allowed = (channel, handler) => guard((event, ...args) => {
     if (!trusted(event)) throw new Error(`${channel} is only available in this app's window`);
@@ -160,12 +158,6 @@ export function installCloudRail({ ipcMain, guard, trusted, lists = trusted, bes
     if (place.forget) return { outcome: forget ? ((await forget(place.id)) === false ? "failed" : "removed") : "unsupported" };
     const client = account();
     return { outcome: client?.hideCloud ? (await client.hideCloud(place.cloudId)).outcome : "unsupported" };
-  });
-  // Make … my home, from a circle's menu: only a server main listed with it, by main's own word for it.
-  listed("workspaces:make-home", (_event, id) => {
-    const place = places().find(entry => entry.id === plain(id) && entry.makeHome);
-    if (!place || !makeHome) throw new Error(t("native.home.notAvailable"));
-    return makeHome(place.id);
   });
   // A workspace of this computer's own: a new one from ＋ (on the rail's page, or this computer's own from the Server menu),
   // and a name, a colour or its removal from its circle's menu, only for one main listed.

@@ -35,7 +35,6 @@ export function homeScreenText(view: HomeView | null, now = Date.now()): { title
   if (view?.screen === "checkout") return { title: named("cloudHome.checkout", "cloudHome.checkoutNamed"), body: null, reason: null, action: null, busy: false };
   if (view?.screen === "payment") return { title: named("cloudHome.payment", "cloudHome.paymentNamed"), body: t("cloudHome.paymentBody"), reason: null, action: "manage", busy: false };
   if (view?.screen === "waking") return { title: t("homeScreen.waking"), body: null, reason: null, action: null, busy: true };
-  if (view?.screen === "moving") return { title: named("homeScreen.moving", "homeScreen.movingNamed"), body: null, reason: null, action: null, busy: true };
   return { title: named("homeScreen.opening", "homeScreen.openingNamed"), body: null, reason: null, action: null, busy: true };
 }
 

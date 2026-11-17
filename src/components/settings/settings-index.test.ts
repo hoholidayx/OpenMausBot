@@ -195,6 +195,7 @@ describe("search", () => {
     it("finds each row by its natural words", () => {
       const found = (query: string) => find(query, owner).map((hit) => hit.entry.id);
       expect(found("import")).toEqual(expect.arrayContaining(["page:transfer", "grok-move", "ai-apps", "backup-import", "bring-in"]));
+      expect(found("move to cloud")).not.toContain("move");
       expect(found("export")).toEqual(expect.arrayContaining(["page:transfer", "backup-export", "take-out"]));
       expect(found("backup")).toEqual(expect.arrayContaining(["backup-export", "backup-import"]));
       expect(first("restore", owner)?.id).toBe("backup-import");

@@ -1,33 +1,12 @@
-// A computer whose bots moved to a Cloud nobody here can reach (nobody is signed in, or the account signed in has no way to
-// that Cloud) isn't a dead end: its window opens a clean workspace, in a folder of its own beside this computer's data folder,
-// and says the bots are safe in their Cloud. Signing in as the account they moved with goes to that Cloud as ever.
-//
-// The folder swap is the one named local environments use (environment-switch.mjs): one server at a time, on the same port.
-// So this computer's frozen copy isn't running while the clean workspace is: nothing in it can run, its freeze isn't touched,
-// and no page of it can show. It sits beside the data folder, not in it: a move carries that folder and forgetting the frozen
-// copy empties it, and neither ever reaches this one. Nothing made here is merged anywhere.
-//
-// A person signed in to the Cloud their bots moved to can open a workspace of this computer's own from the rail too: a
-// profile, one folder per profile under one folder beside the data folder, named by its stable id. It is fresh, the same
-// swap opens it, and this computer stays lent to their Cloud while it runs, since that account is the one lending answers to.
-//
-// Security: the move's code knows one server, this computer's own copy, the one on its own data folder. A move, a top-up, a
-// send or a lift pointed at any other folder's server (the clean workspace, a profile, a named local environment) would
-// carry and freeze that folder instead, upload it over the person's Cloud, or report a freeze lifted that wasn't, so while
-// any other folder runs `realCopy` answers only what the copy's own files can say, and refuses the rest. `holding` brings
-// the copy back first from the clean workspace or a profile for the two things that must reach it (lifting the freeze,
-// forgetting the copy); a named local environment the person chose stays, and those wait until they open the copy again.
 import nodeFs from "node:fs";
 import path from "node:path";
 
 import { WELCOME_VERSION } from "./onboarding-record.mjs";
-import nativeText from "./native-text.cjs";
 
 /** This first conversation stays quiet: no corner notices until a reply, no spotlights (src/lib/onboarding.ts MET_CHIEF_HINT). */
 const QUIET_HINT = "met-chief-v1";
 /** The popup that offers to bring bots here (src/lib/notices.ts GROK_MOVE_NOTICE) would read badly beside a line saying they're safe in the Cloud. */
 const NO_MOVE_POPUP = "grok-move-2026-11";
-const CLEAN = "clean-workspace";
 
 export const cleanWorkspaceDir = (dataDir) => `${dataDir}-clean`;
 export const profilesDir = (dataDir) => `${dataDir}-profiles`;
@@ -56,7 +35,7 @@ export function cleanWorkspaceConfig(language = null, now = new Date()) {
  * `swap`: starts the server on that folder instead, and moves the window to its page. `changed`: the clean workspace started or
  * ended, so whatever depends on it (lending) looks again.
  */
-export function createCleanWorkspace({ dataDir, running, swap, allowed = () => true, changed = () => {}, log = () => {}, fs = nodeFs, t = nativeText.englishText.t }) {
+export function createCleanWorkspace({ dataDir, running, swap, allowed = () => true, changed = () => {}, log = () => {}, fs = nodeFs }) {
   const folder = () => cleanWorkspaceDir(dataDir());
   const stranded = () => running() === folder();
   const profile = () => {
@@ -64,7 +43,7 @@ export function createCleanWorkspace({ dataDir, running, swap, allowed = () => t
     return typeof dir === "string" && path.dirname(dir) === profilesDir(dataDir()) && PROFILE_ID.test(path.basename(dir)) ? path.basename(dir) : null;
   };
   const active = () => stranded() || profile() !== null;
-  let held = 0, swapping = false;
+  let swapping = false;
   /** `dir` is this computer's own data folder, however it is spelled; no folder at all (no server) is not. */
   const own = (dir) => typeof dir === "string" && dir !== "" && path.resolve(dir) === path.resolve(dataDir());
   /** This computer's own copy is the server that answers now: its server runs on the data folder, and isn't on its way to
@@ -117,7 +96,7 @@ export function createCleanWorkspace({ dataDir, running, swap, allowed = () => t
      * environment the person chose is no frozen copy, so it stays, and so does a profile. */
     enter: () => inTurn(async () => {
       if (active()) return true;
-      if (!allowed() || held > 0) return false;
+      if (!allowed()) return false;
       if (!own(running())) return true;
       try { seed(folder()); } catch (error) { log(`clean workspace: could not set it up (${error?.message ?? error})`); return false; }
       return swapTo(folder());
@@ -126,7 +105,7 @@ export function createCleanWorkspace({ dataDir, running, swap, allowed = () => t
     open: (id = DEFAULT_PROFILE) => inTurn(async () => {
       if (!PROFILE_ID.test(id)) return false;
       if (profile() === id) return true;
-      if (!allowed() || held > 0) return false;
+      if (!allowed()) return false;
       const dir = profileDir(dataDir(), id);
       try { seed(dir); } catch (error) { log(`profile ${id}: could not set it up (${error?.message ?? error})`); return false; }
       return swapTo(dir);
@@ -134,28 +113,5 @@ export function createCleanWorkspace({ dataDir, running, swap, allowed = () => t
     leave,
     /** Settles once the swaps asked for so far are done. */
     settled: () => queue,
-    /** Runs `work` on this computer's own copy, its server back first, and nothing opens the clean workspace meanwhile. */
-    async holding(work) {
-      held++;
-      try {
-        if (!(await leave())) throw new Error(t("native.home.ownCopyNotReady"));
-        return await work();
-      } finally { held--; }
-    },
-    /** `request` (this computer's server) as the move may use it: while any other folder runs, what the frozen copy's own
-     * files say, and everything else refused. */
-    realCopy(request) {
-      return async (route, init) => {
-        if (ownCopy()) return request(route, init);
-        if ((init?.method ?? "GET").toUpperCase() === "GET") {
-          if (route === "/api/move/freeze") return Response.json(marker());
-          if (route === "/.well-known/openmausbot/environment") {
-            const id = readOwn("environment-id")?.trim();
-            return Response.json(id ? { environmentId: id } : {});
-          }
-        }
-        throw Object.assign(new Error(t("native.home.ownCopyNotRunning")), { code: CLEAN });
-      };
-    },
   };
 }

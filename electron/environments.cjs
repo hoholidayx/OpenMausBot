@@ -73,10 +73,10 @@ function workspaceSenderAllowed(event, contents, state, localOrigin) {
 }
 
 /** Native menu choices, never renderer-supplied destinations or callbacks. `iconFor`: a saved colour's small dot, when main can draw one.
- * `places`: the one line saying which side has which bots, shown first; `copyToCloud`: the send line under the list. `foldSublabels`: where menus show no sublabels (Windows, Linux), My Cloud's status line
+ * `places`: the one line saying which side has which bots, shown first. `foldSublabels`: where menus show no sublabels (Windows, Linux), My Cloud's status line
  * joins its name instead of vanishing. `locals`: the workspaces of this computer's own (local-profiles.mjs), each opened by
  * `onLocal(id)` (`shown`: the one on screen); `onNewLocal`: a new one, named on this computer's own page. */
-function workspaceMenuTemplate(state, { onSwitch, onConnect, onForget, sublabels = {}, iconFor = null, places = null, copyToCloud = null, foldSublabels = false, homeOrigin = null, locals = [], onLocal = null, onNewLocal = null, text = englishText }) {
+function workspaceMenuTemplate(state, { onSwitch, onConnect, onForget, sublabels = {}, iconFor = null, places = null, foldSublabels = false, homeOrigin = null, locals = [], onLocal = null, onNewLocal = null, text = englishText }) {
   const active = activeEnvironment(state), { t } = text;
   const own = onLocal ? locals.map((local) => ({ id: `workspace-local-${local.id}`, label: local.label, type: "radio", checked: local.shown === true, click: () => onLocal(local.id) })) : [];
   const fresh = onNewLocal ? [{ id: "workspace-new-local", label: t("native.menu.newLocal"), click: onNewLocal }] : [];
@@ -94,7 +94,6 @@ function workspaceMenuTemplate(state, { onSwitch, onConnect, onForget, sublabels
         ...(icon ? { icon } : {}), type: "radio", checked: entry.id === state.activeId, click: () => onSwitch(entry.id),
       };
     }),
-    ...(copyToCloud ? [{ id: "workspace-copy-to-cloud", label: copyToCloud.label, click: copyToCloud.click }] : []),
     { type: "separator" },
     ...fresh,
     { id: "workspace-connect", label: t("native.menu.connect"), click: onConnect },
@@ -220,30 +219,19 @@ function placesLine({ cloudName = "My Cloud", onCloud, localBots, text = english
   return names ? text.t("native.places.hereWith", { cloud, names }) : text.t("native.places.hereNone", { cloud });
 }
 
-/** One line under My Cloud: what of this computer's is not on it yet, with Send (Send to My Cloud, cloud-send.mjs), or
- * the way to the side-by-side page when nothing waits. */
-function sendLine({ cloudName = "My Cloud", waiting }) {
-  const total = waiting?.total ?? 0, bots = waiting?.bots ?? 0;
-  if (!total) return null;
-  const what = bots ? `${bots === 1 ? "1 bot" : `${bots} bots`}${total > bots ? ` and ${total - bots} more` : ""}` : total === 1 ? "1 change" : `${total} changes`;
-  return `${what} not on ${cloudName} · Send`;
-}
-
-/** The switcher's extra options once the person has My Cloud: the places line, the send line, and the Cloud's status
+/** The switcher's extra options once the person has My Cloud: the places line and the Cloud's status
  * beside its name where menus show no sublabels. Bot names come from this computer's own server; when it does not
  * answer at once the line is left out, never guessed. `home`: the bots moved and home is My Cloud, which the line says
- * only then, whichever place the window shows. `send`: what waits (main's last comparison) and its actions. */
-async function placesMenuOptions({ cloud, home = false, homeOrigin = null, platform, port, send = null, text = englishText,
+ * only then, whichever place the window shows. */
+async function placesMenuOptions({ cloud, home = false, homeOrigin = null, platform, port, text = englishText,
   localBots = () => fetch(`http://127.0.0.1:${port}/api/bots`, { signal: AbortSignal.timeout(700) }).then((response) => response.json()) }) {
   const foldSublabels = platform !== "darwin";
   if (homeOrigin) return { foldSublabels, homeOrigin };
   if (!cloud) return { foldSublabels };
   let names = null;
   try { const listed = await localBots(); names = Array.isArray(listed?.bots) ? listed.bots.map((bot) => bot?.name) : null; } catch {}
-  const waiting = sendLine({ cloudName: cloud.name, waiting: send?.waiting });
   return {
     foldSublabels,
-    ...(send ? { copyToCloud: waiting ? { label: waiting, click: send.onSend } : { label: `This computer and ${cloud.name}…`, click: send.onOpen } } : {}),
     ...(names ? { places: placesLine({ cloudName: cloud.name, onCloud: home === true, localBots: names, text }) } : {}),
   };
 }
@@ -488,7 +476,6 @@ module.exports = {
   workspaceMenuTemplate,
   placesLine,
   placesMenuOptions,
-  sendLine,
   workspaceNavigationAllowed,
   workspaceSenderAllowed,
   workspaceSummary,

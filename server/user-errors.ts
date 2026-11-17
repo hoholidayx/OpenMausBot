@@ -29,7 +29,6 @@ export const USER_ERROR = {
   "serverError.chat.busyInRoom": "this bot is working in channel {room}",
   "serverError.chat.answerSent": "That answer is already on its way.",
   "serverError.chat.savingCredential": "this task is securely saving a credential — try again when it finishes",
-  "serverError.team.personalMove": "Moving a computer's bots, chats and logins goes to My Cloud only. Nothing personal comes into {team}.",
   "serverError.team.memberLogin": "On {team} only an admin can save a login, and it is then used by every bot in {team}.",
   "serverError.team.signInFirst": "Sign in to {team} in the app first.",
   "serverError.team.ownAppsNeedKey": "Your own apps can't be connected on {team} yet. Ask an admin to add the team's Composio key.",

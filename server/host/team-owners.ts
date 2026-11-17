@@ -3,7 +3,6 @@
 import { botOwner } from "../../shared/bot-owner.ts";
 import { createAskRouting, type AskViewer } from "../ask-routing.ts";
 import type { Audience } from "../audience.ts";
-import { setCreatedBy } from "../bot-owners.ts";
 import type { CloudTeam } from "../cloud-team.ts";
 import { personKey } from "../person-key.ts";
 import type { RequestAuth } from "../request-auth.ts";
@@ -60,10 +59,6 @@ export function createTeamOwners(deps: TeamOwnersDeps) {
     /** The Admin said this member left: what reported to them goes to the Admins. */
     left(email: string): void {
       people?.left(email);
-    },
-    /** Bots moved in before owners were recorded report to whoever moved them, unless they left. */
-    backfill(moveIns: Record<string, { email?: string }>): void {
-      for (const [botId, move] of Object.entries(moveIns)) if (move.email && !people?.gone(move.email)) setCreatedBy(deps.store(), botId, move.email);
     },
   };
 }

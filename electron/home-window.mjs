@@ -1,4 +1,4 @@
-// The desktop window once the person's bots moved to My Cloud (one-home.mjs): every path that shows a window goes
+// The desktop window for saved and previously migrated workspaces: each path that shows a window goes
 // through show(), which opens the place asked for (My Cloud, or a team's Cloud from the verified session), waking My
 // Cloud through the Admin and signing in again by itself, or this computer's own screen at HOME_SCREEN_PATH while that
 // place can't be reached, its plan has a problem, or this device must sign in again. Until the move is done, and for
@@ -12,7 +12,6 @@ import { cloudSetupOf, cloudUnreachableCause, cloudUnreachableText, machineSetup
 import { cloudMachine, cloudState, myCloudOf, otherOwnClouds, ownCloud } from "./cloud-list.mjs";
 import { asleepAnswer, BACKGROUND_HEADERS, openSleepingCloud, SIGNED_IN_MS } from "./cloud-power.mjs";
 import nativeText from "./native-text.cjs";
-import { awayIn, parseJournal, sameCloud } from "./one-home.mjs";
 
 export const HOME_SCREEN_PATH = "/home";
 /** The look at an awake My Cloud before the window moves there: under 3 s, so the offline screen shows within 3 s. */
@@ -50,7 +49,6 @@ export const SPLASH_TEXT = Object.freeze({ opening: splashText("opening"), wakin
 const PLAN_PROBLEMS = new Set(["stopped", "payment-problem", "failed"]);
 /** The screens of a listed Cloud that isn't running (`cloudScreen`): nothing to look again for, the session's word moves them. */
 const NOT_RUNNING = new Set(["ended", "checkout", "payment"]);
-const MOVING = new Set(["freeze", "final", "check"]);
 const DEFAULT_TIMERS = {
   set: (work, ms) => { const timer = setTimeout(work, ms); timer.unref?.(); return timer; },
   clear: (timer) => clearTimeout(timer),
@@ -59,8 +57,11 @@ const DEFAULT_TIMERS = {
 
 const originOf = (url) => { try { return new URL(url).origin; } catch { return null; } };
 
-/** The Cloud this computer moved to, at the address the verified session gives My Cloud now when My Cloud is that Cloud by
- * its id or by an address it had before it moved to another provider, for the journal's own account; as kept otherwise. */
+const AWAY = new Set(["switch", "done", "keeping"]);
+const awayIn = (journal) => AWAY.has(journal?.phase ?? "");
+const sameCloud = (cloud, kept) => cloud.origin === kept.origin || (Boolean(cloud.id) && cloud.id === kept.id)
+  || (Array.isArray(cloud.formerOrigins) && cloud.formerOrigins.includes(kept.origin) && !(cloud.id && kept.id && cloud.id !== kept.id));
+
 function followedCloud(kept, state) {
   const mine = myCloudOf(state);
   if (!mine?.origin || !kept.origin || mine.origin === kept.origin || (kept.account && kept.account !== state.account?.id)) return kept;
@@ -207,10 +208,9 @@ export function createReadyClock({ store = null, now = Date.now } = {}) {
  *   timers?: { set(work: () => void, ms: number): unknown, clear(timer: unknown): void, every(work: () => void, ms: number): unknown },
  *   hosts?(): { clearHostResolverCache(): Promise<void>, resolveHost(host: string, options?: { cacheUsage?: "allowed" | "staleAllowed" | "disallowed" }): Promise<{ endpoints: unknown[] }> } | null,
  *   readyStore?: { read(): unknown, write(value: unknown): void },
- *   ownMove?(): { phase: string, name: string } | null,
  *   log?(line: string): void,
  *   t?(key: string, params?: Record<string, string | number>): string,
- * }} deps `ownMove()`: the move to a server of the person's own (own-home-main.mjs), whose freeze is never My Cloud's.
+ * }} deps
  * `hosts`: the window's Electron session, for its own resolver and host cache. `readyStore`: when My Cloud
  * became ready (createReadyClock). `go(url, origin, place)`: main's one way to move the window, to My Cloud or a team's Cloud (`origin`, with the
  * `place` it is) or this computer's screen (null). `showLocal(leaving)`: the window as it was before the move (this computer's page, or a saved server it
@@ -224,11 +224,11 @@ export function createReadyClock({ store = null, now = Date.now } = {}) {
  * out changed.
  */
 export function createHomeWindow(deps) {
-  const { journal, frozen, account, restored = async () => {}, window, ensureWindow, localOrigin, cookieFetch, power, go, showLocal, clean = null,
+  const { journal = () => null, frozen = async () => null, account, restored = async () => {}, window, ensureWindow, localOrigin, cookieFetch, power, go, showLocal, clean = null,
     reopen = async () => false,
     remembered = () => null, remember = () => {}, left = () => {}, drop = (place) => { if (place.kind === "team") left(place.name); remember(null); },
     splash = () => null, lastInput = () => 0, publish = () => {}, rehomed = () => {}, versionEveryMs = VERSION_EVERY_MS, quietMs = QUIET_MS,
-    now = Date.now, timers = DEFAULT_TIMERS, hosts = () => null, readyStore = null, ownMove = () => null, log = () => {}, t = nativeText.englishText.t } = deps;
+    now = Date.now, timers = DEFAULT_TIMERS, hosts = () => null, readyStore = null, log = () => {}, t = nativeText.englishText.t } = deps;
   let home = { kind: "computer" }, screen = null, status = null, opens = 0, retry = null, tries = 0, loaded = null, newer = false;
   let recovering = null;
   /** The profile (clean-workspace.mjs) the person opened from the rail while My Cloud is home, until they pick a place. */
@@ -254,7 +254,7 @@ export function createHomeWindow(deps) {
 
   async function refresh() {
     clock.seen(state());
-    const kept = parseJournal(journal());
+    const kept = journal();
     let frozenCloud = null, frozenPlace = null;
     if (!awayIn(kept)) {
       const marker = await frozen().catch(() => null);
@@ -280,9 +280,7 @@ export function createHomeWindow(deps) {
     if (screen) return named(screen);
     if (status) return named({ screen: status });
     if (home.kind === "signin" && !name) return { screen: "signin" };
-    const own = ownMove();
-    if (own && MOVING.has(own.phase)) return { screen: "moving", name: own.name };
-    return named({ screen: MOVING.has(parseJournal(journal())?.phase ?? "") ? "moving" : "opening" });
+    return named({ screen: "opening" });
   }
   const tell = () => { try { publish(view()); } catch {} };
   let splashSaid = null;
@@ -510,7 +508,7 @@ export function createHomeWindow(deps) {
     }
     if (current.kind === "computer") {
       const parkedAt = current.frozenPlace;
-      if (!current.clean && parkedAt && !ownMove() && onOwnPage()) {
+      if (!current.clean && parkedAt && onOwnPage()) {
         clearRetry(); screen = null; status = null; shown = null; away = false;
         ensureWindow();
         let slow = null;
@@ -668,8 +666,7 @@ export function createHomeWindow(deps) {
       const parkedAt = home.frozenPlace;
       if (!place && parkedAt?.origin && at === parkedAt.origin) {
         ++opens;
-        if (ownMove()) tell();
-        else toScreen({ screen: "offline", reason: `Your bots are on ${parkedAt.place}.` });
+        toScreen({ screen: "offline", reason: `Your bots are on ${parkedAt.place}.` });
         later();
         return true;
       }

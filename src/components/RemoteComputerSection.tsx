@@ -153,7 +153,6 @@ export function RemoteComputerSection({ hideWhenUnavailable = false, legacyOnly 
               <p className="text-[13px] leading-relaxed text-ink-secondary">
                 {t("remote.client.server.hint")}
               </p>
-              {/* A chat-only link cannot pass the ownership check behind "Make … my home", so full access comes first. */}
               <div data-pair-access="full" className="flex flex-col gap-1">
                 <p className="text-[12px] font-medium text-ink">{t("remote.client.server.fullTitle")}</p>
                 <code className="select-all rounded-lg bg-inset px-3 py-2 text-[12px] text-ink">npx openmausbot pair</code>

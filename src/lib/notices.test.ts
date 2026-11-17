@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { EMPTY_ONBOARDING } from "@/lib/onboarding";
-import { dismissNotice, dismissNotices, GROK_MOVE_NOTICE, launchNotice, markLaunchNotice, nextNotice, noticeSeen, NOTICES, PHONE_UPDATE_NOTICE, phoneUpdateHint, SIMPLE_MODE_NOTICE, TWO_PLACES_NOTICE, type NoticeFacts } from "./notices";
+import { dismissNotice, dismissNotices, GROK_MOVE_NOTICE, launchNotice, markLaunchNotice, nextNotice, noticeSeen, NOTICES, PHONE_UPDATE_NOTICE, phoneUpdateHint, SIMPLE_MODE_NOTICE, type NoticeFacts } from "./notices";
 
 let storage: Map<string, string>;
 const record = (hintsSeen: string[] = []) => ({ ...EMPTY_ONBOARDING, hintsSeen });
@@ -15,7 +15,6 @@ afterEach(() => vi.unstubAllGlobals());
 
 const facts: NoticeFacts = {
   [GROK_MOVE_NOTICE]: false, [PHONE_UPDATE_NOTICE]: false, [SIMPLE_MODE_NOTICE]: false,
-  [TWO_PLACES_NOTICE]: false,
 };
 
 it("chooses notices in queue order and waits while an earlier notice is unresolved", () => {
@@ -23,14 +22,13 @@ it("chooses notices in queue order and waits while an earlier notice is unresolv
   expect(nextNotice(all)).toBe(GROK_MOVE_NOTICE);
   expect(nextNotice({ ...all, [GROK_MOVE_NOTICE]: false })).toBe(PHONE_UPDATE_NOTICE);
   expect(nextNotice({ ...all, [GROK_MOVE_NOTICE]: null })).toBeNull();
-  expect(nextNotice({ ...facts, [TWO_PLACES_NOTICE]: true })).toBe(TWO_PLACES_NOTICE);
 });
 
 it("keeps the first notice for the launch and stops the queue once it is dismissed", () => {
   markLaunchNotice(PHONE_UPDATE_NOTICE);
-  markLaunchNotice(TWO_PLACES_NOTICE);
+  markLaunchNotice(SIMPLE_MODE_NOTICE);
   expect(launchNotice()).toBe(PHONE_UPDATE_NOTICE);
-  const due = { ...facts, [PHONE_UPDATE_NOTICE]: true, [TWO_PLACES_NOTICE]: true };
+  const due = { ...facts, [PHONE_UPDATE_NOTICE]: true, [SIMPLE_MODE_NOTICE]: true };
   expect(nextNotice(due, launchNotice())).toBe(PHONE_UPDATE_NOTICE);
   expect(nextNotice(due, launchNotice(), true)).toBeNull();
 });

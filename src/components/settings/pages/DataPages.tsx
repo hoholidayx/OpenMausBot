@@ -12,7 +12,6 @@ import { VaultSettings } from "../../VaultSettings";
 import { WorkspaceBackupSettings } from "../../WorkspaceBackupSettings";
 import { WorkspacesSection } from "../../WorkspacesSection";
 import { useSettingsShell } from "../settings-shell";
-import { MoveSection } from "./PlacePages";
 
 export function VaultPage() {
   return <div data-settings-block="saved" className="flex flex-col gap-6"><VaultSettings /></div>;
@@ -31,7 +30,6 @@ export function ImportExportPage() {
       <SettingsGroup label={t("settings.data.takeOut")} block="take-out">
         <SettingsRows>{exportRow}</SettingsRows>
       </SettingsGroup>
-      <MoveSection />
     </>} />
   </AdminOnly>;
 }

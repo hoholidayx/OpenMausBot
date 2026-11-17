@@ -168,14 +168,6 @@ it("a lent computer: a team's bot hears the team's one line, not a personal Clou
   expect(answer).not.toMatch(/conversations you start|your Mac/);
 }, hostTimeout(60_000));
 
-it("a personal place takes the person's team as a place whose bots it can name; a team's place takes no such word", async () => {
-  const told = { v: 1, self: { name: "This computer", kind: "computer" }, places: [{ name: "Acme", kind: "team", bots: ["Sales", "Support"] }] };
-  const put = await fx.local("PUT", "/api/places/elsewhere", told);
-  expect(put.status, JSON.stringify(put.body)).toBe(200);
-  expect((await fx.local("GET", "/api/places/elsewhere")).body).toMatchObject(told);
-  expect((await team.as(ada, "PUT", "/api/places/elsewhere", told)).status).toBe(403);
-}, hostTimeout(60_000));
-
 it("a rule blocking an MCP server applies to the next thing each bot does, with no restart", async () => {
   const before = turns().filter((turn) => turn.botId === support.id).length;
   await miraAsks("Anything new?", "Hello again.");

@@ -277,23 +277,7 @@ it("a member's upload is hers alone; a team file is everyone's; About you is per
   expect((await fx.onCloud("GET", "/api/me")).status).toBe(404);
 }, hostTimeout(120_000));
 
-it("a person's own connected apps cannot be brought into the team, and the team's connection serves any member's turn", async () => {
-  const refused = await team.as(owner, "POST", "/api/cloud-connections/connected-apps", { share: "share-code-from-a-laptop", apps: ["gmail"] });
-  expect(refused.status).toBe(403);
-  expect(refused.body.error).toBe("Personal connections never enter Acme. Ask an admin to connect these apps for Acme.");
-  expect((await team.as(owner, "PUT", "/api/cloud-connections/email", { accounts: [{ address: "owner@example.test" }] })).body.error).toContain("Personal connections never enter Acme");
-  // Nor anything of a computer's one-time move: every send and move route answers the same plain line.
-  for (const [method, route] of [["GET", "/api/cloud-send/manifest"], ["POST", "/api/cloud-send/chats"], ["GET", "/api/cloud-send?move=1"]] as const) {
-    const moved = await team.as(owner, method, route, method === "POST" ? { conversations: [] } : undefined);
-    expect(moved.status, route).toBe(403);
-    expect(moved.body).toEqual({
-      error: "Moving a computer's bots, chats and logins goes to My Cloud only. Nothing personal comes into Acme.",
-      errorKey: "serverError.team.personalMove", errorParams: { team: "Acme" },
-    });
-  }
-  expect((await fx.onCloud("GET", "/api/cloud-send/manifest")).status).toBe(200);
-  // My Cloud still takes its owner's share (the one-time move), as before.
-  expect((await fx.onCloud("POST", "/api/cloud-connections/connected-apps", { share: "not-a-real-code", apps: [] })).status).not.toBe(403);
+it("the team's connected apps serve any member's turn", async () => {
   // The Team Cloud's own installation on the connected-apps service, registered as it started, is the team's: every member's view says connected apps are set up.
   const teamInstallation = broker.installationIds().filter((id) => broker.actingUser(id) === broker.userFor(id) && id !== fx.desktopInstallation?.id).at(-1)!;
   expect(teamInstallation).toBeTruthy();

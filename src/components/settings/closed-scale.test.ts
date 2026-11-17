@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest";
 const OFF_SCALE = /(?<![\w-])(?:border-hairline(?:\/\d+)?|bg-inset|leading-relaxed|leading-snug|leading-tight|(?:[pm][xytblr]?|gap(?:-[xy])?|space-[xy])-(?:2\.5|3\.5|0\.75|1\.25|9|10|11|14)|text-\[(?:9|10|15|17|19|22)px\])(?![\w\-./[])/g;
 
 const FILES = [
-  "src/components/AboutMeSettings.tsx",
   "src/components/ActivitySection.tsx",
   "src/components/AppSettingsRows.tsx",
   "src/components/AppearanceSelectRows.tsx",
@@ -20,7 +19,6 @@ const FILES = [
   "src/components/BrowserProfilesManager.tsx",
   "src/components/BrowserSettingsRows.tsx",
   "src/components/CacheKeepWarmSettings.tsx",
-  "src/components/CloudKeepHere.tsx",
   "src/components/CloudUsageMeter.tsx",
   "src/components/ConnectedWorkspacesSettings.tsx",
   "src/components/CustomDomainSettings.tsx",
@@ -90,7 +88,6 @@ const FILES = [
 
 /** Known debt: how many off-scale classes each file still has. Lower a count when you fix one; never raise it. */
 const DEBT: Record<string, number> = {
-  "src/components/AboutMeSettings.tsx": 2,
   "src/components/ActivitySection.tsx": 4,
   "src/components/BrowserProfilesManager.tsx": 10,
   "src/components/CloudUsageMeter.tsx": 6,

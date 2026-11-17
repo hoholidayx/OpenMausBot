@@ -10,7 +10,6 @@ import { AwayEmailsSetting } from "../../AwayEmailsSetting";
 import { PausedBotsButton } from "../../AwakeBotsPicker";
 import { BrowserProxyRow, BuiltInBrowserRow, NewBrowserSettings, ServerSitesRow } from "../../BrowserSettingsRows";
 import { CacheKeepWarmSettings } from "../../CacheKeepWarmSettings";
-import { CloudKeepHere } from "../../CloudKeepHere";
 import { CustomDomainSettings } from "../../CustomDomainSettings";
 import { preloadConnectedApps } from "@/lib/connected-apps";
 import { DecisionModelSettings } from "../../DecisionModelSettings";
@@ -191,10 +190,4 @@ export function DesktopsPage() {
     )}
     <AdvancedSection anchor="automation"><SettingsGroup label={t("settings.desktops.automation")} block="automation"><SettingsRows><SavedStepsRow /></SettingsRows></SettingsGroup></AdvancedSection>
   </>;
-}
-
-export function MoveSection() {
-  const { ctx } = useSettingsShell();
-  if (!ctx.here || !window.ogb?.cloudSendPage) return null;
-  return <CloudKeepHere bridge={window.ogb.cloudSendPage} />;
 }

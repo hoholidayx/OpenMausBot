@@ -2012,8 +2012,7 @@ without them works as before; a malformed one is dropped, never the machine):
   `parseFormerOrigins`; each a valid `https://` origin, never its `origin`
   now; anything else is left out). The desktop knows My Cloud again by them
   and by its id in `clouds[]`, so a computer whose bots moved to it follows it
-  to its new address instead of reading the move as My Cloud ending; see
-  [This computer's bots move to your Cloud](#this-computers-bots-move-to-your-cloud).
+  to its new address.
 - `cloud.setup: {step, slow}` while `setting_up` (`step` is `reserving`,
   `storage`, `starting` or `checking`): the app shows the same four steps as
   the Cloud page, and says when setup is slow.
@@ -2161,29 +2160,12 @@ sleeps: true}`; `cloud.state` stays `ready`. Without `cloud.power`, nothing belo
 
 Settings and the sidebar show the allowance meters and their reset date. A workspace short on disk space or memory can show a dismissible warning with steps to free resources.
 
-## This computer's bots move to your Cloud
+## Moving a workspace with a backup
 
-Once the Cloud is ready (and the Admin's `moves` switch lets this account
-move), the desktop app moves everything from this computer to it, once, by
-itself, and from then on opens the Cloud as its only home
-(`electron/one-home.mjs`, `electron/home-window.mjs`). The move carries each
-thing by id over one owner session (`electron/cloud-send.mjs`), checks that it
-all arrived, and freezes this computer's copy so nothing runs in two places
-(`server/move-freeze.ts`). An older desktop's Copy this computer here gets
-`410` with "Update OpenMausBot to bring your bots here by itself."
-(`server/cloud-move-http.ts`); a backup file still restores from Settings →
-Import & export. [docs/verification/cloud-send.md](verification/cloud-send.md) has the
-tests.
-
-The move's journal names the Cloud by its address and, once the session lists
-it, by its id (the person's own Cloud in `clouds[]` at My Cloud's address).
-When My Cloud moves to another provider, the verified session gives it a new
-`origin` and lists the old one in `formerOrigins`: the same id, or the
-journal's address among those, is the same Cloud, so the journal follows it
-to the new address and the move goes on, or stays done, there. The window
-opens it there, and its saved place moves with it. A Cloud with another id
-whose former addresses don't include the journal's is another Cloud, and
-ends the move as before.
+Use **Settings → Import & export** to export an encrypted full workspace
+backup, then import it on the destination. See the
+[workspace backup workflow](verification/workspace-backups.md) for recovery
+and restart instructions.
 
 ## Security summary
 

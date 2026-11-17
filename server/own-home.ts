@@ -1,8 +1,5 @@
-// A server of one person's own (`openmausbot serve` on their VPS or Mac mini) can be their home, as My Cloud is: its owner
-// moves a computer's bots into it, and that computer then works for it. Security: only where nobody else signs in, so no
-// one else's bots or turns ever reach a computer lent this way, and never a Cloud, a team's Cloud or a hosted workspace.
+// A single-owner server may accept its owner's explicitly shared devices.
 import { nameFromEmail } from "../shared/bot-owner.ts";
-import { movedFrom } from "./cloud-send-arrived.ts";
 import type { OwnServer } from "./person-key.ts";
 import type { RequestAuth } from "./request-auth.ts";
 import type { SessionRecord } from "./sessions.ts";
@@ -39,13 +36,11 @@ export function selfHostedPersonName(session: Pick<SessionRecord, "email" | "lab
   return (theirs && profile?.name?.trim()) || (email ? nameFromEmail(email) : session.label.trim());
 }
 
-/** `facts()` is read on every ask, so a sign-in list changed in Settings counts at once. `here()`: this server took a move
- * from its owner (cloud-send-arrived.ts keeps where from), so it is their home and their computers work for it. */
-export function createOwnHome({ facts, dataDir }: { facts(): OwnServerFacts; dataDir: string }) {
+/** A fresh sign-in policy applies to every ownership check. */
+export function createOwnHome({ facts }: { facts(): OwnServerFacts }) {
   return {
     owner: (auth: RequestAuth): auth is Extract<RequestAuth, { kind: "session" }> => ownServerOwner(facts(), auth),
     ownServer: (): OwnServer => { const known = facts(); return oneOwner(known) ? { admin: known.admins[0] ?? null } : null; },
-    takesMove: () => oneOwner(facts()),
-    here: () => oneOwner(facts()) && movedFrom(dataDir) !== null,
+    isPrivate: () => oneOwner(facts()),
   };
 }

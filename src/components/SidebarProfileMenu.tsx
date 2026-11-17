@@ -29,7 +29,6 @@ import {
 import { accountLine, useAccountSummary } from "./settings/account-summary";
 import { usePhonePlaceState, type PhonePlaceState } from "./settings/phone-status";
 import { useSettingsPlace } from "./settings/settings-place";
-import { AccountMoveStatus, useAccountMove, type AccountMoveKind } from "./AccountMove";
 import { InitialsAvatar } from "./Avatar";
 import { SignOutConfirm } from "./settings/SignOutConfirm";
 import { AboutDialog } from "./AboutDialog";
@@ -58,7 +57,6 @@ import { shortcutLabel } from "./ShortcutHint";
 import { useOtherServerName } from "@/lib/other-server";
 import { isOwnerOrAdmin, profileForSession, readSessionState, type SessionState } from "@/lib/session";
 import {
-  phonePairingSettingsAction,
 } from "@/lib/phone-pairing";
 
 export function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -300,22 +298,15 @@ export function toolMenuItems({ activeView, automationsNeedYou, onAutomations, o
   ];
 }
 
-/** The account button's name: the person, then whatever its dot is raised for, then the move to My Cloud while it goes.
- * A failing move and automations that need the person share one segment. */
-export function accountLabel(name: string, { automationsNeedYou, update, move = null }: { automationsNeedYou: boolean; update: string | null; move?: AccountMoveKind | null }): string {
-  const needsYou = move === "failed"
-    ? t(automationsNeedYou ? "sidebar.account.moveAndAutomationsNeedYou" : "sidebar.account.moveNeedsYou")
-    : automationsNeedYou ? t("sidebar.account.automationsNeedYou") : "";
-  return [name, needsYou, move === "sending" ? t("sidebar.account.moving") : "", update ?? ""].filter(Boolean).join(" · ");
+export function accountLabel(name: string, { automationsNeedYou, update }: { automationsNeedYou: boolean; update: string | null }): string {
+  return [name, automationsNeedYou ? t("sidebar.account.automationsNeedYou") : "", update ?? ""].filter(Boolean).join(" · ");
 }
 
 export type AccountDot = "danger" | "accent";
 const DOT_COLOR: Record<AccountDot, string> = { danger: "bg-danger", accent: "bg-accent" };
 
-/** The avatar's dot: red while automations, a failed update or the failing move to My Cloud need the person, the accent
- * for an update; none for the move on its way or done (what it brought waits in the menu). */
-export function accountDot({ automationsNeedYou, update, move }: { automationsNeedYou: boolean; update: "failed" | "news" | null; move: AccountMoveKind | null }): AccountDot | null {
-  if (automationsNeedYou || update === "failed" || move === "failed") return "danger";
+export function accountDot({ automationsNeedYou, update }: { automationsNeedYou: boolean; update: "failed" | "news" | null }): AccountDot | null {
+  if (automationsNeedYou || update === "failed") return "danger";
   return update ? "accent" : null;
 }
 
@@ -403,7 +394,6 @@ export function profileMenuItems({
   phone,
   update,
   updateTop = null,
-  move = [],
   header,
   plan = null,
   switchPlace = null,
@@ -420,8 +410,6 @@ export function profileMenuItems({
   phone: SidebarMenuItem | null;
   update: SidebarMenuItem | null;
   updateTop?: { label: string; action: string } | null;
-  /** the move to My Cloud's own rows, first of all (AccountMove) */
-  move?: SidebarMenuItem[];
   header: AccountHeader;
   plan?: SidebarMenuItem | null;
   /** only when the rail is hidden and there is another place to go to */
@@ -466,8 +454,8 @@ export function profileMenuItems({
       : [];
   // Plan & billing follows Settings (Simple's own places sit between them); both modes end with Help, then Sign out.
   const groups = simple
-    ? [move, present(raised), [account], present(phone, settings), simple.tools, present(plan, switchPlace), [support], out]
-    : [move, present(raised), [account], present(phone, settings, plan), present(switchPlace, support), out];
+    ? [present(raised), [account], present(phone, settings), simple.tools, present(plan, switchPlace), [support], out]
+    : [present(raised), [account], present(phone, settings, plan), present(switchPlace, support), out];
   return groups.filter((group) => group.length > 0)
     .flatMap((group, at) => group.map((item, index) => (at > 0 && index === 0 ? { ...item, separatorBefore: true } : item)));
 }
@@ -534,7 +522,6 @@ export function SidebarProfileMenu({ iconOnly = false, rail = false, circle = fa
   const planHere = !remote && (desktop ? Boolean(window.ogb?.cloudAccount || (window.ogb?.cloudPlan && state.config?.cloudHome === true))
     : state.config?.cloudHome === true && !state.config?.team && isOwnerOrAdmin(session));
   const openSettings = (section: AppSettingsSection) => dispatch({ type: "toggleAppSettings", open: true, section });
-  const move = useAccountMove(state.config?.cloudHome === true, { onOpen: () => openSettings("plan"), onPairPhone: () => dispatch(phonePairingSettingsAction()) });
   const openSource = desktop && !window.ogb?.cloudAccount && !window.ogb?.cloudPlan;
   const planLine = !desktop ? undefined : cloudUsage ? t("sidebar.menu.plan.used", { plan: summary.plan ?? cloudPlanLabel(planSnapshot?.tier), percent: cloudUsage.value.replace(/\D+/g, "") })
     : summary.signedIn === false || summary.plan === t("settings.account.free") ? undefined : summary.plan ?? undefined;
@@ -543,7 +530,6 @@ export function SidebarProfileMenu({ iconOnly = false, rail = false, circle = fa
     phone: remote ? null : phoneDevicesItem(phoneState, place.name, () => openSettings("phone")),
     update: update?.item ?? null,
     updateTop: simpleUpdateTop(update),
-    move: move.items,
     header: {
       name,
       line: accountLine({ ...summary, email: summary.email ?? (summary.plan ? profile?.email ?? null : null) }, { browser: !desktop, place: place.name, openSource }),
@@ -583,10 +569,8 @@ export function SidebarProfileMenu({ iconOnly = false, rail = false, circle = fa
   const needsYou = account?.automationsNeedYou === true;
   const initials = profileInitials(profile);
   const nameless = simple && initials === "?" ? <UserRound size={18} strokeWidth={1.75} aria-hidden /> : undefined;
-  const label = accountLabel(name, { automationsNeedYou: needsYou, update: simple && noteworthy && update ? update.label : null, move: move.kind });
-  const dot = accountDot({ automationsNeedYou: needsYou, update: noteworthy ? (update.phase === "error" ? "failed" : "news") : null, move: move.kind });
-  // Advanced's full row has its own update badge: its avatar's dot is the move's alone.
-  const moveDot = accountDot({ automationsNeedYou: false, update: null, move: move.kind });
+  const label = accountLabel(name, { automationsNeedYou: needsYou, update: simple && noteworthy && update ? update.label : null });
+  const dot = accountDot({ automationsNeedYou: needsYou, update: noteworthy ? (update.phase === "error" ? "failed" : "news") : null });
 
   return (
     <>
@@ -631,11 +615,9 @@ export function SidebarProfileMenu({ iconOnly = false, rail = false, circle = fa
           >
             <span className="relative flex shrink-0">
               <InitialsAvatar initials={profileInitials(profile)} avatarUrl={profile?.avatarUrl} size={28} />
-              {moveDot && <span aria-hidden data-account-dot={moveDot} className={cn("absolute -right-0.5 -top-0.5 size-2 rounded-full ring-2 ring-app", DOT_COLOR[moveDot])} />}
             </span>
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-[14px] font-medium leading-5 text-ink">{name}</span>
-              <AccountMoveStatus kind={move.kind} place={move.place} />
             </span>
             {noteworthy && (
               <span

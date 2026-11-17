@@ -127,16 +127,6 @@ describe("a Team Cloud's roster check", () => {
     expect(registry.list().some((session) => session.scopes.includes("admin"))).toBe(false);
   });
 
-  it("never keeps a script's token or a move-in sign-in alive", async () => {
-    const issued = registry.issueMoveIn({ label: "Moving a bot in", email: ADA.email, teamRole: "member", bot: "bot-1" });
-    const before = registry.list().find((session) => session.id === issued.session.id)!.expiresAt;
-    const { check, asked } = admin({ [ADA.email]: "member" });
-    clock += 5 * MINUTE;
-    registry.authenticate(issued.token);
-    await check();
-    expect(asked).toEqual([]);
-    expect(registry.list().find((session) => session.id === issued.session.id)?.expiresAt).toBe(before);
-  });
 
   it("no answer, a refusal or an older Admin changes nothing: sessions end within the hour, as before", async () => {
     for (const options of [{ down: true }, { status: 404 }, { status: 401 }, { status: 503 }]) {

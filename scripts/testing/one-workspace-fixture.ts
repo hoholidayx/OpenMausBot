@@ -446,7 +446,6 @@ export async function launchHomeWorld(fx: CloudSendFixture, { chrome, versionEve
     "desktop-notices:state": () => ({ seen: [...NOTICES], cloud: false }),
     "desktop-notices:seen": () => null,
     "cloud-plan:state": () => ({ status: "paid", tier: "pro", home: true }),
-    "cloud-send:notice": () => ({ ready: false, bots: [], updatedBots: [], skills: 0, logins: 0, onePassword: false, settings: 0, signature: "", dismissed: false, running: false, last: null, whole: null }),
     "update:get-state": () => ({ status: "idle" }),
     "perm:status": () => ({ mic: "unsupported", pageMic: "refused" }),
   };
@@ -577,7 +576,7 @@ export async function launchHomeWorld(fx: CloudSendFixture, { chrome, versionEve
   const makeHome = () => createHomeWindow({
     ...(clean ? { clean } : {}),
     journal: () => (moves.moved ? { v: 1, phase: "done", cloud: { origin: cloudOrigin, account: ACCOUNT_ID, machine: cloudOrigin }, doneAt: Date.now() } : null),
-    frozen: async () => (moves.moved ? (await (clean ? clean.realCopy(ownCopy) : ownCopy)("/api/move/freeze")).json() : { frozen: false }),
+    frozen: async () => (moves.moved ? (clean?.marker() ?? { frozen: false }) : { frozen: false }),
     // The window's Electron session: its own resolver and host cache, for My Cloud's name.
     hosts: () => ({
       clearHostResolverCache: async () => { hostCache.cleared++; },
@@ -640,7 +639,7 @@ export async function launchHomeWorld(fx: CloudSendFixture, { chrome, versionEve
     window: { openProfile: (id: string) => homeRef!.openProfile(id), profile: () => homeRef!.profile(), showCloud: () => homeRef!.show({ place: "cloud" }) },
     showLocal: () => { homeRef!.cancel(); persist(environments.withActive(envState, environments.LOCAL_ID)); return win.loadURL(`${localOrigin}/`).catch(() => {}); },
     onLocal: () => /^https?:/.test(win.url) && new URL(win.url).origin === localOrigin,
-    busy: async () => { const said = await (await ownCopy("/api/move/freeze")).json(); return typeof said?.busy === "string" ? { name: said.busy, what: said.what } : null; },
+    busy: async () => { const said = await (await ownCopy("/api/workspace/activity")).json(); return typeof said?.busy === "string" ? { name: said.busy, what: said.what } : null; },
     trash: async (dir: string) => { mkdirSync(trashDir, { recursive: true }); renameSync(dir, join(trashDir, `${Date.now()}-${dir.split(/[\\/]/).pop()}`)); },
     reserved: () => "This Mac", remember: homePlaces.remember, changed: () => railHandlers?.changed() }) : null);
   let localProfiles = makeLocal();

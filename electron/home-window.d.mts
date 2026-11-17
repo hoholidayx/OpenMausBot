@@ -3,7 +3,7 @@
  * problem's state; `other`: another MausBot Cloud account is signed in; `name`: the team whose Cloud is being opened
  * (absent for My Cloud). */
 export type HomeView = { name?: string } & (
-  | { screen: "opening" | "waking" | "moving" }
+  | { screen: "opening" | "waking" }
   /** The Admin is setting it up (or a brand-new one's name isn't found yet, at `checking`): the step it reports. */
   | { screen: "setup"; step?: import("./cloud-home.mjs").CloudSetupStep; slow?: true }
   | { screen: "offline"; reason?: string; cause?: "host" | "no_answer" }
@@ -98,8 +98,8 @@ export interface HomeWindow {
 }
 
 export function createHomeWindow(deps: {
-  journal(): unknown;
-  frozen(): Promise<{ frozen: boolean; cloud?: string; place?: string } | null>;
+  journal?(): unknown;
+  frozen?(): Promise<{ frozen: boolean; cloud?: string; place?: string } | null>;
   account(): { state(): any; power(): any; wakeHome(): Promise<unknown>; setWaking(on: boolean): void;
     hideCloud?(cloudId: string): Promise<{ outcome: import("./cloud-account.mjs").CloudRemoveOutcome }> } | null;
   restored?(): Promise<unknown>;

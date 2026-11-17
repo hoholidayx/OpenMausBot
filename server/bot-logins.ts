@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { browserMatesOf, loginPageCheck, loginPlace, loginSite, type LoginBots, type LoginPlace } from "../shared/logins.ts";
 import type { LinkedSecret } from "../shared/vault.ts";
 import type { FillCandidate } from "./login-fill.ts";
-import { receiveLoginHandoff, type ConnectionHandoffAnswer, type ConnectionHandoffWhat, type LoginHandoffResult } from "./login-handoff.ts";
 import type { VaultReader, VaultStore } from "./vault-store.ts";
 import type { OnePasswordLogins } from "./onepassword.ts";
 import type { LoginRouteDeps } from "./routes/logins.ts";
@@ -71,11 +70,6 @@ export class BotLogins {
    * to, since a sign-in there reaches all of them. */
   cardBots(botId: string): string[] {
     return [botId, ...browserMatesOf(this.bots(), botId)];
-  }
-
-  /** The desktop main process's private ask for one login, for Send to My Cloud, or for a connection a move carries. */
-  receiveHandoff(message: unknown, post: (reply: LoginHandoffResult) => boolean, connections?: (what: ConnectionHandoffWhat) => Promise<ConnectionHandoffAnswer>): boolean {
-    return receiveLoginHandoff(message, this.store, post, () => this.onePassword.status().error, connections);
   }
 
   /** Where each login the bot may use fills, with its username. */

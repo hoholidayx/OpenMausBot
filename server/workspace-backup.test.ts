@@ -274,10 +274,13 @@ describe("encrypted full workspace backups", () => {
   it("also pauses pending chat follow-ups when restoring into the original home", async () => {
     const source = directory();
     fixture(source).close();
+    const migrationMarker = join(source, "moved.json");
+    writeFileSync(migrationMarker, '{"v":1}');
     const exported = await createWorkspaceBackup(source, { password: PASSWORD });
     const staged = await stageWorkspaceBackup(source, exported.path, { password: PASSWORD });
     commitPendingWorkspaceRestore(source, staged.id);
     applyPendingWorkspaceRestore(source);
+    expect(readFileSync(migrationMarker, "utf8")).toBe('{"v":1}');
     const db = new DatabaseSync(join(source, "messages.db"), { readOnly: true });
     try {
       expect(db.prepare("SELECT id, status FROM chat_followups ORDER BY rowid").all()).toEqual([
@@ -327,10 +330,10 @@ describe("encrypted full workspace backups", () => {
     expect(readJson(join(target, "routines.json")).routines[0].prompt)
       .toBe(`Each morning read ${target}/files/brief.md, compare it with C:\\Users\\Ada\\Desktop\\x.docx, and save ${target}/files/out/report.md.`);
     expect(readFileSync(join(target, "workspaces", "bot", "MEMORY.md"), "utf8"))
-      .toBe(`- The brief: ${target}/files/brief.md\n- Drafts go to ${target}/files/drafts/\n- C:\\Users\\Ada\\.openmausbot-old\\notes.md is an old copy\n`);
+      .toBe(readFileSync(join(source, "workspaces", "bot", "MEMORY.md"), "utf8"));
     expect(readFileSync(join(target, "workspaces", "bot", "memory", "people.md"), "utf8")).toBe("Ada prefers short replies.\n");
     expect(readFileSync(join(target, "bots", "bot", "SOUL.md"), "utf8")).toBe(bot.soul);
-    const leftBehind = { bots: 1, paths: [site, "C:\\Users\\Ada\\Shared", "C:\\Users\\Ada\\.openmausbot-old\\notes.md", "C:\\Users\\Ada\\Desktop\\x.docx"] };
+    const leftBehind = { bots: 1, paths: [site, "C:\\Users\\Ada\\Shared", "C:\\Users\\Ada\\Desktop\\x.docx"] };
     expect(result.leftBehind).toEqual(leftBehind);
     expect(readLastWorkspaceRestore(target)!.leftBehind).toEqual(leftBehind);
     expect(readLastWorkspaceRestore(target)!.pathsRewritten).toBe(true);

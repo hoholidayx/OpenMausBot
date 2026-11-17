@@ -4,9 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { createCoordinator, type Coordinator, type CoordinatorHost, type HandoffView } from "./coordinator.ts";
-import { createMoveFreeze } from "./move-freeze.ts";
-import { createMoveWaits, WAIT_CEILING_MS } from "./move-waits.ts";
-import { createMoveFreezeRoutes } from "./routes/move-freeze.ts";
+import { activeWorkspaceWork, WAIT_CEILING_MS } from "./workspace-activity.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
@@ -43,7 +41,7 @@ function world(handoffs: () => readonly HandoffView[] = () => []) {
     goneThreads: new Set<string>(),
     signingIn: false,
   };
-  const busy = createMoveWaits({
+  const busy = activeWorkspaceWork({
     bots: () => state.bots,
     rooms: () => state.rooms,
     answering: (id) => state.answering.has(id),
@@ -66,7 +64,7 @@ function parkedOnCards(dataDir: string, now: () => number): Coordinator {
   return coordinator;
 }
 
-describe("what the move waits for: work that only waits on the person never holds it", () => {
+describe("workspace switching: work that only waits on the person never holds it", () => {
   it("a conversation parked on the person's card holds nothing, though it stays parked for days and across restarts", () => {
     const dir = mkdtempSync(join(tmpdir(), "move-waits-"));
     let now = Date.now();
@@ -78,7 +76,7 @@ describe("what the move waits for: work that only waits on the person never hold
       for (let day = 0; day < 30; day++) { now += DAY; coordinator.tick(); }
       expect(coordinator.active().map((node) => [node.id, node.status, node.cards])).toEqual([["gen-1", "waiting", ["msg-1"]]]);
       const { busy } = world(() => coordinator.active());
-      expect(busy(), "the move goes: the card goes with the chat").toBeNull();
+      expect(busy(), "the card stays in its original workspace").toBeNull();
       coordinator.close();
     } finally {
       removeTempDir(dir);
@@ -111,7 +109,7 @@ describe("what the move waits for: work that only waits on the person never hold
   });
 });
 
-describe("what the move waits for: real work under way, always by name", () => {
+describe("workspace switching: real work under way, always by name", () => {
   it("a hand-off on its way holds the move, named by its bot: starting, queued, running or resuming", () => {
     for (const status of ["source", "queued", "running", "resume"] as const) {
       const { busy } = world(() => [handoff({ id: "n", botId: "scout", status })]);
@@ -150,7 +148,7 @@ describe("what the move waits for: real work under way, always by name", () => {
   });
 });
 
-describe("what the move waits for: a ceiling on everything but a turn answering now", () => {
+describe("workspace switching: a ceiling on everything but a turn answering now", () => {
   it("waits for a turn answering now as long as it answers, by name", () => {
     const { state, busy } = world();
     state.answering.add("scout");
@@ -200,37 +198,5 @@ describe("what the move waits for: a ceiling on everything but a turn answering 
     expect(busy()).toEqual({ name: "", what: "sign-in" });
     state.now += WAIT_CEILING_MS;
     expect(busy()).toBeNull();
-  });
-});
-
-describe("POST /api/move/freeze with the move's own rule", () => {
-  const post = async (route: ReturnType<typeof createMoveFreezeRoutes>) => {
-    let answered: { status: number; body: unknown } | undefined;
-    await route({ path: "/api/move/freeze", method: "POST", url: new URL("http://127.0.0.1/api/move/freeze"), req: {} as never, res: {} as never,
-      auth: { kind: "loopback", scopes: ["admin"] } as never, json: (_res: unknown, status: number, value: unknown) => { answered = { status, body: value }; },
-      readBody: async () => ({ cloud: "https://omb-t-1.fly.dev" }) } as never);
-    return answered!;
-  };
-
-  it("freezes past a conversation parked on the person's card, and names a teammate's work it waits for", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "move-waits-route-"));
-    try {
-      const coordinator = parkedOnCards(join(dir, "runtime"), Date.now);
-      const queued = [handoff({ id: "child", botId: "jev", status: "queued" })];
-      let extra: HandoffView[] = queued;
-      const { state, busy } = world(() => [...coordinator.active(), ...extra]);
-      const freeze = createMoveFreeze({ dataDir: dir });
-      const route = createMoveFreezeRoutes({ freeze, busy, restart() {} });
-      expect(await post(route)).toEqual({ status: 409, body: { error: "A bot is still working.", busy: "Jev", what: "bot" } });
-      extra = [];
-      state.signingIn = true;
-      expect(await post(route)).toEqual({ status: 409, body: { error: "A bot is still working.", busy: "", what: "sign-in" } });
-      state.signingIn = false;
-      expect(await post(route)).toEqual({ status: 200, body: { frozen: true } });
-      expect(freeze.frozen()).toBe(true);
-      coordinator.close();
-    } finally {
-      removeTempDir(dir);
-    }
   });
 });

@@ -15,7 +15,7 @@ import { userErrorFields, userErrorThrown } from "./user-errors.ts";
 import { WORKSPACE_BACKUP_CLIENT_KEYS } from "../shared/workspace-backup-client.ts";
 import { INSTRUCTION_FILE, restorePaths, validRelative } from "./workspace-backup-paths.ts";
 import { cjkSearchText } from "./cjk-search.ts";
-import { ephemeralWorkspaceTokenPath, excludedWorkspaceAuthPath, liveDataEnginePath, managedTaskSkillLink, portableWorkspaceConfig, redownloadedOrgLibraryPath, restoredWorkspaceConfig } from "./workspace-backup-policy.ts";
+import { ephemeralWorkspaceTokenPath, excludedWorkspaceAuthPath, legacyMoveStatePath, liveDataEnginePath, managedTaskSkillLink, portableWorkspaceConfig, redownloadedOrgLibraryPath, restoredWorkspaceConfig } from "./workspace-backup-policy.ts";
 import { omittedAsTeamPrivate, routinesWithoutTeamPrivate, stripTeamPrivate, TEAM_PRIVATE_NOTE, teamPrivateAttachments, teamPrivateThreads, withoutTeamPrivate } from "./workspace-backup-team-private.ts";
 import { flushLaterSaves } from "./save-batch.ts";
 import type { WorkspaceBackupClientState, WorkspaceBackupPrivateMetadata, WorkspaceBackupSummary, WorkspaceLeftBehind } from "../shared/workspace-backup.ts";
@@ -92,7 +92,7 @@ export interface WorkspaceRestoreResult {
   leftBehind?: WorkspaceLeftBehind;
   clientState?: WorkspaceBackupClientState;
 }
-/** `pathsRewritten`: the source data folder was rewritten in text too, by the restore or by repairMovedWorkspacePaths. */
+/** `pathsRewritten`: the restore rebased the source data folder in supported text fields. */
 export type LastWorkspaceRestore = WorkspaceRestoreResult & { restored: true; id: string; pathsRewritten?: true };
 
 function excluded(name: string): boolean {
@@ -111,7 +111,7 @@ function preserved(name: string): boolean {
 const SNAPSHOT_DATABASES: Record<string, string> = { "messages.db": "messages-snapshot.db", "runtime.db": "runtime-snapshot.db" };
 const LIVE_DATABASE_SIDECARS = new Set(Object.keys(SNAPSHOT_DATABASES).flatMap((name) => [`${name}-wal`, `${name}-shm`]));
 function keptInPlace(name: string): boolean {
-  return preserved(name) || name.toLowerCase() === "sessions.json.open";
+  return preserved(name) || legacyMoveStatePath(name) || name.toLowerCase() === "sessions.json.open";
 }
 function folder(path: string): void {
   mkdirSync(path, { recursive: true, mode: 0o700 });
@@ -348,7 +348,7 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
       for (const name of readdirSync(directory).sort()) {
         if (!prefix && excluded(name)) continue;
         const path = prefix ? `${prefix}/${name}` : name;
-        if (excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || redownloadedOrgLibraryPath(path) || liveDataEnginePath(path)) continue;
+        if (excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || legacyMoveStatePath(path) || redownloadedOrgLibraryPath(path) || liveDataEnginePath(path)) continue;
         if (privacy && omittedAsTeamPrivate(path, privacy)) continue;
         // Reject noncanonical spellings: a case-sensitive host must not export auth paths active on Windows/Mac.
         if (forbiddenArchivePath(path)) throw new Error("A workspace filename conflicts with a protected authentication or runtime path.");
@@ -709,7 +709,7 @@ function prepareRestore(dataDir: string, id: string, manifest: Manifest): string
   const prepared = join(job, "apply", "data");
   if (existsSync(join(job, "apply"))) rmSync(join(job, "apply"), { recursive: true, force: true });
   folder(prepared);
-  const installed = manifest.entries.filter((entry) => !ephemeralWorkspaceTokenPath(entry.path));
+  const installed = manifest.entries.filter((entry) => !ephemeralWorkspaceTokenPath(entry.path) && !legacyMoveStatePath(entry.path));
   for (const entry of installed.filter((entry) => entry.type === "directory")) folder(join(prepared, entry.path));
   for (const entry of installed) {
     const destination = join(prepared, entry.path);
@@ -978,5 +978,5 @@ export function removeWorkspaceBackupJob(dataDir: string, id: string): void {
 }
 
 export function omittedFromWorkspaceBackup(path: string): boolean {
-  return excluded(path.split("/")[0]) || excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || redownloadedOrgLibraryPath(path) || liveDataEnginePath(path);
+  return excluded(path.split("/")[0]) || excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || legacyMoveStatePath(path) || redownloadedOrgLibraryPath(path) || liveDataEnginePath(path);
 }

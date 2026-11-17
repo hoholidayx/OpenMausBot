@@ -20,8 +20,6 @@ import { useShowThreads } from "@/lib/thread-preferences";
 import { submenuPosition } from "./SidebarPopoverMenu";
 import { submenuIntent, type SubmenuIntent } from "@/lib/submenu-intent";
 import { useAdvancedMode } from "@/lib/interface-mode";
-import { useMoveToMyCloud } from "./MoveToMyCloud";
-import { useMoveToTeam } from "./MoveToTeam";
 import type { MenuState } from "./Sidebar";
 import { departmentNames, moveBotsToSection, useMayMoveBots } from "./bot-sections";
 import { openBotSettings } from "./bot-panel/panel-link";
@@ -74,8 +72,7 @@ export function BotContextMenu({
   const admin = useOwnerOrAdmin();
   const member = admin === false;
   const mayMove = useMayMoveBots();
-  const clearThreads = useDeleteAllThreads(simpleMenu), moveToTeam = useMoveToTeam({ blocked: (bot) => (bot.defaultBot ? t("teamMove.blockedDefault", { name: bot.name }) : bot.chiefOfStaff ? t("teamMove.blockedChief") : state.bots.filter((candidate) => !candidate.hidden).length <= 1 ? t("teamMove.blockedLast") : undefined) });
-  const moveToCloud = useMoveToMyCloud();
+  const clearThreads = useDeleteAllThreads(simpleMenu);
   const remoteClient = window.ogb?.remoteClient?.active === true;
   const bot = shown ? state.bots.find((b) => b.id === shown.botId) : undefined;
   const team = useTeamPeople();
@@ -153,7 +150,7 @@ export function BotContextMenu({
     sheetOut.style.top = `${place.top}px`;
   });
 
-  if (!motion.shown || !bot || !shown) return <>{clearThreads.dialog}{moveToTeam.dialog}{moveToCloud.dialog}</>;
+  if (!motion.shown || !bot || !shown) return <>{clearThreads.dialog}</>;
   const deleting = state.deletingBots[bot.id] === true;
   const engine = state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId);
   const canCoordinate = engine?.capabilities?.agentsMcp === true;
@@ -279,8 +276,6 @@ export function BotContextMenu({
       team ? null : chiefItem(),
       member && !ownEdit ? null : item(<Copy size={16} className="text-ink-secondary" />, t("sidebar.bot.duplicate"), () => dispatch({ type: "duplicateBot", botId: bot.id })),
       owner,
-      ...moveToTeam.items(bot, item),
-      ...moveToCloud.items(bot, item),
       ...deleteAll,
     ];
     // Simple view hides the thread list: start one, see them all (the panel's Conversations), and choose the one it opens.
@@ -301,7 +296,7 @@ export function BotContextMenu({
       item(<Archive size={16} className="text-ink-secondary" />, t("sidebar.bot.archive"), () => onArchive(bot), { disabled: archiveBlocked, hint: archiveHint }),
       <BotDeleteMenuItem key="delete" deleting={deleting} className={MENU_ITEM} onClick={() => { onClose(); onDelete(bot); }} />,
     ];
-    return <>{clearThreads.dialog}{moveToTeam.dialog}{moveToCloud.dialog}{createPortal(
+    return <>{clearThreads.dialog}{createPortal(
       <div
         ref={menuRef}
         data-bot-menu
@@ -378,7 +373,7 @@ export function BotContextMenu({
     )}</>;
   }
 
-  return <>{clearThreads.dialog}{moveToTeam.dialog}{moveToCloud.dialog}{createPortal(
+  return <>{clearThreads.dialog}{createPortal(
     <div
       ref={menuRef}
       data-bot-menu
@@ -441,7 +436,7 @@ export function BotContextMenu({
         item(<ClipboardCopy size={16} className="text-ink-secondary" />, t("sidebar.copyConversationId"), () => {
           void copyText(bot.threadId);
         }),
-        divider("d3"), ...moveToTeam.items(bot, item), ...moveToCloud.items(bot, item),
+        divider("d3"),
         ...(bot.defaultBot ? [<HideDefaultBotItem key="hide" bot={bot} onDone={onClose} className={MENU_ITEM} />, ...(member ? [] : [<DemoteDefaultBotItem key="demote" bot={bot} onDone={onClose} className={MENU_ITEM} />])] : member ? ownDelete() : [
           item(<Archive size={16} className="text-ink-secondary" />, t("sidebar.bot.archive"), () => onArchive(bot), { disabled: archiveBlocked, hint: archiveHint }),
           <BotDeleteMenuItem key="delete" deleting={deleting} className={MENU_ITEM} onClick={() => { onClose(); onDelete(bot); }} />,

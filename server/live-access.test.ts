@@ -9,7 +9,6 @@ import { teamRoleScopes, type TeamRole } from "./cloud-team.ts";
 import { azureLiveCallRefusal, elevenLabsLiveCallRefusal, fishLiveCallRefusal, geminiLiveCallRefusal, LIVE_AZURE_REFUSAL, LIVE_ELEVENLABS_REFUSAL, LIVE_FISH_REFUSAL, LIVE_GEMINI_REFUSAL, liveScopeRefusal } from "./live-access.ts";
 import { requiredScope, resolveRequestAuth, type RequestAuth, type ResolveOptions } from "./request-auth.ts";
 import { SessionRegistry, type Scope, type SessionRecord } from "./sessions.ts";
-import { moveInRefusal } from "./team-move-in.ts";
 
 const LIVE = "/api/live/session";
 const COOKIE = "omb_session_test";
@@ -110,11 +109,6 @@ describe("an Azure Live call", () => {
     it("is refused in plain words to a User, on the app or their phone", () => {
       expect(verdict(teamMember("member"), place)).toBe(AT_SIGN_IN);
       expect(verdict(teamMember("member", true), place)).toBe(AT_SIGN_IN);
-    });
-    it("is refused to a sign-in that only moves a bot in, whoever's it is", () => {
-      const moving = bearer(sessions.issueMoveIn({ label: "Move in", email: "admin@acme.test", teamRole: "admin", bot: "bot1" }).token);
-      expect(verdict(moving, { ...place, resolve: { ...SERVICE.resolve, restricted: moveInRefusal } })).toBe("sign-in gate 403: This sign-in only moves one bot in.");
-      expect(verdict(moving, place)).toBe(AT_LIMIT);
     });
     it("is refused to a bot's shell", () => {
       expect(verdict(LOCAL, place)).toMatch(/^sign-in gate 403: forbidden: on this shared server/);

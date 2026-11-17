@@ -50,9 +50,6 @@ export interface RailPlace {
   removable?: true;
   /** A server connected by hand: Remove from list forgets it on this computer (this app signs out of it there). */
   forget?: true;
-  /** A server of the person's own, theirs alone by its own word, that this computer's bots may move to: its menu offers
-   * Make … my home. */
-  makeHome?: true;
 }
 /** ＋'s choices here: buying a Cloud, pasting a server's pairing link, typing its address on this computer's Settings, and
  * a new organization on the Team plan this account pays for (absent from an older app's main). */

@@ -1,14 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { createOwnHome, oneOwner, ownServerOwner, selfHostedPersonName, type OwnServerFacts } from "./own-home.ts";
 import type { RequestAuth } from "./request-auth.ts";
 import type { SessionRecord } from "./sessions.ts";
 
-const dirs: string[] = [];
-afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 const solo: OwnServerFacts = { managed: false, shared: false, admins: [] };
 const session = (scopes: Array<"admin" | "client">, email?: string): RequestAuth => ({
   kind: "session", via: "cookie", scopes,
@@ -37,23 +32,10 @@ describe("a server of one person's own", () => {
     expect(ownServerOwner({ ...solo, managed: true }, session(["admin"]))).toBe(false);
   });
 
-  it("is that person's home once a move from them arrived, while it stays theirs alone", () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "omb-own-home-"));
-    dirs.push(dataDir);
-    let facts = solo;
-    const home = createOwnHome({ dataDir, facts: () => facts });
-    expect(home.takesMove()).toBe(true);
-    expect(home.here()).toBe(false);
-    writeFileSync(join(dataDir, "moved-from.json"), JSON.stringify({ computer: "Work laptop", at: 1, told: [] }));
-    expect(home.here()).toBe(true);
-    facts = { ...solo, shared: true };
-    expect(home.here(), "others sign in now").toBe(false);
-    expect(home.takesMove()).toBe(false);
-  });
 
   it("names its one admin's address for shared computers, and is no server of one person's own once others sign in", () => {
     let facts = solo;
-    const home = createOwnHome({ dataDir: tmpdir(), facts: () => facts });
+    const home = createOwnHome({ facts: () => facts });
     expect(home.ownServer()).toEqual({ admin: null });
     facts = { ...solo, admins: ["me@example.test"] };
     expect(home.ownServer()).toEqual({ admin: "me@example.test" });

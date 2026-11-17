@@ -34,7 +34,6 @@ import { AppNotices } from "@/components/AppNotices";
 import { AppGrantNotice } from "@/components/AppGrantPrompt";
 import { BotLimitPopup } from "@/components/BotLimitPopup";
 import { LiveConnectionStrip } from "@/components/LiveConnectionStrip";
-import { CloudSendStrip } from "@/components/CloudSendStrip";
 import { HomeLine } from "@/components/HomeLine";
 import { useTeamChats } from "@/state/team-chats";
 import { needsYouVersion, useTeamPeopleLoader } from "@/state/team-people";
@@ -288,7 +287,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const strips = <>
     <UpdateBanner sidebarIndicator={framed || (!calendarFocus && (sidebarInline || drawerOpen))} />
     <LiveConnectionStrip connected={state.connected} hydrated={state.hydrated === true} />
-    <CloudSendStrip cloudHome={state.config?.cloudHome === true} />
     <HomeLine />
     <AppNotices quiet={paletteOpen || drawerOpen || Boolean(localVmWorkspaceBotId)} viewer={viewer} />
   </>;

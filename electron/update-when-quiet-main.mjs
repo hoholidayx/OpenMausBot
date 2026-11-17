@@ -32,10 +32,10 @@ export function quietSignals({ powerMonitor, window, lastInput, local, place, cl
       return Boolean(win && !win.isDestroyed() && (win.isVisible() || win.isMinimized()));
     },
     busy,
-    /** What runs on this computer's server (what the move waits for: a bot's turn, a routine run, a room, a hand-off, a
+    /** What runs on this computer's server (a bot's turn, a routine run, a room, a hand-off, a
      * sign-in), or a Live call here or on the Cloud the window shows. */
     async work() {
-      const held = await answer(local("/api/move/freeze", { signal: timeout() }));
+      const held = await answer(local("/api/workspace/activity", { signal: timeout() }));
       if (!held) throw new Error("This computer's server did not say what it is doing.");
       if (typeof held.busy === "string") return held.what ?? "bot";
       if ((await answer(local("/api/live/call", { signal: timeout() })))?.call) return "call";

@@ -448,8 +448,6 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   // A Team Cloud member sharing their own private conversation: the handler
   // lets only the conversation's person share it and only its author or an admin remove a line (routes/conversation-share.ts)
   { methods: ["GET", "POST"], path: /^\/api\/bots\/[\w-]+\/tasks\/[\w-]+\/share$/ },
-  // a Team Cloud's member moving a bot of their own in: it answers with a sign-in for that one bot
-  { methods: ["POST"], path: /^\/api\/team-move-in$/ },
   // a Team Cloud member's own connections: only the session's own person, never a value back
   { methods: ["GET"], path: /^\/api\/team\/my-connections$/ },
   { methods: ["POST"], path: /^\/api\/team\/my-connections\/(?:apps\/[\w-]{1,64}\/connect|mcp\/[a-z][a-z0-9_-]{0,31}\/sign-in)$/ },
@@ -648,6 +646,7 @@ export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions
   }
 
   if (session && via) {
+    if (session.moveIn) return deny(401, "unauthorized: this migration session has ended");
     if (via === "cookie" && !isSameOrigin(req)) return deny(403, "forbidden: cross-origin request");
     // A browser sign-in's session is its cookie, never a bearer token.
     if (via === "bearer" && session.cookieOnly) return deny(401, "unauthorized: this session belongs to a browser; sign in with a pairing code");

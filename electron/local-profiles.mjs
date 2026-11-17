@@ -132,7 +132,7 @@ export function createProfileRegistry({ dataDir, fs = nodeFs, now = Date.now, ra
  * }} deps `home()`: My Cloud is home ("cloud"), no home but this computer ("local"), or another home (null). `window`: the
  * home window's profile on screen (home-window.mjs), and My Cloud shown again. `showLocal()`: the window onto this
  * computer's page, LOCAL_ID active. `onLocal()`: this computer's page is on screen. `busy()`: what the server that runs now
- * still does (GET /api/move/freeze), null when nothing. `trash(dir)`: moves a folder to the computer's Trash. `reserved()`:
+ * still does (GET /api/workspace/activity), null when nothing. `trash(dir)`: moves a folder to the computer's Trash. `reserved()`:
  * what This Mac is called here (This Mac or This PC). `remember(place)`: the place the next launch opens:
  * the workspace that opened, or null once This computer's own copy is back.
  */

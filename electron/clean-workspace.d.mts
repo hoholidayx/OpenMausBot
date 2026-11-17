@@ -15,8 +15,6 @@ export interface CleanWorkspace {
   open(id?: string): Promise<boolean>;
   leave(): Promise<boolean>;
   settled(): Promise<unknown>;
-  holding<T>(work: () => Promise<T>): Promise<T>;
-  realCopy(request: (route: string, init?: RequestInit) => Promise<Response>): (route: string, init?: RequestInit) => Promise<Response>;
 }
 export function createCleanWorkspace(deps: {
   dataDir(): string;

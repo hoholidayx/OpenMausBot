@@ -58,6 +58,10 @@ export function redownloadedOrgLibraryPath(path: string): boolean {
   return /^org-library\/(?:catalog\.json(?:\.[0-9a-f-]{36}\.tmp)?$|blobs(?:\/|$))/.test(path);
 }
 
+export function legacyMoveStatePath(path: string): boolean {
+  return /^moved(?:-from)?\.json(?:\/|$)/i.test(path);
+}
+
 export function ephemeralWorkspaceTokenPath(path: string): boolean {
   return /^(?:hook-tokens(?:\/|$)|sessions\.json\.open$)/.test(path);
 }

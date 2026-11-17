@@ -272,7 +272,7 @@ export class SessionRegistry {
       return;
     }
     const parsed = fileSchema.safeParse(raw);
-    if (parsed.success) this.sessions = parsed.data.sessions.filter(session => restoreAccounts || (session.email === undefined && session.userId === undefined));
+    if (parsed.success) this.sessions = parsed.data.sessions.filter(session => !session.moveIn && (restoreAccounts || (session.email === undefined && session.userId === undefined)));
   }
 
   private syncDirectory(): void {
@@ -527,34 +527,6 @@ export class SessionRegistry {
 
   issue(input: { label: string; scopes: Scope[]; userId?: string; email?: string }): { token: string; session: PublicSession } {
     return this.issueAccount(input);
-  }
-
-  /** The one sign-in that moves `bot` in for this team member, as long-lived as their own team session. Only the caller's
-   * own team session may ask for it (server/team-move-in.ts). */
-  issueMoveIn(input: { label: string; email: string; teamRole: TeamRole; bot: string }): { token: string; session: PublicSession } {
-    this.prune();
-    const now = this.now();
-    const token = `omb_sess_${randomBytes(32).toString("base64url")}`;
-    const record: SessionRecord = {
-      id: randomUUID(), tokenHash: sha256(token), label: (deviceLabel(input.label) || "Moving a bot in").slice(0, 80), scopes: ["admin", "client"],
-      createdAt: now, lastSeenAt: now, expiresAt: teamSessionExpiresAt(now, now + SESSION_TTL_MS),
-      email: input.email, teamRole: input.teamRole, membershipAuthority: "team", moveIn: input.bot,
-    };
-    this.sessions.push(record);
-    this.lastSeenWrites.set(record.id, now);
-    this.persist();
-    for (const listener of this.onIssued) listener(record);
-    return { token, session: publicSession(record) };
-  }
-
-  /** Ends every sign-in that moves `bot` in: the bot arrived. */
-  revokeMoveIns(bot: string): number {
-    const ended = this.sessions.filter((s) => s.moveIn === bot);
-    if (!ended.length) return 0;
-    this.sessions = this.sessions.filter((s) => s.moveIn !== bot);
-    for (const s of ended) this.forget(s.id);
-    this.persist();
-    return ended.length;
   }
 
   /** Call only after consuming a verified, workspace-bound PKCE grant; no HTTP route accepts this marker as input. */
