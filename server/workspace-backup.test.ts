@@ -18,6 +18,7 @@ import {
 } from "./workspace-backup.ts";
 
 const PASSWORD = "correct horse battery staple";
+const NATIVE_ROOM_SESSION = "fixture-room-native-session";
 const AVATAR_BYTES = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 const RUNTIME_ROW: Assignment = {
   id: "handoff", rootId: "handoff", depth: 0,
@@ -82,6 +83,8 @@ function fixture(root: string): DatabaseSync {
   };
   db.prepare("INSERT INTO messages VALUES (?, ?, ?, ?)").run("thread", message.id, message.text, JSON.stringify(message));
   db.prepare("INSERT INTO thread_state VALUES (?, ?)").run("thread", "message");
+  db.exec("CREATE TABLE room_sessions(thread_id TEXT, bot_id TEXT, instance_id TEXT, session_id TEXT, payload TEXT, PRIMARY KEY(thread_id, bot_id)); CREATE INDEX room_sessions_instance ON room_sessions(instance_id, session_id)");
+  db.prepare("INSERT INTO room_sessions VALUES ('room-thread', 'bot', 'codex', ?, ?)").run(NATIVE_ROOM_SESSION, JSON.stringify({ handed: { session: NATIVE_ROOM_SESSION } }));
   db.exec("CREATE TABLE chat_followups(id TEXT PRIMARY KEY, kind TEXT, owner_id TEXT, thread_id TEXT, send_id TEXT, status TEXT, payload TEXT)");
   for (const status of ["pending", "dispatching", "cancelled"]) {
     db.prepare("INSERT INTO chat_followups VALUES (?, 'bot', 'bot', 'thread', ?, ?, ?)").run(status, `send-${status}`, status,
@@ -196,6 +199,7 @@ describe("encrypted full workspace backups", () => {
       expect(existsSync(join(data, "runtime.db"))).toBe(true);
       expect(existsSync(join(data, "cloud-owner.json"))).toBe(false);
       expect(existsSync(join(data, "data-format.json"))).toBe(false);
+      expect(readFileSync(join(data, "messages.db")).includes(Buffer.from(NATIVE_ROOM_SESSION))).toBe(false);
       expect(readJson(join(data, "config.json"))).toEqual({ language: "ja" });
       expect(readJson(join(data, "webhooks.json")).webhooks[0]).not.toHaveProperty("secretHash");
       expect(readFileSync(join(data, "webhooks.json"), "utf8")).not.toContain("sealed-");
@@ -271,7 +275,7 @@ describe("encrypted full workspace backups", () => {
     } finally { if (db.isOpen) db.close(); }
   });
 
-  it("also pauses pending chat follow-ups when restoring into the original home", async () => {
+  it("pauses pending chat follow-ups and starts fresh room sessions when restoring into the original home", async () => {
     const source = directory();
     fixture(source).close();
     const migrationMarker = join(source, "moved.json");
@@ -279,10 +283,13 @@ describe("encrypted full workspace backups", () => {
     const exported = await createWorkspaceBackup(source, { password: PASSWORD });
     const staged = await stageWorkspaceBackup(source, exported.path, { password: PASSWORD });
     commitPendingWorkspaceRestore(source, staged.id);
-    applyPendingWorkspaceRestore(source);
+    const restored = applyPendingWorkspaceRestore(source);
+    expect(restored).toMatchObject({ restored: true });
+    expect(readFileSync(join(restored.safetyCopyPath!, "data", "messages.db")).includes(Buffer.from(NATIVE_ROOM_SESSION))).toBe(true);
     expect(readFileSync(migrationMarker, "utf8")).toBe('{"v":1}');
     const db = new DatabaseSync(join(source, "messages.db"), { readOnly: true });
     try {
+      expect(db.prepare("SELECT session_id FROM room_sessions").all()).toEqual([]);
       expect(db.prepare("SELECT id, status FROM chat_followups ORDER BY rowid").all()).toEqual([
         { id: "pending", status: "interrupted" }, { id: "dispatching", status: "interrupted" }, { id: "cancelled", status: "cancelled" },
       ]);

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import type { BeginTurnRequest, Coordinator, CoordinatorHost, CoordinatorOptions, HandoffLimit, HandoffOptions, HandoffView, HostTurnResult, LiveHandoffEdge, RoomAddress } from "./coordinator.ts";
+import type { BeginTurnRequest, ComposedTurn, Coordinator, CoordinatorHost, CoordinatorOptions, HandoffLimit, HandoffOptions, HandoffView, HostTurnResult, LiveHandoffEdge, RoomAddress } from "./coordinator.ts";
 import type { WorkOrigin } from "./peer-provenance.ts";
 import { composeEnvelope, composeQuestion, composeReport, composeResume, composeRootTurn, continuationLine, envelopeNote } from "./runtime/envelope.ts";
 import { handoffLimits } from "./runtime/handoff-limits.ts";
@@ -634,6 +634,27 @@ export class RuntimeCoordinator implements Coordinator {
     }
   }
 
+  private resumedTurn(a: Assignment, node: HandoffView, parent: Assignment | undefined, input: RunInput): ComposedTurn {
+    const names = this.host.names(node, parent && this.project(parent));
+    const settled = input.settled ?? [];
+    const asked = input.asked ?? [];
+    const reports = settled.map(child => ({ id: child.id, text: composeReport(this.readable(child, a, node), this.host.names(view(child, a), node)) }));
+    const questions = asked.map(child => composeQuestion(this.readable(child, a, node), this.host.names(view(child, a), node)));
+    const faults = settled.flatMap(child => child.status === "failed" && child.fault ? [{ fault: child.fault, who: this.host.names(view(child, a), node).assignee }] : []);
+    const reviewRoom = (included: ReadonlySet<string>, briefVisible: boolean) => input.restartNote +
+      composeResume(a, names, reports.filter(report => !included.has(report.id)).map(report => report.text), questions, faults, briefVisible);
+    const text = reviewRoom(new Set(), false);
+    return { text, note: text, restartNote: input.restartNote, turn: input.turn, reviewRoom };
+  }
+
+  private composeTurn(a: Assignment, node: HandoffView, parent: Assignment | undefined, input: RunInput): ComposedTurn {
+    if (input.turn === "resume") return this.resumedTurn(a, node, parent, input);
+    const root = a.parentId === undefined;
+    const body = root ? composeRootTurn(a, { ...input, turn: input.turn, restartNote: "" })
+      : input.continuation ? `${continuationLine(input.continuation)}\n${input.envelope}` : input.envelope;
+    return { text: input.restartNote + body, note: input.restartNote + (root ? body : envelopeNote(body)), restartNote: input.restartNote, turn: input.turn };
+  }
+
   private async run(a: Assignment, input: RunInput, signal: AbortSignal): Promise<RunResult> {
     const first = input.turn === "first" || input.turn === "rerun" ? this.answeredElsewhere(a) : undefined;
     if (first && input.turn === "first") this.host.joined?.(this.project(a), this.project(first));
@@ -642,22 +663,9 @@ export class RuntimeCoordinator implements Coordinator {
     const parent = a.parentId ? this.store.get(a.parentId) : undefined;
     const node = view(a, parent);
     const resumed = input.turn === "resume";
-    const settled = input.settled ?? [];
-    const asked = input.asked ?? [];
     const root = a.parentId === undefined;
-    const body = resumed
-      ? composeResume(a, this.host.names(node, parent && this.project(parent)),
-        settled.map(child => composeReport(this.readable(child, a, node), this.host.names(view(child, a), node))),
-        asked.map(child => composeQuestion(this.readable(child, a, node), this.host.names(view(child, a), node))),
-        settled.flatMap(child => child.status === "failed" && child.fault ? [{ fault: child.fault, who: this.host.names(view(child, a), node).assignee }] : []))
-      : root
-        ? composeRootTurn(a, { turn: input.turn === "resume" ? "first" : input.turn, restartNote: "", ...(input.answer !== undefined ? { answer: input.answer } : {}),
-          ...(input.continuation ? { continuation: input.continuation } : {}) })
-        : input.continuation ? `${continuationLine(input.continuation)}\n${input.envelope}` : input.envelope;
-    const note = resumed || root ? body : envelopeNote(body);
     const evidence = (result: HostTurnResult) => result.evidence ? { evidence: result.evidence } : {};
-    const result = await this.host.run(node, resumed, signal,
-      { text: `${input.restartNote}${body}`, note: `${input.restartNote}${note}`, restartNote: input.restartNote, turn: input.turn });
+    const result = await this.host.run(node, resumed, signal, this.composeTurn(a, node, parent, input));
     if (signal.aborted) return { kind: "failed", outcome: "stopped", text: result.text };
     if (result.cap) return { kind: "continue", text: result.text, note: result.cap.note, ...(result.cap.handoffPath ? { handoffPath: result.cap.handoffPath } : {}), ...evidence(result) };
     if (result.cards) return { kind: "needs_input", question: result.cards.question, cards: result.cards.ids, ...evidence(result) };

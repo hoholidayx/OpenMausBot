@@ -1889,6 +1889,21 @@ describe("ACP turns (fake CLI)", () => {
     expect(recorder.events.filter((e) => e.type === "request.opened")).toHaveLength(2);
   });
 
+  it("requires a fresh permission decision when a different room member resumes its own cursor", async () => {
+    await create(GrokAgentDriver, "permission");
+    const threadId = "room-approval";
+    const first = await instance.adapter.sendTurn({ threadId, botId: "editor", text: "read", approvalMode: "ask" });
+    const opened = await recorder.until(event => event.type === "request.opened" && event.turnId === first.turnId);
+    await instance.adapter.respondToRequest(threadId, opened.requestId!, { behavior: "allow", always: true });
+    await recorder.until(event => event.type === "turn.completed" && event.turnId === first.turnId);
+
+    const second = await instance.adapter.sendTurn({ threadId, botId: "reviewer", resumeCursor: "review-session", text: "read", approvalMode: "ask" });
+    const reviewer = await recorder.until(event => event.type === "request.opened" && event.turnId === second.turnId);
+    expect(reviewer.requestId).not.toBe(opened.requestId);
+    expect(await instance.adapter.respondToRequest(threadId, reviewer.requestId!, { behavior: "deny" })).toBe("rejected");
+    await recorder.until(event => event.type === "turn.completed" && event.turnId === second.turnId);
+  });
+
   it.each(["grok-4.7", "grok-4.6", "grok-4.5", "local-model"])(
     "keeps native Grok Auto when selecting and resuming %s",
     async (model) => {

@@ -486,23 +486,23 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
   const messagesFor = (turn: SendTurnInput): OpenAIChatMessage[] => {
     const halves = promptHalves(turn);
     const transcript = turn.transcript ?? [];
-    const replay = replayDelivered(transcript, delivered.get(turn.threadId) ?? []);
+    const key = JSON.stringify([turn.threadId, turn.botId]);
+    const replay = replayDelivered(transcript, delivered.get(key) ?? []);
     const volatile = halves.volatile.trim();
     const note = halves.stable === null || (!turn.mentionTurn && replay.volatile === volatile) ? ""
       : volatileContextNote(volatile, Boolean(replay.volatile));
-    const textOnly = (text: string) => !options.computerUse || seesImages(turn) || !turn.images?.length ? text
-      : `${text}\n\n${TEXT_ONLY_ATTACHMENT_NOTE}`;
+    const attachmentNote = options.computerUse && !seesImages(turn) && turn.images?.length ? `\n\n${TEXT_ONLY_ATTACHMENT_NOTE}` : "";
     const userTurn = note ? { ...turn, text: withContextNote(note, turn.text) } : turn;
-    const content = options.computerUse && seesImages(turn) ? chatUserContent(userTurn) : textOnly(userTurn.text);
+    const content = options.computerUse && seesImages(turn) ? chatUserContent(userTurn) : userTurn.text + attachmentNote;
     const kept = turn.recalled ? turn.text.replace(`${turn.recalled}\n\n`, "") : turn.text;
     const record = {
       text: kept,
-      sent: textOnly(withContextNote(note, kept)),
+      sent: withContextNote(note, kept) + attachmentNote,
       ...(note ? { volatile } : {}),
       after: transcript.length ? fingerprint(transcript.at(-1)!.text) : "",
     };
-    delivered.delete(turn.threadId);
-    delivered.set(turn.threadId, [...replay.matched, record]);
+    delivered.delete(key);
+    delivered.set(key, [...replay.matched, record]);
     if (delivered.size > MAX_DELIVERED_THREADS) delivered.delete(delivered.keys().next().value!);
     const system = halves.stable ?? turn.system;
     return [

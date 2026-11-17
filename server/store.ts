@@ -134,7 +134,7 @@ export type StoreChange =
   | { type: "bot.deleted"; botId: string }
   /** The fleet or the rooms were reordered as a whole; the broadcast carries every id in its new place. */
   | { type: "bots.order" } | { type: "groups.order" }
-  | { type: "group"; groupId: string }
+  | { type: "group"; groupId: string; removedMembers?: string[]; audienceChanged?: true }
   | { type: "group.deleted"; groupId: string };
 
 export function titleFromLlm(raw: string): string | null {
@@ -859,6 +859,8 @@ export class Store {
       this.rememberSections([patch.section]);
     }
     const { busyBotId, ...stored } = patch;
+    const membersBefore = group.memberIds;
+    const floorBefore = group.audienceFloor;
     if (Object.prototype.hasOwnProperty.call(patch, "busyBotId")) {
       if (busyBotId && busyBotId !== group.busyBotId) group.turnStartedAt = Date.now();
       else if (!busyBotId) delete group.turnStartedAt;
@@ -877,7 +879,9 @@ export class Store {
       group.defaultResponder = normalizeGroupDefaultResponder(group.defaultResponder, group.memberIds, Boolean(group.dm));
       if (Object.prototype.hasOwnProperty.call(stored, "memberIds")) pruneRoomHolds(group);
     });
-    this.emit({ type: "group", groupId: group.id });
+    const removedMembers = membersBefore.filter(id => !group.memberIds.includes(id));
+    const audienceChanged = JSON.stringify(group.audienceFloor) !== JSON.stringify(floorBefore);
+    this.emit({ type: "group", groupId: group.id, ...(removedMembers.length ? { removedMembers } : {}), ...(audienceChanged ? { audienceChanged: true } : {}) });
     return group;
   }
 

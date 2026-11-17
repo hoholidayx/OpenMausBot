@@ -18,6 +18,7 @@
 //   FAKE_CODEX_ASYNC_QUESTIONS  async-question mode: JSON replacing the message's `questions`
 //   FAKE_CODEX_ASYNC_QUESTION_GATE  async-question mode: the turn keeps running until this file exists (default 300 ms)
 //   FAKE_CODEX_DUMP  path for {pid, argv, env, calls, decision}
+//   FAKE_CODEX_DISTINCT_SESSIONS  "1" makes thread/start use a fresh id on each process
 //   FAKE_CODEX_ACTION_LOG  early-tool-timeout/error: append an action before turn/start times out or fails
 //   FAKE_CODEX_ECHO_INPUT  "1": echo turn/start's input back as a userMessage item, as codex-cli 0.164.0 does
 //   FAKE_CODEX_COMMAND  the happy turn's one call, this command (default: "ls -la" and a web search);
@@ -68,6 +69,7 @@ import { appendFileSync, existsSync, readFileSync, renameSync, unlinkSync, write
 
 
 const mode = process.env.FAKE_CODEX_MODE ?? "happy";
+const fixtureThreadId = process.env.FAKE_CODEX_DISTINCT_SESSIONS === "1" ? `codex-thread-${process.pid}` : "codex-thread-1";
 const tiers = process.env.FAKE_CODEX_TIERS === "1";
 const FAST_TIERS = [{ id: "priority", name: "Fast", description: "Fastest inference with increased plan usage" }];
 
@@ -709,10 +711,10 @@ process.stdin.on("data", (chunk) => {
           out({ jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "experimental API required for permissions" } });
         } else if (process.env.FAKE_CODEX_MCP_START === "1") {
           // Codex starts MCP servers with the thread; one that fails leaves the thread without its tools.
-          const reply = { jsonrpc: "2.0", id: msg.id, result: { thread: { id: "codex-thread-1" }, model: "fake-codex-model", sandbox: resolvedSandbox(msg.params ?? {}) } };
+          const reply = { jsonrpc: "2.0", id: msg.id, result: { thread: { id: fixtureThreadId }, model: "fake-codex-model", sandbox: resolvedSandbox(msg.params ?? {}) } };
           void startMcpServers().then((startup) => { mcpStartup = startup; dump(); threadReply(reply); });
         } else {
-          threadReply({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: "codex-thread-1", ...(process.env.FAKE_CODEX_ROLLOUT ? { path: process.env.FAKE_CODEX_ROLLOUT } : {}) }, model: "fake-codex-model", sandbox: resolvedSandbox(msg.params ?? {}) } });
+          threadReply({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: fixtureThreadId, ...(process.env.FAKE_CODEX_ROLLOUT ? { path: process.env.FAKE_CODEX_ROLLOUT } : {}) }, model: "fake-codex-model", sandbox: resolvedSandbox(msg.params ?? {}) } });
         }
         break;
       case "turn/start": {

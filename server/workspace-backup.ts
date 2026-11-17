@@ -276,6 +276,11 @@ function databaseCounts(path: string): { threads: number; messages: number } {
   } finally { db.close(); }
 }
 
+function clearRoomSessionReceipts(db: DatabaseSync): void {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'room_sessions'").get()) return;
+  db.exec("PRAGMA secure_delete = ON; DELETE FROM room_sessions");
+}
+
 /** The existing maintenance gate owns exclusivity until this worker has exited.
  * Keep synchronous file validation/fsync intact, but off the request thread. */
 export async function createWorkspaceBackup(dataDir: string, options: CreateWorkspaceBackupOptions): Promise<CreatedWorkspaceBackup> {
@@ -336,7 +341,10 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
       try { await backup(db, join(snapshot, snapshotName)); }
       finally { clearInterval(completionPulse); db.close(); }
       const snapshotDb = new DatabaseSync(join(snapshot, snapshotName));
-      try { snapshotDb.exec("PRAGMA journal_mode = DELETE"); } finally { snapshotDb.close(); }
+      try {
+        snapshotDb.exec("PRAGMA journal_mode = DELETE");
+        if (name === "messages.db") clearRoomSessionReceipts(snapshotDb);
+      } finally { snapshotDb.close(); }
     }
     const teamPrivate = teamPrivateThreads({ starters: join(root, "thread-starters.json"), groups: join(root, "groups.json"), bots: join(root, "bots.json") });
     const privacy = teamPrivate && { ...teamPrivate, attachments: teamPrivateAttachments(root, join(snapshot, SNAPSHOT_DATABASES["messages.db"]!), teamPrivate) };
@@ -836,6 +844,7 @@ function prepareRestore(dataDir: string, id: string, manifest: Manifest): string
           pause.run(JSON.stringify(payload), row.id);
         }
       }
+      clearRoomSessionReceipts(db);
       db.exec("COMMIT");
     } finally { db.close(); }
   }

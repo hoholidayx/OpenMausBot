@@ -76,28 +76,18 @@ export class RoomContextTracker {
 
   dispatch(threadId: string, botId: string, instanceId: string, settings: { autoCompact?: boolean; roomCompactAt?: number } | undefined, hostCompaction = true):
     { reset: RoomReset | null; displaced: boolean } {
+    const changed = this.dispatched(threadId, botId, instanceId);
     const reset = hostCompaction ? this.takeReset(threadId, botId, settings) : null;
     const cleared = !hostCompaction && this.clearReading(threadId, botId);
-    const displaced = this.dispatched(threadId, botId, instanceId);
-    return { reset, displaced: cleared || displaced };
+    return { reset, displaced: changed || cleared };
   }
 
-  /** Each engine keeps one warm process per thread, so this turn closes the other members' processes on its engine. */
   dispatched(threadId: string, botId: string, instanceId: string): boolean {
     const engines = this.dispatchedOn.get(threadId) ?? new Map<string, string>();
     engines.set(botId, instanceId);
     this.dispatchedOn.set(threadId, engines);
-    const members = this.threads.get(threadId);
-    if (!members) return false;
-    let dropped = false;
-    for (const [other, reading] of members) {
-      // A reading from before its engine was known is assumed to share it.
-      if (other === botId || (reading.instanceId && reading.instanceId !== instanceId)) continue;
-      members.delete(other);
-      dropped = true;
-    }
-    if (!members.size) this.threads.delete(threadId);
-    return dropped;
+    const recordedOn = this.threads.get(threadId)?.get(botId)?.instanceId;
+    return recordedOn !== undefined && recordedOn !== instanceId && this.clearReading(threadId, botId);
   }
 
   takeReset(threadId: string, botId: string, settings: { autoCompact?: boolean; roomCompactAt?: number } | undefined): RoomReset | null {

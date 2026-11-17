@@ -62,7 +62,7 @@ describe("room context", () => {
     expect(rooms.request("room", "scout")).toBe(false);
   });
 
-  it("drops other members' readings when a turn takes their engine's warm process", () => {
+  it("keeps readings and queued resets for other members using the same engine", () => {
     const rooms = new RoomContextTracker({ idleMs: IDLE_MS });
     rooms.dispatched("room", "editor1", "claude");
     rooms.record("room", "editor1", { tokens: 162_000, window: 200_000 }, undefined);
@@ -71,10 +71,10 @@ describe("room context", () => {
     rooms.record("room", "codex-bot", { tokens: 30_000, window: 200_000 }, undefined);
     expect(rooms.dispatched("room", "codex-bot", "codex")).toBe(false);
     expect(Object.keys(rooms.forThread("room") ?? {})).toEqual(["editor1", "codex-bot"]);
-    expect(rooms.dispatched("room", "editor3", "claude")).toBe(true);
-    expect(rooms.forThread("room")).toEqual({ "codex-bot": { tokens: 30_000, window: 200_000 } });
-    expect(rooms.takeReset("room", "editor1", undefined)).toBeNull();
-    expect(rooms.request("room", "editor1")).toBe(false);
+    expect(rooms.dispatched("room", "editor3", "claude")).toBe(false);
+    expect(rooms.forThread("room")?.editor1?.compactRequested).toBe(true);
+    expect(rooms.takeReset("room", "editor1", undefined)).toMatchObject({ reason: "requested" });
+    expect(rooms.forThread("room")?.["codex-bot"]?.tokens).toBe(30_000);
     rooms.record("room", "editor3", { tokens: 190_000, window: 200_000 }, undefined);
     expect(rooms.dispatched("room", "editor3", "claude")).toBe(false);
     expect(rooms.forThread("room")?.editor3).toEqual({ tokens: 190_000, window: 200_000 });

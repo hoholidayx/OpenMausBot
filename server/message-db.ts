@@ -75,6 +75,16 @@ function open(): DatabaseSync {
       thread_id TEXT PRIMARY KEY,
       active_leaf_id TEXT
     );
+    CREATE TABLE IF NOT EXISTS room_sessions (
+      thread_id TEXT NOT NULL,
+      bot_id TEXT NOT NULL,
+      instance_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      PRIMARY KEY (thread_id, bot_id)
+    );
+    CREATE INDEX IF NOT EXISTS room_sessions_bot ON room_sessions(bot_id);
+    CREATE INDEX IF NOT EXISTS room_sessions_instance ON room_sessions(instance_id, session_id);
     CREATE TABLE IF NOT EXISTS chat_followups (
       id TEXT PRIMARY KEY,
       kind TEXT NOT NULL,
@@ -653,6 +663,7 @@ export function deleteThreads(threadIds: readonly string[], beforeCommit?: () =>
       connection.prepare("DELETE FROM chat_followups WHERE thread_id = ?"),
       connection.prepare("DELETE FROM messages WHERE thread_id = ?"),
       connection.prepare("DELETE FROM thread_state WHERE thread_id = ?"),
+      connection.prepare("DELETE FROM room_sessions WHERE thread_id = ?"),
       connection.prepare("DELETE FROM notification_log WHERE thread_id = ?"),
     ];
     for (const id of threadIds) for (const statement of statements) statement.run(id);

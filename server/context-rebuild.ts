@@ -177,6 +177,10 @@ export function boundedContextText(text: string, limit: number): string {
   return head + notice + bytes.subarray(start).toString("utf8");
 }
 
+export function replayOmission(dropped: number): ReplayEntry[] {
+  return dropped ? [{ id: "", role: "assistant", text: `[${dropped} earlier messages omitted from this context; full history remains in the app.]` }] : [];
+}
+
 export function selectReplay(
   history: readonly ReplayEntry[],
   options: {
@@ -228,7 +232,7 @@ export function selectReplay(
     available -= Buffer.byteLength(text) + 16;
   }
   const dropped = entries.length - kept.length;
-  if (dropped) transcript.push({ id: "", role: "assistant", text: `[${dropped} earlier messages omitted from this context; full history remains in the app.]` });
+  transcript.push(...replayOmission(dropped));
   const lead = transcript.length;
   transcript.push(...kept);
   const lines = withToolLines(history, kept, options.tools, available);

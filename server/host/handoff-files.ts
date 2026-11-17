@@ -365,7 +365,9 @@ export function createHandoffFiles(deps: HandoffFilesDeps) {
       }
       if (!files?.text) return run(node, resumed, signal, composed);
       const told = files, add = (text: string) => `${text}\n\n${told.text}`;
-      const result = await run(node, resumed, signal, { ...composed, text: add(composed.text), note: add(composed.note) });
+      const reviewRoom = composed.reviewRoom;
+      const result = await run(node, resumed, signal, { ...composed, text: add(composed.text), note: add(composed.note),
+        ...(reviewRoom ? { reviewRoom: (included, briefVisible) => add(reviewRoom(included, briefVisible)) } : {}) });
       if (!result.ok || result.cap) told.undo();
       return result;
     };

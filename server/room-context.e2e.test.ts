@@ -8,7 +8,7 @@ import type { WireBot, WireGroup } from "../shared/wire.ts";
 const CONTEXT_TOKENS = 990_000;
 
 it("shows a bot's room context, compacts on request, and compacts before a turn above the threshold", async () => {
-  const fixture = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_CONTEXT_TOKENS: String(CONTEXT_TOKENS) },
+  const fixture = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_VERSION: "2.1.270", FAKE_CLAUDE_CONTEXT_TOKENS: String(CONTEXT_TOKENS) },
     undefined, undefined, undefined, undefined, { scripted: true });
   const { url, dataDir } = fixture.info;
   const control = (...args: string[]) => runControlOmb([...args, "--url", url]);
@@ -60,8 +60,8 @@ it("shows a bot's room context, compacts on request, and compacts before a turn 
   } finally { await fixture.close(); }
 }, 90_000);
 
-it("drops a member's reading once another member's turn replaces its warm process", async () => {
-  const fixture = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_CONTEXT_TOKENS: String(CONTEXT_TOKENS) },
+it("keeps the readings of separate members after the warm process changes hands", async () => {
+  const fixture = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_VERSION: "2.1.270", FAKE_CLAUDE_CONTEXT_TOKENS: String(CONTEXT_TOKENS) },
     undefined, undefined, undefined, undefined, { scripted: true });
   const { url, dataDir } = fixture.info;
   const control = (...args: string[]) => runControlOmb([...args, "--url", url]);
@@ -84,10 +84,10 @@ it("drops a member's reading once another member's turn replaces its warm proces
     await expect.poll(async () => (await read()).memberContext?.[first.id]?.tokens, { timeout: 5_000 }).toBe(CONTEXT_TOKENS);
     // Cutter shares the room's thread and engine, so the driver closes Editor's warm process.
     await send("@Cutter Trim the middle.");
-    await expect.poll(async () => Object.keys((await read()).memberContext ?? {}), { timeout: 5_000 }).toEqual([second.id]);
+    await expect.poll(async () => Object.keys((await read()).memberContext ?? {}), { timeout: 5_000 }).toEqual([first.id, second.id]);
     await send("@Editor Tighten the outro.");
     const editorTurns = turns().filter(turn => turn.botId === first.id);
     expect(editorTurns[1]!.pid).not.toBe(editorTurns[0]!.pid);
-    await expect.poll(async () => Object.keys((await read()).memberContext ?? {}), { timeout: 5_000 }).toEqual([first.id]);
+    await expect.poll(async () => Object.keys((await read()).memberContext ?? {}), { timeout: 5_000 }).toEqual([first.id, second.id]);
   } finally { await fixture.close(); }
 }, 90_000);

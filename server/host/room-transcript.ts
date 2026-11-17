@@ -1,4 +1,5 @@
 import { DRAIN_COALESCE_MAX_ITEMS } from "../admission.ts";
+import type { ContextMessage } from "../delta-context.ts";
 import { digestPromptLine } from "../digest.ts";
 import { escapeNotes, peerProvenanceNote, webhookPostNote } from "../peer-provenance.ts";
 import { lineNote } from "../provenance-label.ts";
@@ -10,69 +11,65 @@ import type { Message, Store } from "../store.ts";
 
 export const GROUP_CONTEXT_MESSAGES = DRAIN_COALESCE_MAX_ITEMS;
 
-export interface RoomLine {
-  id: string;
-  text: string;
-}
-
-export interface RoomWindow {
-  text: string;
-  lines: RoomLine[];
-  order: string[];
-  readable: string[];
+export interface RoomLine extends ContextMessage {
+  readonly assistantText?: string;
+  readonly promptText?: string;
+  requestId?: string;
+  turnId?: string;
 }
 
 export function isRoomContextMessage(m: Pick<Message, "kind" | "text" | "digest" | "roomRequest">): boolean {
   return Boolean((m.kind === "text" && m.text) || (m.kind === "digest" && m.digest) || m.roomRequest?.phase === "result");
 }
 
+function hasRoomContext(message: Message, botId: string): boolean {
+  const digest = message.digest;
+  if (message.kind !== "digest" || digest?.botId !== botId) return isRoomContextMessage(message);
+  return Boolean(digest.tools.length || digest.toolsDropped || digest.files);
+}
+
 export interface RoomTranscriptDeps {
-  store: Pick<Store, "messagesFor">;
+  store: Pick<Store, "activePath">;
   teammateReportContext(requestId: string, readerBotId?: string): string;
 }
 
 export function createRoomTranscript({ store, teammateReportContext }: RoomTranscriptDeps) {
-  function window(
-    threadId: string,
-    userName: PersonName,
-    textOverrides?: ReadonlyArray<{ messageId: string; text: string }>,
-    readerBotId?: string,
-  ): RoomWindow {
-    const messages = store.messagesFor(threadId);
+  function read(threadId: string, userName: PersonName, botId: string, overrides?: ReadonlyMap<string, string>): RoomLine[] {
+    const messages = store.activePath(threadId);
     const messagesById = new Map(messages.map((message) => [message.id, message]));
-    const overrides = new Map(textOverrides?.map((override) => [override.messageId, override.text]));
     const narration = roomTurnNarrationIds(messages);
-    const context = messages.filter(isRoomContextMessage);
-    const readable = context.filter((m) => !narration.has(m.id));
-    const shown = readable.slice(-GROUP_CONTEXT_MESSAGES);
-    const texts = shown
-      .map((m) => {
-        if (m.kind === "digest" && m.digest) {
-          return digestPromptLine(m.digest, m.from ? peerName(m.from.name) : "a bot");
-        }
-        if (m.roomRequest?.phase === "result") {
-          return teammateReportContext(m.roomRequest.id, readerBotId);
-        }
-        const overridden = overrides.get(m.id);
-        const rendered = overridden !== undefined ? { ...m, text: overridden } : m;
-        const person = speakerOf(userName, m);
-        const speaker = m.role === "user" ? person : m.from ? peerName(m.from.name) : "Bot";
-        const body = escapeNotes(transcriptText(rendered, messagesById, userName));
-        // An outside app chose these words: the bot it is shown as reads the note too, and one JSON string cannot start a line of its own.
-        if (m.webhookPost && m.role === "bot") return `${webhookPostNote(m.from?.name ?? "Bot")}\n${speaker}: ${JSON.stringify(body)}`;
-        const note = lineNote(m, { shared: false, name: () => person });
-        if (note) return `${note}\n${speaker}: ${JSON.stringify(body)}${roomReactionNote(m, userName)}`;
-        const line = `${speaker}: ${body}${roomReactionNote(m, userName)}`;
-        if (!m.peerPost || !m.from || m.from.botId === readerBotId) return line;
-        return `${peerProvenanceNote({ botName: m.from.name, delivery: "post_to_room", unattended: m.peerPost.unattended })}\n${line}`;
-      });
-    return {
-      text: texts.join("\n"),
-      lines: shown.map((m, index) => ({ id: m.id, text: texts[index]! })),
-      order: context.map((m) => m.id),
-      readable: readable.map((m) => m.id),
+    const render = (m: Message) => {
+      if (m.kind === "digest" && m.digest) {
+        const digest = m.digest.botId === botId ? { ...m.digest, reply: "" } : m.digest;
+        return digestPromptLine(digest, m.from ? peerName(m.from.name) : "a bot");
+      }
+      const person = speakerOf(userName, m);
+      const speaker = m.role === "user" ? person : m.from ? peerName(m.from.name) : "Bot";
+      const body = escapeNotes(transcriptText(m, messagesById, userName));
+      if (m.webhookPost && m.role === "bot") return `${webhookPostNote(m.from?.name ?? "Bot")}\n${speaker}: ${JSON.stringify(body)}`;
+      const note = lineNote(m, { shared: false, name: () => person });
+      const suffix = roomReactionNote(m, userName);
+      if (note) return `${note}\n${speaker}: ${JSON.stringify(body)}${suffix}`;
+      const line = `${speaker}: ${body}${suffix}`;
+      if (!m.peerPost || !m.from || m.from.botId === botId) return line;
+      return `${peerProvenanceNote({ botName: m.from.name, delivery: "post_to_room", unattended: m.peerPost.unattended })}\n${line}`;
     };
+    return messages.filter(m => !narration.has(m.id) && hasRoomContext(m, botId)).flatMap((m): RoomLine[] => {
+      if (m.roomRequest?.phase === "result") {
+        const text = teammateReportContext(m.roomRequest.id, botId);
+        return text ? [{ id: m.id, role: "user", text, requestId: m.roomRequest.id }] : [];
+      }
+      const ownReply = m.role === "bot" && m.kind === "text" && m.turnId && m.from?.botId === botId && !m.peerPost && !m.webhookPost;
+      const override = overrides?.get(m.id);
+      return [{
+        id: m.id, role: ownReply ? "assistant" : "user", get text() { return render(m); },
+        turnId: ownReply ? m.turnId : undefined,
+        get assistantText() { return ownReply ? transcriptText(m, messagesById, userName) : undefined; },
+        get promptText() { return override === undefined ? undefined : render({ ...m, text: override }); },
+        ...(m.steered ? { steered: true } : {}),
+      }];
+    });
   }
 
-  return { window };
+  return { read };
 }

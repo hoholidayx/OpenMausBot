@@ -65,7 +65,9 @@ OMB_UI_E2E=1 pnpm exec vitest run scripts/testing/workspace-backup-ui.e2e.test.t
 The archive tests cover authenticated encryption, damaged/wrong-password files,
 path traversal, links and duplicate entries, SQLite WAL rows, modified staging,
 cross-directory path repair, interrupted replacement, credential exclusion,
-destination credential preservation and recovery. The maintenance checks keep
+destination credential preservation and recovery. Room session cursors are
+removed from the export. After a restore, each room bot starts a fresh session
+from the restored history. The maintenance checks keep
 ordinary requests, turns, schedulers and the separate webhook receiver from
 writing during a snapshot.
 Unknown external writers cannot be frozen: users must stop external editors and

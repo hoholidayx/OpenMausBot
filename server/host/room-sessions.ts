@@ -1,404 +1,295 @@
-// Invariant: every window line is in the text sent, or was shown to this same native session in exactly this form; any doubt sends the whole window.
 import { createHash } from "node:crypto";
 
-import { MAX_WINDOW_MINUTES } from "../cache-keepwarm.ts";
-import type { RuntimeEvent } from "../contracts.ts";
-import { Handoffs, handedStateUsable, sessionStart, unseenMessages, type HandedState, type HandoffStore, type SessionStart } from "../delta-context.ts";
-import { sessionIdlePolicy } from "../drivers/session-idle.ts";
-import { roomSessionsEnabled } from "../room-context-settings.ts";
-import type { Message } from "../store.ts";
-import { isRoomContextMessage, type RoomLine, type RoomWindow } from "./room-transcript.ts";
+import { replayOmission, selectReplay, type ReplayEntry } from "../context-rebuild.ts";
+import type { RuntimeEvent, SendTurnInput } from "../contracts.ts";
+import { HANDED_MAX_IDS, Handoffs, handedStateUsable, sessionStart, unseenMessages, type HandedState, type HandoffStore } from "../delta-context.ts";
+import type { RoomSessionReceipt, RoomSessionStore } from "./room-session-store.ts";
+import { GROUP_CONTEXT_MESSAGES, type RoomLine } from "./room-transcript.ts";
 
-export const ROOM_SESSION_ENGINES: Readonly<Record<string, string>> = { claudeAgent: "CLAUDE" };
-
-// Known gap: a process kept warm past this (prompt-cache keep-warm) goes on in the recorded session after a start, so a line can be sent twice.
-export function roomSessionIdleMs(driverKind: string, env: Record<string, string | undefined> = process.env): number | undefined {
-  return Object.hasOwn(ROOM_SESSION_ENGINES, driverKind) ? sessionIdlePolicy(ROOM_SESSION_ENGINES[driverKind]!, env).idleMs : undefined;
-}
-
-const NEAR_COMPACTION = 0.8;
-
-const ABANDONED_TURN_MS = 24 * 60 * 60_000;
-
-export interface RoomSessionEngine {
-  instanceId: string;
-  driverKind: string;
-  adapter: { capabilities: { strictResume?: boolean } };
-}
-
-export interface RoomSessionsDeps {
-  settings(): { roomSessions?: boolean } | undefined;
-  env?: NodeJS.ProcessEnv;
-  messagesFor(threadId: string): readonly Message[];
-  now?(): number;
-}
+export const ROOM_DELTA_NOTE = "[Messages this conversation received since your last turn in this room, oldest first.]";
+export const ROOM_DELTA_NONE = "[Messages this conversation received since your last turn in this room: none.]";
 
 export interface RoomDispatchInput {
   threadId: string;
   botId: string;
   claimId: string;
-  instance: RoomSessionEngine;
-  guestConfined: boolean;
-  reset: boolean;
-  hooks: boolean;
-  context?(): { tokens?: number; window?: number; compactAt?: number } | undefined;
-  config: readonly unknown[];
-  window: RoomWindow;
-  tail: string;
-  wrap(body: string): string;
-}
-
-export interface RoomDispatch {
-  mode: "legacy" | "start" | "resume";
-  text: string;
-  send: { sessionReset?: true; resumeCursor?: string; recoveryText?: string };
-}
-
-export interface RoomSessions {
-  dispatch(input: RoomDispatchInput): RoomDispatch;
-  bindTurn(threadId: string, claimId: string, turnId: string | undefined): void;
-  onEvent(event: RuntimeEvent): void;
-  distrust(threadId: string, botId: string): void;
-  forget(threadId: string): void;
-  tracked(): { records: number; flights: number; speakers: number; lines: number; readings: number };
-}
-
-const OWN = "";
-
-interface MemberRecord {
   instanceId: string;
-  adapter: object;
-  handed: HandedState;
-  texts: Map<string, string>;
-  settledAt?: number;
+  fingerprint: string;
+  resumable(): boolean;
+  current(): boolean;
+  reset: boolean;
+  stateless: boolean;
+  budgetBytes: number;
+  lines: RoomLine[];
+  required: ReadonlySet<string>;
+  wrap(body: string, context: string, reports: ReadonlySet<string>): string;
+  onAccepted(): void;
 }
 
-interface Trace {
-  ended?: string;
-  tokens?: number;
-  session?: string;
-  at: number;
+interface Packet {
+  body: string;
+  current: string;
+  history: ReplayEntry[];
+  ids: string[];
+  required: string[];
+  reports: ReadonlySet<string>;
+  overflow: boolean;
+}
+
+function lineText(line: RoomLine): string {
+  const text = line.promptText ?? line.text;
+  return line.steered ? "[Sent while an earlier turn was running. It may have reached you then.]\n" + text : text;
+}
+
+function pack(lines: readonly RoomLine[], required: ReadonlySet<string>, budgetBytes: number): Packet {
+  const optional = lines.filter(line => !required.has(line.id));
+  const entries = optional.slice(-GROUP_CONTEXT_MESSAGES).map(line => ({ id: line.id, role: line.role, get text() { return lineText(line); } }));
+  const replay = selectReplay(entries, { budgetBytes, maxMessages: GROUP_CONTEXT_MESSAGES });
+  const historyLines = replay.transcript.filter(entry => entry.id);
+  const dropped = replay.dropped + optional.length - entries.length;
+  const omission = replayOmission(dropped);
+  const history = new Map(historyLines.map(entry => [entry.id, entry.text]));
+  const sent = lines.filter(line => required.has(line.id) || history.has(line.id));
+  const current = sent.filter(line => required.has(line.id));
+  return {
+    body: [...omission.map(entry => entry.text), ...sent.map(line => history.get(line.id) ?? lineText(line))].join("\n"),
+    current: current.map(lineText).join("\n"),
+    history: [...omission, ...historyLines],
+    ids: sent.map(line => line.id),
+    required: current.map(line => line.id),
+    reports: new Set(current.flatMap(line => line.requestId ? [line.requestId] : [])),
+    overflow: dropped > 0 || replay.shortened.length > 0,
+  };
+}
+
+function lineVersion(line: RoomLine): string {
+  return JSON.stringify([line.id, line.role, line.text, line.steered ?? false]);
+}
+
+function receivedHistory(state: HandedState, earlier: readonly string[], lines: readonly RoomLine[]): string | undefined {
+  const order = lines.map(line => line.id);
+  if (!handedStateUsable(state, state.session, order)) return undefined;
+  const positions = new Map(order.map((id, index) => [id, index]));
+  const sparse = new Set([...state.ids, ...earlier]);
+  if ([...sparse].some(id => !positions.has(id))) return undefined;
+  const omitted = state.omitted === undefined ? -1 : positions.get(state.omitted)!;
+  const through = state.through === undefined ? omitted : positions.get(state.through)!;
+  if (through < omitted) return undefined;
+  const hash = createHash("sha256");
+  lines.forEach((line, index) => {
+    if ((index > omitted && index <= through) || sparse.has(line.id)) hash.update(lineVersion(line));
+  });
+  return hash.digest("hex");
+}
+
+function unseenRoomLines(lines: RoomLine[], order: string[], required: ReadonlySet<string>, receipt: RoomSessionReceipt): RoomLine[] {
+  const unseen = new Set(unseenMessages(lines, order, receipt.handed).map(line => line.id));
+  const omitted = receipt.handed.omitted === undefined ? -1 : order.indexOf(receipt.handed.omitted);
+  const earlier = new Set(receipt.earlier);
+  return lines.filter((line, index) => unseen.has(line.id) || (index <= omitted && required.has(line.id) && !earlier.has(line.id)));
+}
+
+function sentVersions(lines: RoomLine[], packet: Packet): Map<string, string> {
+  const sent = new Set(packet.ids);
+  return new Map(lines.filter(line => sent.has(line.id)).map(line => [line.id, lineVersion(line)]));
+}
+
+function asTranscript(history: readonly ReplayEntry[], lines: readonly RoomLine[]): NonNullable<SendTurnInput["transcript"]> {
+  const map = new Map(lines.map(line => [line.id, line]));
+  return history.map(entry => {
+    const original = map.get(entry.id);
+    const own = entry.role === "assistant" && original?.text === entry.text ? original.assistantText : undefined;
+    return { role: entry.role, text: own ?? entry.text };
+  });
 }
 
 interface Flight {
-  botId: string;
-  instanceId: string;
-  adapter: object;
-  claimId: string;
-  since: number;
+  input: RoomDispatchInput;
   turnId?: string;
-  cursor?: string;
   session?: string;
-  distrusted?: true;
-  window: Map<string, string>;
-  delta: Map<string, string>;
+  rebuilt?: boolean;
+  distrusted?: "compacted" | "invalid";
+  previous?: RoomSessionReceipt;
+  handed?: HandedState;
+  start: Map<string, string>;
+  delta?: Map<string, string>;
+  lines: RoomLine[];
 }
 
-type DeltaLine = RoomLine & { earlier?: boolean; updated?: boolean };
+type CompletedTurn = Extract<RuntimeEvent, { type: "turn.completed" }>;
 
-const DELTA_NOTE = "[Messages this conversation received since your last turn in this room, oldest first. Your session already holds the conversation before them.]";
-const DELTA_NONE = "[Messages this conversation received since your last turn in this room: none.]";
-
-// The note's opening is one escapeNotes defuses in every transcript line, so no line can pose as this block.
-export function renderRoomDelta(lines: ReadonlyArray<DeltaLine>): string {
-  if (lines.length === 0) return DELTA_NONE;
-  const updated = lines.filter((line) => line.updated);
-  const earlier = lines.filter((line) => line.earlier && !line.updated);
-  const fresh = lines.filter((line) => !line.earlier && !line.updated);
-  return [
-    DELTA_NOTE,
-    ...(updated.length ? [updated.length === 1
-      ? "(The first message was shown to you before and has changed since: this copy replaces what you were shown.)"
-      : `(The first ${updated.length} messages were shown to you before and have changed since: these copies replace what you were shown.)`] : []),
-    ...updated.map((line) => line.text),
-    ...(earlier.length ? [`(The ${updated.length ? "next" : "first"} ${earlier.length === 1 ? "message is" : `${earlier.length} messages are`} older than messages you have already seen.)`] : []),
-    ...earlier.map((line) => line.text),
-    ...fresh.map((line) => line.text),
-  ].join("\n");
-}
-
-const lineHash = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 16);
-
-export function createRoomSessions(deps: RoomSessionsDeps): RoomSessions {
-  const now = deps.now ?? Date.now;
-  const records = new Map<string, Map<string, MemberRecord>>();
-  const inFlight = new Map<string, Flight>();
-  const lastSpeakers = new Map<string, Map<string, { botId: string; at: number }>>();
-  const traces = new Map<string, Map<string, Trace>>();
-
-  const drop = (threadId: string, botId: string) => {
-    const members = records.get(threadId);
-    if (!members?.delete(botId)) return;
-    if (!members.size) records.delete(threadId);
-  };
+export function createRoomSessions(deps: {
+  store: RoomSessionStore;
+  read(threadId: string, botId: string): RoomLine[];
+  interrupt(threadId: string, turnId: string | undefined): void;
+}) {
+  const flights = new Map<string, Flight>();
   const land = (threadId: string) => {
-    inFlight.delete(threadId);
+    flights.delete(threadId);
     handoffs.forget(threadId);
   };
 
-  const roomStore: HandoffStore = {
-    order: (threadId) => deps.messagesFor(threadId).filter(isRoomContextMessage).map((m) => m.id),
-    read: (botId, threadId, instanceId) => {
-      const record = records.get(threadId)?.get(botId);
-      return record?.instanceId === instanceId ? record.handed : undefined;
+  const staging: HandoffStore = {
+    order: threadId => flights.get(threadId)?.lines.map(line => line.id) ?? [],
+    read(_botId, threadId) { return flights.get(threadId)?.handed; },
+    write(_botId, threadId, _instanceId, handed) {
+      const flight = flights.get(threadId);
+      if (flight) flight.handed = handed;
     },
-    write: (botId, threadId, instanceId, state) => {
-      const flight = inFlight.get(threadId);
-      if (!flight || flight.distrusted || flight.botId !== botId || flight.instanceId !== instanceId) return;
-      const members = records.get(threadId) ?? new Map<string, MemberRecord>();
-      records.set(threadId, members);
-      let handed = state;
-      if (state.session !== undefined) {
-        for (const [otherId, other] of members) {
-          if (otherId === botId || other.handed.session !== state.session) continue;
-          members.delete(otherId);
-          handed = { ids: [] };
-        }
-      }
-      const previous = members.get(botId);
-      const earlier = previous && previous.handed.session === handed.session ? previous.texts : [];
-      const texts = handed.session === undefined ? new Map<string, string>()
-        : new Map([...earlier, ...(handed.session === flight.cursor ? flight.delta : flight.window)]);
-      members.set(botId, { instanceId, adapter: flight.adapter, handed, texts });
-    },
-    replies: (threadId, turnId) => deps.messagesFor(threadId)
-      .filter((m) => m.role === "bot" && m.kind === "text" && m.turnId === turnId).map((m) => m.id),
+    replies: (threadId, turnId) => flights.get(threadId)?.lines.filter(line => line.turnId === turnId).map(line => line.id) ?? [],
   };
-  const handoffs = new Handoffs(roomStore);
+  const handoffs = new Handoffs(staging);
 
-  function clear(): void {
-    for (const threadId of inFlight.keys()) handoffs.forget(threadId);
-    records.clear();
-    inFlight.clear();
-    lastSpeakers.clear();
-    traces.clear();
-  }
-
-  function prune(at: number): void {
-    const life = Math.max(0, ...Object.keys(ROOM_SESSION_ENGINES).map((kind) => roomSessionIdleMs(kind) ?? 0));
-    const readingLife = Math.max(ABANDONED_TURN_MS, MAX_WINDOW_MINUTES * 60_000) + 2 * life;
-    for (const [threadId, flight] of inFlight) {
-      if (at - flight.since <= ABANDONED_TURN_MS) continue;
-      land(threadId);
-      drop(threadId, flight.botId);
-    }
-    const flying = (threadId: string, botId: string) => inFlight.get(threadId)?.botId === botId;
-    for (const [threadId, members] of records) {
-      for (const [botId, record] of members) {
-        if (flying(threadId, botId)) continue;
-        if (record.settledAt === undefined || at - record.settledAt > life) members.delete(botId);
-      }
-      if (!members.size) records.delete(threadId);
-    }
-    for (const [threadId, speakers] of lastSpeakers) {
-      for (const [instanceId, last] of speakers) {
-        if (flying(threadId, last.botId) && inFlight.get(threadId)!.instanceId === instanceId) continue;
-        if (at - last.at > life) speakers.delete(instanceId);
-      }
-      if (!speakers.size) lastSpeakers.delete(threadId);
-    }
-    for (const [threadId, members] of traces) {
-      for (const [botId, trace] of members) if (!flying(threadId, botId) && at - trace.at > readingLife) members.delete(botId);
-      if (!members.size) traces.delete(threadId);
-    }
-  }
-
-  type Reading = ReturnType<NonNullable<RoomDispatchInput["context"]>>;
-  const usable = (value: number | undefined) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
-
-  function nearCompaction(context: Reading): boolean {
-    const tokens = usable(context?.tokens);
-    const threshold = usable(context?.compactAt) ?? usable(context?.window);
-    return tokens !== undefined && threshold !== undefined && tokens >= NEAR_COMPACTION * threshold;
-  }
-
-  function contextFell(trace: Trace | undefined, context: () => Reading): boolean {
-    if (trace?.ended === undefined) return false;
-    const tokens = usable(context()?.tokens);
-    if (tokens === undefined) return false;
-    const fell = trace.session === trace.ended && trace.tokens !== undefined && tokens < trace.tokens;
-    trace.tokens = tokens;
-    trace.session = trace.ended;
-    return fell;
-  }
-
-  function unseenLines(
-    record: MemberRecord | undefined, input: RoomDispatchInput, config: string, idleMs: number, context: () => Reading,
-  ): { session: string; lines: DeltaLine[]; shown: Map<string, string> } | undefined {
-    if (!record || input.reset) return undefined;
-    const { handed, texts } = record;
-    const { order, lines: window, readable } = input.window;
-    if (record.instanceId !== input.instance.instanceId || record.adapter !== input.instance.adapter) return undefined;
-    if (handed.config !== config) return undefined;
-    if (record.settledAt === undefined || now() - record.settledAt > idleMs) return undefined;
-    if (handed.session === undefined || !handedStateUsable(handed, handed.session, order)) return undefined;
-    if (nearCompaction(context())) return undefined;
-    if (handed.omitted !== undefined && window.length && order.indexOf(window[0]!.id) <= order.indexOf(handed.omitted)) return undefined;
-    const inWindow = new Set(window.map((line) => line.id));
-    const unseen = new Map(unseenMessages(readable.map((id) => ({ id, role: "user" as const, text: "" })), order, handed)
-      .map((message) => [message.id, message.earlier === true]));
-    for (const id of unseen.keys()) if (!inWindow.has(id)) return undefined;
-    for (const id of texts.keys()) if (!inWindow.has(id)) texts.delete(id);
-    const lines: DeltaLine[] = [];
-    const shown = new Map<string, string>();
-    for (const line of window) {
-      const hash = lineHash(line.text);
-      const earlier = unseen.get(line.id);
-      const known = texts.get(line.id);
-      if (earlier === undefined && known === OWN) {
-        texts.set(line.id, hash);
-        continue;
-      }
-      if (earlier === undefined && known === hash) continue;
-      shown.set(line.id, hash);
-      lines.push(earlier !== undefined ? (earlier ? { ...line, earlier: true } : line)
-        : known === undefined ? { ...line, earlier: true } : { ...line, updated: true });
-    }
-    return { session: handed.session, lines, shown };
-  }
-
-  function decide(input: RoomDispatchInput, full: string, today: RoomDispatch["send"]): RoomDispatch {
-    const { threadId, botId, instance, window } = input;
-    const legacy = (): RoomDispatch => ({ mode: "legacy", text: full, send: today });
-    if (!roomSessionsEnabled(deps.settings(), deps.env)) {
-      clear();
-      return legacy();
-    }
-    const at = now();
-    prune(at);
-    const stale = inFlight.get(threadId);
-    if (stale) drop(threadId, stale.botId);
+  function dispatch(input: RoomDispatchInput): Pick<SendTurnInput, "text" | "resumeCursor" | "sessionReset" | "recoveryText" | "transcript"> {
+    const { threadId, botId, claimId, lines, required } = input;
     land(threadId);
-
-    const speakers = lastSpeakers.get(threadId) ?? new Map<string, { botId: string; at: number }>();
-    lastSpeakers.set(threadId, speakers);
-    const spokeLast = speakers.get(instance.instanceId)?.botId === botId;
-    speakers.set(instance.instanceId, { botId, at });
-
-    const idleMs = roomSessionIdleMs(instance.driverKind);
-    if (idleMs === undefined || instance.adapter.capabilities.strictResume !== true || !input.hooks || input.guestConfined) {
-      drop(threadId, botId);
-      const untracked = traces.get(threadId)?.get(botId);
-      if (untracked) untracked.ended = undefined;
-      return legacy();
-    }
-    let asked: { reading: Reading } | undefined;
-    const context = () => (asked ??= { reading: input.context?.() }).reading;
-    if (contextFell(traces.get(threadId)?.get(botId), context)) drop(threadId, botId);
-
-    const config = createHash("sha256").update(JSON.stringify(input.config)).digest("hex");
-    const { order } = window;
-    const ids = window.lines.map((line) => line.id);
-    const first = ids.length ? order.indexOf(ids[0]!) : order.length;
-    const started = sessionStart(order, ids, order.slice(first));
-    const nothing: SessionStart = { ...(order.length ? { omitted: order.at(-1)! } : {}), sent: [] };
-    const handoff = { botId, instanceId: instance.instanceId, config, started, recovery: started, resumed: nothing, carried: [], own: [] };
-    const fly = (delta: Map<string, string>, cursor?: string) => {
-      handoffs.dispatching(threadId, input.claimId);
-      inFlight.set(threadId, {
-        botId, instanceId: instance.instanceId, adapter: instance.adapter, claimId: input.claimId, since: at,
-        ...(cursor === undefined ? {} : { cursor }),
-        window: new Map(window.lines.map((line) => [line.id, lineHash(line.text)])), delta,
-      });
+    // A crash may leave the native session ahead of its last confirmed position.
+    const consumed = deps.store.take(threadId, botId);
+    const order = lines.map(line => line.id);
+    const cold = pack(lines, required, input.budgetBytes);
+    const previous = resumableReceipt(input, consumed);
+    const next = previous && pack(unseenRoomLines(lines, order, required, previous), required, input.budgetBytes);
+    const delta = next && !next.overflow ? next : undefined;
+    const cursor = delta ? previous?.handed.session : undefined;
+    const start = sessionStart(order, cold.history.filter(line => line.id).map(line => line.id), cold.required);
+    const flight: Flight = {
+      input, lines, previous: cursor ? previous : undefined, handed: cursor ? previous?.handed : undefined,
+      start: sentVersions(lines, cold), delta: delta && sentVersions(lines, delta),
     };
+    const fresh = input.wrap(input.stateless ? cold.current : cold.body, cold.body, cold.reports);
+    const body = delta?.body ? ROOM_DELTA_NOTE + "\n" + delta.body : ROOM_DELTA_NONE;
+    const turn = cursor && delta
+      ? { text: input.wrap(body, delta.body, delta.reports), resumeCursor: cursor, recoveryText: fresh }
+      : { text: fresh, sessionReset: true, ...(input.stateless ? { transcript: asTranscript(cold.history, lines) } : {}) };
+    flights.set(threadId, flight);
+    handoffs.begin(threadId, claimId, {
+      botId, instanceId: input.instanceId, resumeCursor: cursor, config: input.fingerprint,
+      started: start, recovery: start, resumed: start, placed: delta?.ids ?? [], carried: [], own: [],
+    });
+    handoffs.dispatching(threadId, claimId);
+    return turn;
+  }
 
-    const delta = spokeLast ? unseenLines(records.get(threadId)?.get(botId), input, config, idleMs, context) : undefined;
-    if (!delta) {
-      drop(threadId, botId);
-      handoffs.begin(threadId, input.claimId, { ...handoff, resumeCursor: undefined, placed: [] });
-      fly(new Map());
-      return { mode: "start", text: full, send: today };
+  function resumableReceipt(input: RoomDispatchInput, receipt: RoomSessionReceipt | undefined): RoomSessionReceipt | undefined {
+    if (!receipt || input.reset || !input.resumable() || receipt.instanceId !== input.instanceId || receipt.fingerprint !== input.fingerprint) return undefined;
+    if (receivedHistory(receipt.handed, receipt.earlier, input.lines) !== receipt.history) return undefined;
+    return receipt;
+  }
+
+  function bindTurn(threadId: string, claimId: string, turnId: string | undefined): void {
+    const flight = flights.get(threadId);
+    if (flight?.input.claimId !== claimId) return;
+    flight.turnId ??= turnId;
+    handoffs.bindTurn(threadId, claimId, turnId);
+  }
+
+  function matches(flight: Flight | undefined, event: RuntimeEvent): flight is Flight {
+    return Boolean(flight?.turnId && flight.turnId === event.turnId && flight.input.instanceId === event.providerInstanceId);
+  }
+
+  function observe(event: RuntimeEvent): void {
+    const flight = flights.get(event.threadId);
+    if (!flight || event.type === "turn.completed") return;
+    if (event.type === "turn.started" && event.providerInstanceId === flight.input.instanceId) {
+      bindTurn(event.threadId, flight.input.claimId, event.turnId);
     }
-    handoffs.begin(threadId, input.claimId, { ...handoff, resumeCursor: delta.session, placed: [...order] });
-    fly(delta.shown, delta.session);
-    return {
-      mode: "resume",
-      text: input.wrap(renderRoomDelta(delta.lines) + input.tail),
-      send: { resumeCursor: delta.session, recoveryText: full },
-    };
-  }
-
-  function forget(threadId: string): void {
-    records.delete(threadId);
-    lastSpeakers.delete(threadId);
-    traces.delete(threadId);
-    land(threadId);
-  }
-
-  function guarded(threadId: string, work: () => void): void {
-    try {
-      work();
-    } catch (error) {
-      try { forget(threadId); } catch { /* nothing more to let go of */ }
-      console.warn(`room sessions: forgot the sessions of thread ${threadId} (${error instanceof Error ? error.message : String(error)})`);
+    if (!matches(flight, event) || flight.distrusted) return;
+    if (event.type === "session.started" && event.sessionId) {
+      if (!observeSession(flight, event.sessionId, event.rebuilt === true)) return;
     }
-  }
-
-  function onEvent(event: RuntimeEvent): void {
+    if (event.type === "context.compacted") { flight.distrusted = "compacted"; return; }
     handoffs.onEvent(event);
-    if (event.type !== "turn.completed" && event.type !== "session.started") return;
-    const flight = inFlight.get(event.threadId);
-    if (!flight || event.providerInstanceId !== flight.instanceId) return;
-    if (flight.turnId && event.turnId && event.turnId !== flight.turnId) return;
-    if (event.type === "session.started") {
-      if (event.sessionId) flight.session = event.sessionId;
-      return;
+  }
+
+  function observeSession(flight: Flight, session: string, rebuilt: boolean): boolean {
+    const { threadId, botId, instanceId } = flight.input;
+    const cursor = flight.previous?.handed.session;
+    const expected = cursor === undefined || session === cursor || rebuilt || flight.session === session;
+    let verified = false;
+    try {
+      verified = expected && !claimedByAnotherTurn(flight, session) && !deps.store.ownsElsewhere(threadId, botId, instanceId, session);
+    } catch (error) {
+      console.warn("room context: could not verify the native session", error instanceof Error ? error.message : String(error));
     }
-    inFlight.delete(event.threadId);
-    const spoke = lastSpeakers.get(event.threadId)?.get(flight.instanceId);
-    if (spoke?.botId === flight.botId) spoke.at = now();
-    const members = traces.get(event.threadId) ?? new Map<string, Trace>();
-    traces.set(event.threadId, members);
-    members.set(flight.botId, { ...members.get(flight.botId), ended: flight.session, at: now() });
-    const record = records.get(event.threadId)?.get(flight.botId);
-    if (!event.ok || flight.distrusted || !record || record.handed.session === undefined || record.handed.session !== flight.session) {
-      drop(event.threadId, flight.botId);
-      return;
+    if (!verified) {
+      flight.distrusted = "invalid";
+      deps.interrupt(threadId, flight.turnId);
+      return false;
     }
-    record.settledAt = now();
-    const turnId = event.turnId ?? flight.turnId;
-    if (turnId) for (const id of roomStore.replies(event.threadId, turnId)) record.texts.set(id, OWN);
+    if (flight.session !== session) {
+      flight.session = session;
+      flight.rebuilt = rebuilt;
+    }
+    return true;
+  }
+
+  function claimedByAnotherTurn(flight: Flight, session: string): boolean {
+    for (const other of flights.values()) {
+      if (other === flight || other.input.instanceId !== flight.input.instanceId) continue;
+      if ((other.session ?? other.previous?.handed.session) === session) return true;
+    }
+    return false;
+  }
+
+  function save(flight: Flight): void {
+    const { input, handed, previous, lines } = flight;
+    if (flight.distrusted || !input.resumable() || !handed?.session) return;
+    if (flight.session !== undefined && handed.session !== flight.session) return;
+    const resumed = previous !== undefined && flight.rebuilt !== true && handed.session === previous.handed.session;
+    const byId = new Map(lines.map(line => [line.id, line]));
+    const sent = resumed ? flight.delta : flight.start;
+    if (!sent || [...sent].some(([id, version]) => {
+      const line = byId.get(id);
+      return !line || lineVersion(line) !== version;
+    })) return;
+    if (resumed && receivedHistory(previous.handed, previous.earlier, lines) !== previous.history) return;
+    const omitted = lines.findIndex(line => line.id === handed.omitted);
+    const early = new Set(resumed ? previous.earlier : []);
+    for (const line of lines.slice(0, omitted + 1)) if (sent.has(line.id)) early.add(line.id);
+    if (early.size > HANDED_MAX_IDS) return;
+    const earlier = [...early];
+    const history = receivedHistory(handed, earlier, lines);
+    if (history === undefined) return;
+    deps.store.save(input.threadId, input.botId, {
+      version: 1, instanceId: input.instanceId, fingerprint: input.fingerprint, handed: { ...handed, session: handed.session }, earlier, history,
+    });
+  }
+
+  function complete(event: CompletedTurn, stopped: boolean): void {
+    const flight = flights.get(event.threadId);
+    if (!matches(flight, event)) return;
+    try {
+      if (!event.ok || stopped || event.stopReason === "cancelled" || flight.distrusted === "invalid" || !flight.input.current()) return;
+      flight.lines = deps.read(event.threadId, flight.input.botId);
+      handoffs.onEvent(event);
+      save(flight);
+      flight.input.onAccepted();
+    } catch (error) {
+      console.warn("room context: could not save the completed turn", error instanceof Error ? error.message : String(error));
+    } finally { land(event.threadId); }
   }
 
   return {
-    dispatch(input) {
-      const full = input.wrap(input.window.text + input.tail);
-      const today: RoomDispatch["send"] = input.reset ? { sessionReset: true } : {};
-      try {
-        return decide(input, full, today);
-      } catch (error) {
-        try {
-          const stale = inFlight.get(input.threadId);
-          if (stale) drop(input.threadId, stale.botId);
-          land(input.threadId);
-          drop(input.threadId, input.botId);
-        } catch { /* nothing more to let go of */ }
-        console.warn(`room sessions: sent the whole window instead on thread ${input.threadId} (${error instanceof Error ? error.message : String(error)})`);
-        return { mode: "legacy", text: full, send: today };
-      }
+    dispatch, bindTurn, observe, complete,
+    abandon(threadId: string, claimId: string) {
+      if (flights.get(threadId)?.input.claimId === claimId) land(threadId);
     },
-    bindTurn(threadId, claimId, turnId) {
-      guarded(threadId, () => {
-        handoffs.bindTurn(threadId, claimId, turnId);
-        const flight = inFlight.get(threadId);
-        if (flight?.claimId === claimId) flight.turnId ??= turnId;
-      });
+    distrust(threadId: string, botId: string, reason: NonNullable<Flight["distrusted"]> = "invalid") {
+      deps.store.forget(threadId, botId);
+      const flight = flights.get(threadId);
+      if (flight?.input.botId === botId && flight.distrusted !== "invalid") flight.distrusted = reason;
     },
-    onEvent(event) {
-      guarded(event.threadId, () => onEvent(event));
+    forget(threadId: string) {
+      deps.store.forget(threadId);
+      land(threadId);
     },
-    distrust(threadId, botId) {
-      guarded(threadId, () => {
-        drop(threadId, botId);
-        const flight = inFlight.get(threadId);
-        if (flight?.botId === botId) flight.distrusted = true;
-      });
+    forgetBot(botId: string) {
+      deps.store.forgetBot(botId);
+      for (const [threadId, flight] of flights) if (flight.input.botId === botId) land(threadId);
     },
-    forget,
-    tracked() {
-      const count = (map: Map<string, Map<string, unknown>>) => [...map.values()].reduce((n, inner) => n + inner.size, 0);
-      const lines = [...records.values()].flatMap((members) => [...members.values()]).reduce((n, record) => n + record.texts.size, 0);
-      return { records: count(records), flights: inFlight.size, speakers: count(lastSpeakers), lines, readings: count(traces) };
+    forgetInstance(instanceId: string) {
+      deps.store.forgetInstance(instanceId);
+      for (const [threadId, flight] of flights) if (flight.input.instanceId === instanceId) land(threadId);
     },
   };
 }

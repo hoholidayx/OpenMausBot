@@ -11,7 +11,8 @@ import { waitForExit } from "./testing/cleanup.ts";
 import { readHandoffs } from "./testing/handoff-rows.ts";
 
 async function withRooms(test: (f: any) => Promise<void>) {
-  const session = await launchVerificationServer(process.env, undefined, undefined, undefined, undefined, { scripted: true });
+  const serverEnv = { ...process.env, FAKE_CLAUDE_VERSION: "2.1.270" };
+  const session = await launchVerificationServer(serverEnv, undefined, undefined, undefined, undefined, { scripted: true });
   const env = { OPENMAUSBOT_URL: session.info.url };
   const cli = (...args: string[]) => runControlOmb(args, { env }) as Promise<any>;
   const api = (path: string, body?: unknown, method = "POST") => request(path, body === undefined ? {} : { method, body: JSON.stringify(body) }, session.info.url) as Promise<any>;
@@ -22,7 +23,7 @@ async function withRooms(test: (f: any) => Promise<void>) {
     const log = openSync(session.info.logPath, "a", 0o600);
     restarted = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
       cwd: fileURLToPath(new URL("..", import.meta.url)), stdio: ["ignore", log, log],
-      env: verificationServerEnvironment(process.env, session.info.dataDir, Number(new URL(session.info.url).port)) });
+      env: verificationServerEnvironment(serverEnv, session.info.dataDir, Number(new URL(session.info.url).port)) });
     closeSync(log);
     await expect.poll(() => fetch(`${session.info.url}/api/health`, { signal: AbortSignal.timeout(1_000) }).then(r => r.ok, () => false), { timeout: 20_000 }).toBe(true);
   };
@@ -322,7 +323,7 @@ it.each([false, true])("retains reports behind compact receipts for later turns,
   f.plan[f.sender.id] = { turns: [
     { steps: firstSteps, reply: "Assigned" },
     { reply: "Reviewed downstream outcome" },
-    { reply: "Follow-up answered", expectContextIncludes: [revoked ? "Teammate result withheld" : report] },
+    { reply: "Follow-up answered", ...(revoked ? { expectContextIncludes: ["Teammate result withheld"] } : {}) },
   ] };
   f.plan[f.target.id].reply = report;
   await f.start(); expect((await f.wait()).status).toBe("settled");
@@ -332,9 +333,12 @@ it.each([false, true])("retains reports behind compact receipts for later turns,
   if (revoked) await f.api(`/api/bots/${f.sender.id}`, { visibility: "admins" }, "PATCH");
   await f.cli("send-channel", "--channel", f.source.id, "--text", "Did the reviewer actually run tests? Do not start new work.");
   expect((await f.wait()).status).toBe("settled");
-  const followup = f.provider().filter((turn: any) => turn.botId === f.sender.id).at(-1);
+  const [, reviewed, followup] = f.provider().filter((turn: any) => turn.botId === f.sender.id);
   expect(followup.turnIndex).toBe(2);
-  expect(JSON.stringify(followup.prompt).includes(report)).toBe(!revoked);
+  expect(JSON.stringify(reviewed.prompt).match(/Nora executed python3 -m unittest/g)).toHaveLength(1);
+  expect(JSON.stringify(followup.prompt)).not.toContain(report);
+  if (revoked) expect(followup.pid).not.toBe(reviewed.pid);
+  else expect(followup.pid).toBe(reviewed.pid);
   expect(f.nodes().map((n: any) => [n.botId, Boolean(n.parentId)])).toEqual([[f.sender.id, false], [f.target.id, true], [f.sender.id, false]]);
 }), 45_000);
 

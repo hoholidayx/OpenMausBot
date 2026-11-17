@@ -701,7 +701,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             return send({ jsonrpc: "2.0", id: msg.id, result: allow ? { outcome: { outcome: "selected", optionId: allow } } : cancelled });
           }
           const kind = String(toolCall.kind ?? "");
-          const operationKey = isQuestion || current.controlsHost ? null : acpSessionOperationKey(toolCall);
+          const operationKey = isQuestion || current.controlsHost ? null : acpSessionOperationKey(toolCall, current.turn.botId, session.sessionId);
           if (operationKey && answersAlone(toolCall.rawInput?.command) && sessionAllows.get(threadId)?.has(operationKey)) {
             const allow = optionFor("allow");
             if (allow) {
@@ -744,9 +744,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                   ? optionAlways ?? optionFor("allow")
                   : optionFor(want);
             if (forSession && !optionAlways && optionId && operationKey) {
-              const remembered = sessionAllows.get(threadId) ?? new Set<string>();
-              remembered.add(operationKey);
-              sessionAllows.set(threadId, remembered);
+              const operations = sessionAllows.get(threadId) ?? new Set<string>();
+              operations.add(operationKey);
+              sessionAllows.set(threadId, operations);
             }
             if (behavior !== "cancel" && !optionId) {
               if (!isQuestion) missing(want);
@@ -1026,7 +1026,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         const processContract = [launch.command, launch.args ?? [], spawnArgs,
           support.sessionScopedApproval ? null : turnConfig.fullAuto === true, envFingerprint,
           support.spawnFingerprint?.(spawnEnv, turnConfig) ?? null, launch.ro ?? []];
-        const contractKey = JSON.stringify([...processContract, cwd, turn.toolScope ?? null, inheritedScopeFingerprint]);
+        const contractKey = JSON.stringify([...processContract, turn.botId, cwd, turn.toolScope ?? null, inheritedScopeFingerprint]);
         const launchModel = support.sessionModelEnv && cliTurn.model && /^[\w.:/-]{1,200}$/u.test(cliTurn.model)
           && catalog.accountModels?.has(cliTurn.model) ? cliTurn.model : undefined;
         const launchEnv = support.sessionModelEnv && launchModel

@@ -131,6 +131,7 @@ export interface ComposedTurn {
   note: string;
   restartNote: string;
   turn: "first" | "resume" | "rerun" | "answered" | "continued";
+  reviewRoom?(includedReports: ReadonlySet<string>, briefVisible: boolean): string;
 }
 
 export interface LiveHandoffEdge {

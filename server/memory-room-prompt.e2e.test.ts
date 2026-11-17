@@ -1,9 +1,10 @@
 // Against the real server: the two prompts are assembled in two places, and only the assembled bytes prove they agree.
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
 
-it("gives a room turn the memory_update guidance, not the file-tools one", async () => {
+it("injects only the speaking bot's maintainer notes in a room", async () => {
   const fixture = await launchVerificationServer();
   const env = { OPENMAUSBOT_URL: fixture.info.url };
   const api = async (method: string, path: string, body?: unknown) => {
@@ -28,12 +29,18 @@ it("gives a room turn the memory_update guidance, not the file-tools one", async
     const { bot: lead } = await runControlOmb(["new-bot", "--name", "Lead"], { env }) as { bot: { id: string } };
     // SAFETY: same shape as above
     const { bot: helper } = await runControlOmb(["new-bot", "--name", "Helper"], { env }) as { bot: { id: string } };
+    const leadNote = "The fixture garden is watered on Mondays.";
+    const helperNote = "The fixture greenhouse uses an amber checklist.";
+    for (const [bot, note] of [[lead, leadNote], [helper, helperNote]] as const) {
+      const folder = join(fixture.info.dataDir, "bots", bot.id);
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(join(folder, "MEMORY.md"), note);
+    }
     // A 1:1 turn first: it is the reference the room turn must match.
     await runControlOmb(["send", "--bot", lead.id, "--text", "Remember that the fixture garden is watered on Mondays."], { env });
     await runControlOmb(["wait", "--bot", lead.id, "--timeout", "30"], { env });
     const direct = dump()?.systemPrompt ?? "";
-    expect(direct).toContain("Change MEMORY.md only with memory_update");
-    expect(direct).not.toContain("update it with your file tools");
+    expect(direct).toContain(leadNote);
 
     // SAFETY: the groups route returns the created room under `group`
     const { group } = await api("POST", "/api/groups", {
@@ -47,8 +54,9 @@ it("gives a room turn the memory_update guidance, not the file-tools one", async
     }, { timeout: 30_000 }).toBe(true);
     await runControlOmb(["wait", "--bot", lead.id, "--timeout", "30"], { env });
     const room = dump()?.systemPrompt ?? "";
-    expect(room).toContain("Change MEMORY.md only with memory_update");
-    expect(room).not.toContain("update it with your file tools");
+    expect(room).toContain(leadNote);
+    expect(room).not.toContain(helperNote);
+    expect(room).not.toContain("memory_update");
   } finally {
     await fixture.close();
   }
