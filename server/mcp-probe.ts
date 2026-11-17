@@ -21,7 +21,7 @@ export interface McpProbeTool {
 export type McpProbeFailure = "keys" | "unreachable" | "timeout";
 
 export type McpProbeResult =
-  | { ok: true; tools: McpProbeTool[]; total?: number }
+  | { ok: true; tools: McpProbeTool[]; total?: number; partial?: true }
   /** `auth: "required"`: the server wants a sign-in. Either it refused initialize or tools/list with HTTP 401 and offers
    * OAuth, or it listed tools for a caller with no credentials and refused a tool call with HTTP 401 from behind an
    * RFC 9728 protected-resource document. */
@@ -51,10 +51,14 @@ export interface McpProbeOptions {
   /** Someone asked for this test: a server that answers the unknown tool may be asked once more with a real read-only tool.
    * Background checks never call a real tool. */
   tryReadOnlyTool?: boolean;
+  /** Read paginated metadata without making the sign-in check's tools/call requests. */
+  catalogOnly?: boolean;
 }
 
 const MAX_STDOUT_BYTES = MAX_REMOTE_MCP_BYTES;
 const MAX_TOOLS = 100;
+const MAX_CATALOG_TOOLS = 2000;
+const MAX_CATALOG_PAGES = 32;
 export const STDIO_PROBE_TIMEOUT_MS = 8_000;
 export const REMOTE_PROBE_TIMEOUT_MS = REMOTE_MCP_STARTUP_MS;
 
@@ -74,9 +78,9 @@ function publicProbeError(kind: "spawn" | "timeout" | "protocol" | "closed" | "c
   return "The command did not return a valid MCP tools list.";
 }
 
-function redactConfiguredValues(value: string, secrets: Record<string, string>): string {
+function redactConfiguredValues(value: string, secrets: readonly string[]): string {
   const ranges: [number, number][] = [];
-  for (const secret of new Set(Object.values(secrets))) {
+  for (const secret of new Set(secrets)) {
     if (!secret) continue;
     for (let start = value.indexOf(secret); start !== -1; start = value.indexOf(secret, start + 1)) {
       ranges.push([start, start + secret.length]);
@@ -100,16 +104,36 @@ function redactConfiguredValues(value: string, secrets: Record<string, string>):
 }
 
 /** Bounded and redacted: `secrets` are configured values a careless server might echo. */
-function publicTools(raw: unknown[], secrets: Record<string, string>): { tools: McpProbeTool[]; total?: number } {
+function publicTools(raw: unknown[], secrets: readonly string[], limit = MAX_TOOLS): { tools: McpProbeTool[]; total?: number } {
   const named = raw.filter((entry): entry is Record<string, unknown> =>
     !!entry && typeof entry === "object" && typeof (entry as { name?: unknown }).name === "string" && !!(entry as { name: string }).name.trim());
-  const tools = named.slice(0, MAX_TOOLS).map((candidate) => ({
+  const tools = named.slice(0, limit).map((candidate) => ({
     name: redactConfiguredValues(candidate.name as string, secrets).slice(0, 200),
     ...(typeof candidate.description === "string"
       ? { description: redactConfiguredValues(candidate.description, secrets).slice(0, 500) }
       : {}),
   }));
   return named.length > tools.length ? { tools, total: named.length } : { tools };
+}
+
+function catalogPages() {
+  const seen = new Set<string>();
+  const tools: unknown[] = [];
+  let partial = false;
+  return {
+    page(items: unknown[], cursor: unknown): string | undefined {
+      const remaining = MAX_CATALOG_TOOLS - tools.length;
+      tools.push(...items.slice(0, remaining));
+      if (typeof cursor === "string" && cursor && !seen.has(cursor) && tools.length < MAX_CATALOG_TOOLS && seen.size < MAX_CATALOG_PAGES - 1) {
+        seen.add(cursor);
+        return cursor;
+      }
+      partial = Boolean(cursor) || items.length > remaining;
+    },
+    result(secrets: readonly string[]): McpProbeResult {
+      return { ok: true, ...publicTools(tools, secrets, MAX_CATALOG_TOOLS), ...(partial ? { partial: true } : {}) };
+    },
+  };
 }
 
 /** Never returns what the renderer must not see: child stderr, environment values, header values. */
@@ -183,6 +207,47 @@ async function callsNeedSignIn(client: RemoteMcpClient, url: string, listed: unk
   return real !== undefined && await signInCheck(client, url, real, signal) === "sign-in";
 }
 
+async function readRemoteCatalog(client: RemoteMcpClient, signal: AbortSignal, secrets: readonly string[]): Promise<McpProbeResult> {
+  const catalog = catalogPages();
+  let cursor: string | undefined;
+  do {
+    const page = await client.request("tools/list", cursor ? { cursor } : {}, signal) as { tools?: unknown; nextCursor?: unknown } | null;
+    if (!Array.isArray(page?.tools)) return { ok: false, error: "The server did not return a valid MCP tools list." };
+    cursor = catalog.page(page.tools, page.nextCursor);
+  } while (cursor);
+  return catalog.result(secrets);
+}
+
+function remoteProbeSecrets(server: StoredRemoteMcpServer): string[] {
+  const secrets = Object.values(server.headers);
+  for (const [name, value] of Object.entries(server.headers)) {
+    if (name.toLowerCase() !== "authorization") continue;
+    const bearer = value.match(/^Bearer[ \t]+(\S+)\s*$/i)?.[1];
+    if (bearer) secrets.push(bearer);
+  }
+  if (server.oauth?.clientSecret) secrets.push(server.oauth.clientSecret);
+  return secrets;
+}
+
+async function remoteProbeFailure(error: unknown, url: string, signal?: AbortSignal): Promise<McpProbeResult> {
+  if (error instanceof McpRpcError && UNAUTHORIZED.test(error.detail)) {
+    return { ok: false, error: "The server didn't accept the keys. Check the header values.", reason: "keys" };
+  }
+  if (error instanceof McpHttpError) {
+    if (error.status === 401 && await asksForSignIn(url, error, "connect", signal)) {
+      return { ok: false, auth: "required", error: SIGN_IN_REQUIRED };
+    }
+    if (error.kind === "protocol") return { ok: false, error: "The server did not return a valid MCP tools list." };
+    if (error.kind === "status") {
+      if (error.status === 401 || error.status === 403) {
+        return { ok: false, error: `The server didn't accept the keys (HTTP ${error.status}). Check the header values.`, reason: "keys", status: error.status };
+      }
+      return { ok: false, error: `The server answered HTTP ${error.status}. Check the address and headers.`, ...(error.status !== undefined && error.status >= 500 ? { reason: "unreachable" as const } : {}) };
+    }
+  }
+  return { ok: false, error: "Could not reach this address. Check the URL and your network.", reason: "unreachable" };
+}
+
 async function probeRemoteMcpServer(
   server: StoredRemoteMcpServer,
   timeoutMs: number,
@@ -198,6 +263,8 @@ async function probeRemoteMcpServer(
     : new RemoteMcpClient(server, { maxBytes: MAX_REMOTE_MCP_BYTES });
   try {
     await client.initialize("OpenMausBot", combined, options.extension ? { extensions: { [APP_EXTENSION_KEY]: UI_EXTENSION } } : {});
+    const secrets = remoteProbeSecrets(server);
+    if (options.catalogOnly) return await readRemoteCatalog(client, combined, secrets);
     const result = await client.request("tools/list", {}, combined);
     const tools = result && typeof result === "object" ? (result as { tools?: unknown }).tools : undefined;
     if (!Array.isArray(tools)) return { ok: false, error: "The server did not return a valid MCP tools list." };
@@ -205,27 +272,11 @@ async function probeRemoteMcpServer(
     if (!sendsCredentials(server) && await callsNeedSignIn(client, server.url, tools, combined, options.tryReadOnlyTool === true)) {
       return { ok: false, auth: "required", error: SIGN_IN_REQUIRED };
     }
-    const secrets = server.oauth?.clientSecret ? { ...server.headers, "oauth.clientSecret": server.oauth.clientSecret } : server.headers;
     return { ok: true, ...publicTools(tools, secrets) };
   } catch (error) {
     if (signal?.aborted) return { ok: false, error: publicProbeError("cancelled") };
     if (timeout.signal.aborted) return { ok: false, error: publicProbeError("timeout"), reason: "timeout" };
-    if (error instanceof McpHttpError && error.status === 401 && await asksForSignIn(server.url, error, "connect", signal)) {
-      return { ok: false, auth: "required", error: SIGN_IN_REQUIRED };
-    }
-    if (error instanceof McpHttpError && error.kind === "status" && (error.status === 401 || error.status === 403)) {
-      return { ok: false, error: `The server didn't accept the keys (HTTP ${error.status}). Check the header values.`, reason: "keys", status: error.status };
-    }
-    if (error instanceof McpRpcError && UNAUTHORIZED.test(error.detail)) {
-      return { ok: false, error: "The server didn't accept the keys. Check the header values.", reason: "keys" };
-    }
-    if (error instanceof McpHttpError && error.kind === "status") {
-      return { ok: false, error: `The server answered HTTP ${error.status}. Check the address and headers.`, ...(error.status !== undefined && error.status >= 500 ? { reason: "unreachable" as const } : {}) };
-    }
-    if (error instanceof McpHttpError && error.kind === "protocol") {
-      return { ok: false, error: "The server did not return a valid MCP tools list." };
-    }
-    return { ok: false, error: "Could not reach this address. Check the URL and your network.", reason: "unreachable" };
+    return await remoteProbeFailure(error, server.url, signal);
   } finally {
     clearTimeout(timer);
     await client.close().catch(() => {});
@@ -281,6 +332,27 @@ function probeStdioMcpServer(
         finish({ ok: false, error: publicProbeError("closed") });
       }
     };
+    const catalog = options.catalogOnly ? catalogPages() : undefined;
+    const secrets = Object.values(server.env);
+    let listId = 2;
+    const acceptToolList = (result: { tools?: unknown; nextCursor?: unknown } | undefined) => {
+      if (!Array.isArray(result?.tools)) {
+        finish({ ok: false, error: publicProbeError("protocol") });
+        return;
+      }
+      if (!catalog) {
+        observeProbe(options, result.tools, uiExtension);
+        finish({ ok: true, ...publicTools(result.tools, secrets) });
+        return;
+      }
+      const cursor = catalog.page(result.tools, result.nextCursor);
+      if (!cursor) {
+        finish(catalog.result(secrets));
+        return;
+      }
+      listId = listId === 2 ? 4 : listId + 1;
+      write({ jsonrpc: "2.0", id: listId, method: "tools/list", params: { cursor } });
+    };
     const splitter = createLineSplitter((line) => {
       if (settled || !line.trim()) return;
       let frame: unknown;
@@ -302,14 +374,7 @@ function probeStdioMcpServer(
         write({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
         return;
       }
-      if (value.id !== 2) return;
-      const result = value.result as { tools?: unknown } | undefined;
-      if (!Array.isArray(result?.tools)) {
-        finish({ ok: false, error: publicProbeError("protocol") });
-        return;
-      }
-      observeProbe(options, result.tools, uiExtension);
-      finish({ ok: true, ...publicTools(result.tools, server.env) });
+      if (value.id === listId) acceptToolList(value.result as { tools?: unknown; nextCursor?: unknown } | undefined);
     });
 
     timer = setTimeout(() => {

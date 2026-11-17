@@ -16,6 +16,7 @@ import { SkillsSection } from "./bot-settings/SkillsSection";
 import { MemorySection } from "./bot-settings/MemorySection";
 import { RoutinesSection } from "./bot-settings/RoutinesSection";
 import { AccessSection } from "./bot-settings/AccessSection";
+import { BotToolsDialog } from "./bot-settings/BotToolsDialog";
 import { ModelSection } from "./bot-settings/ModelSection";
 import { PermissionsSection } from "./bot-settings/PermissionsSection";
 import { VoiceSection } from "./bot-settings/VoiceSection";
@@ -46,6 +47,8 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const dialogRef = useRef<HTMLElement | null>(null);
   const { dragProps } = useCaptionChrome();
   const [query, setQuery] = useState("");
+  const [toolsBotId, setToolsBotId] = useState<string | null>(null);
+  const openTools = () => setToolsBotId(bot.id);
   const collapsed = !state.botSettingsExpandAccordion;
   const q = query.trim().toLowerCase();
   const advanced = useAdvancedMode();
@@ -140,7 +143,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
       case "routines":
         return <RoutinesSection bot={bot} routines={derived.botRoutines} runs={state.routineRuns} />;
       case "access":
-        return <AccessSection bot={bot} derived={derived} />;
+        return <AccessSection bot={bot} derived={derived} onOpenTools={openTools} />;
       case "model":
         return <ModelSection bot={bot} />;
       case "permissions":
@@ -183,6 +186,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
             bot={bot}
             derived={derived}
             linkedSection={linkedSection}
+            onOpenTools={openTools}
             onClose={() => dispatch({ type: "toggleSettings", open: false })}
           />
         ) : <>
@@ -281,6 +285,8 @@ export function BotSettingsDialog({ bot, overlay = false }: {
         </div>
         </>}
       </aside>
+      {toolsBotId === bot.id && <BotToolsDialog key={bot.id} bot={bot} engineKind={derived.engine?.driverKind}
+        patch={derived.patch} onClose={() => setToolsBotId(null)} />}
       <HistoryRollbackDialog history={history} returnFocusRef={dialogRef} />
     </>
   );

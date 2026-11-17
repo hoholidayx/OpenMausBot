@@ -116,6 +116,7 @@ export function NavRow({ title, hint, value, icon, onClick, drill = true, danger
   value?: ReactNode;
   icon?: LucideIcon;
   onClick: () => void;
+  "aria-haspopup"?: "dialog";
   drill?: boolean;
   danger?: boolean;
   disabled?: boolean;

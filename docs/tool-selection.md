@@ -1,7 +1,16 @@
 # Tool selection
 
-Open a bot's **Access → Tool selection** settings to reduce the tools sent to
-its model. This is useful for local models with a small context window.
+Open **Tools** in the bot's panel or under **Access** in Advanced mode. The
+list shows the tools known to the workspace, which are mounted for the bot,
+and why a tool is left out. For an MCP server, use **Load tools** to read its
+list. Tool groups have their switches next to their names.
+
+Mounting reflects the bot's settings. Some sources only reveal their tools
+when a conversation runs or after sign-in. Their catalog status appears
+alongside the sources the workspace can list.
+
+Open **Tool rules** to reduce the tools sent to the model. This is useful
+for local models with a small context window.
 
 - **All current tools** keeps the existing engine and integration defaults.
 - **Custom selection**, with **Only allow listed tools** checked, offers only

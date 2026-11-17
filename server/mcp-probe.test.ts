@@ -160,6 +160,30 @@ describe("custom MCP probe", () => {
 describe("remote MCP probe", () => {
   const tools = [{ name: "read_notes", description: "Read saved notes" }];
 
+  it("reads every catalog page without sending a sign-in-check or tool call", async () => {
+    const catalog = [...tools, { name: "write_note" }];
+    const fake = await startFakeHttpMcp({ tools: catalog, pageSize: 1 });
+    try {
+      await expect(probeMcpServer({ type: "http", url: fake.url, headers: {}, enabled: true }, 2_000, undefined, { catalogOnly: true }))
+        .resolves.toEqual({ ok: true, tools: catalog });
+      expect(fake.calls).toEqual([]);
+      expect(fake.refusedCalls).toEqual([]);
+    } finally {
+      await fake.close();
+    }
+  });
+
+  it("redacts a bare bearer token echoed in a catalog tool name", async () => {
+    const fake = await startFakeHttpMcp({ tools: [{ name: "tool_fixture-token" }] });
+    try {
+      await expect(probeMcpServer({
+        type: "http", url: fake.url, headers: { Authorization: "Bearer fixture-token" }, enabled: true,
+      }, 2_000, undefined, { catalogOnly: true })).resolves.toEqual({ ok: true, tools: [{ name: "tool_[redacted]" }] });
+    } finally {
+      await fake.close();
+    }
+  });
+
   it("connects over streamable HTTP, sends the headers, and lists tools", async () => {
     const fake = await startFakeHttpMcp({ requireHeader: { name: "Authorization", value: "Bearer tok-docs" } });
     try {

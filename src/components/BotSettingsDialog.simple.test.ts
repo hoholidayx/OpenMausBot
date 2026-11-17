@@ -202,10 +202,11 @@ const enableLegacyMemory = () => {
 const patch = vi.fn();
 const onOpen = vi.fn();
 const onClose = vi.fn();
+const onOpenTools = vi.fn();
 const onEditInstructions = vi.fn();
 const derived = () => fixture.derived as never;
 const panel = (bot: Bot, linkedSection: BotSettingsSection | null = null) =>
-  capture(() => BotPanel({ bot, derived: derived(), linkedSection, onClose }));
+  capture(() => BotPanel({ bot, derived: derived(), linkedSection, onClose, onOpenTools }));
 const dialog = (bot: Bot) => capture(() => BotSettingsDialog({ bot }));
 const botTab = (bot: Bot) => capture(() => DetailsTab({ bot, derived: derived(), onOpen }));
 const settingsPage = (bot: Bot, editingInstructions = false) =>
@@ -290,7 +291,7 @@ beforeEach(() => {
 });
 
 describe("the bot panel in Simple mode", () => {
-  it("has Share, a gear for Bot settings and a close button on top, the hero, and three tabs: Details, Library, Computer", () => {
+  it("shows the bot's tabs and opens Tools as a dialog", () => {
     const bot = makeBot();
     const rendered = panel(bot);
     expect(ofType(rendered, ChatShareMenu)!.props.bot).toBe(bot);
@@ -302,7 +303,11 @@ describe("the bot panel in Simple mode", () => {
     expect(hero.props.bot).toBe(bot);
     expect(hero.props.patch).toBe(patch);
     const tabs = [...rendered.html.matchAll(/data-panel-tab="(\w+)"[^>]*>([^<]+)<\/button>/g)].map((match) => [match[1], match[2]]);
-    expect(tabs).toEqual([["details", "Details"], ["library", "Library"], ["computer", "Computer"]]);
+    expect(tabs).toEqual([["details", "Details"], ["library", "Library"], ["computer", "Computer"], ["tools", "Tools"]]);
+    const tools = find(rendered, "data-panel-tab", "tools");
+    expect(tools.props["aria-haspopup"]).toBe("dialog");
+    click(tools);
+    expect(onOpenTools).toHaveBeenCalled();
     expect(shown(rendered)).toEqual({ tab: "details", page: undefined });
     expect(ofType(rendered, DetailsTab)!.props.bot).toBe(bot);
     expect(rendered.html).toContain('id="bot-settings-title"');

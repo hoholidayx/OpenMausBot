@@ -16,6 +16,7 @@ import { useDesktopCapabilities } from "../DesktopCapabilities";
 import { CloudBackendPicker } from "../CloudBackendPicker";
 import { placeManagedBy, worksOnChoices, WorksOnGrid, worksOnSelected, type WorksOnMode } from "../WorksOnGrid";
 import { Switch } from "../SettingsPrimitives";
+import { NavRow } from "../bot-panel/rows";
 import { PhoneAppsCard } from "./PhoneAppsCard";
 import { ProposalStatus } from "./ProposalStatus";
 import { ToolGroupsCard } from "./ToolGroupsCard";
@@ -668,10 +669,12 @@ export function AccessSection({
   bot,
   derived,
   parts,
+  onOpenTools,
 }: {
   bot: Bot;
   derived: ReturnType<typeof useBotSettingsDerived>;
   parts?: readonly AccessPart[];
+  onOpenTools?: () => void;
 }) {
   const { draft } = useBotEditor();
   const { state, dispatch } = useStore();
@@ -784,8 +787,12 @@ export function AccessSection({
 
       {shows("phone") && <PhoneAppsCard bot={bot} patch={patch} />}
       {shows("mcp") && <McpServersCard bot={bot} patch={patch} />}
-      {!draft && shows("tools") && <ToolGroupsCard bot={bot} patch={patch} />}
-      {shows("tools") && <ToolSelectionCard key={bot.id} bot={bot} engineKind={derived.engine?.driverKind} />}
+      {shows("tools") && (onOpenTools ? (
+        <div className="rounded-xl bg-card"><NavRow title={t("botAccess.toolGroups.title")} aria-haspopup="dialog" onClick={onOpenTools} /></div>
+      ) : <>
+        {!draft && <ToolGroupsCard bot={bot} patch={patch} />}
+        <ToolSelectionCard key={bot.id} bot={bot} engineKind={derived.engine?.driverKind} />
+      </>)}
 
       {shows("browser") && <div className="rounded-xl bg-card p-4">
         <div className="flex items-center justify-between gap-4">

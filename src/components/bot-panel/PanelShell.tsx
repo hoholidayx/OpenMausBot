@@ -23,11 +23,12 @@ function panelTarget(section: BotSettingsSection | null, link: PanelLink | null,
   return target.page === "memory" && !showMemory ? { tab: "library" } : target;
 }
 
-export function BotPanel({ bot, derived, linkedSection, onClose }: {
+export function BotPanel({ bot, derived, linkedSection, onClose, onOpenTools }: {
   bot: Bot;
   derived: ReturnType<typeof useBotSettingsDerived>;
   linkedSection: BotSettingsSection | null;
   onClose: () => void;
+  onOpenTools: () => void;
 }) {
   const { dragProps } = useCaptionChrome();
   const { state } = useStore();
@@ -136,11 +137,10 @@ export function BotPanel({ bot, derived, linkedSection, onClose }: {
               )}
             </div>
             <div
-              role="tablist"
-              aria-label={t("botSettings.simple.tabs")}
               className="sticky top-0 z-[1] -mx-4 mt-[15px] flex justify-center bg-app px-4 pb-2.5 pt-1 after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-3 after:bg-linear-to-b after:from-app after:to-transparent"
             >
               <div className="flex min-w-0 gap-0.5 rounded-full bg-ink/[0.05] p-[3px]">
+              <div role="tablist" aria-label={t("botSettings.simple.tabs")} className="flex min-w-0 gap-0.5">
               {PANEL_TABS.map((id) => (
                 <button
                   key={id}
@@ -148,15 +148,21 @@ export function BotPanel({ bot, derived, linkedSection, onClose }: {
                   role="tab"
                   aria-selected={tab === id}
                   data-panel-tab={id}
+                  title={t(TAB_LABEL[id])}
                   onClick={() => openTab(id)}
                   className={cn(
-                    "h-[26px] min-w-0 shrink truncate rounded-full px-3 text-[13px] leading-[18px] transition-colors",
+                    "h-7 min-w-0 shrink truncate rounded-full px-2 text-[13px] leading-[18px] transition-colors motion-reduce:transition-none touch:h-11",
                     tab === id ? "bg-ink/[0.1] font-medium text-ink" : "text-ink-secondary hover:text-ink",
                   )}
                 >
                   {t(TAB_LABEL[id])}
                 </button>
               ))}
+              </div>
+              <button type="button" aria-haspopup="dialog" data-panel-tab="tools" onClick={onOpenTools}
+                className="h-7 shrink-0 rounded-full px-2 text-[13px] leading-[18px] text-ink-secondary transition-colors hover:text-ink motion-reduce:transition-none touch:h-11">
+                {t("botAccess.toolGroups.title")}
+              </button>
               </div>
             </div>
             <div role="tabpanel">

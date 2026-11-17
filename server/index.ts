@@ -631,6 +631,9 @@ import { createModelSystemPrefixes } from "./model-system-prefixes.ts";
 import { createModelSystemPrefixRoutes } from "./routes/model-system-prefixes.ts";
 import { createMcpConfig } from "./host/mcp-config.ts";
 import { createMcpServerRoutes } from "./routes/mcp-servers.ts";
+import { createBotToolCatalogRoutes } from "./routes/bot-tool-catalog.ts";
+import { catalogProfileFromEnv } from "./drivers/agents-catalog.ts";
+import { TOOL_LIST as CHROME_TOOL_LIST } from "./browser/tools.ts";
 import { createConnectionHealthHost } from "./host/connection-health-host.ts";
 import { createSetupImportRoutes } from "./routes/setup-import.ts";
 import { createComputerRoutes } from "./routes/computers.ts";
@@ -1730,6 +1733,20 @@ const MAX_WORKSPACE_BOTS = 100;
 const phoneProxyPath = SPAWNED_PROXIES.phone;
 
 const researchAvailability = createResearchAvailability({ credential: () => researchCredential(cfg.treg?.key) }); researchAvailability.available();
+function agentsCatalogHost(bot: BotRecord | null | undefined) {
+  return {
+    legacyMemory: legacyMemoryEnabled,
+    skillAuthoring: skillAuthoringEnabled(cfg),
+    sharedComputers: botLending(),
+    cloudHome: Boolean(CLOUD_HOME),
+    team: Boolean(CLOUD_TEAM),
+    voiceNotes: tts.voiceReady(cfg, bot?.voice) && bot?.voiceNotes !== false,
+    x: Boolean(researchCredential(cfg.treg?.key)),
+    research: researchAvailability.available(),
+    imageGeneration: imageGenerationReady(cfg),
+  };
+}
+
 function agentsIntegration(
   botId: string,
   threadId: string,
@@ -1741,17 +1758,7 @@ function agentsIntegration(
 ) {
   const bot = store.bot(botId), speaking = botForThread(botId, threadId) ?? bot;
   // Only advertises the tools; the routes behind them refuse regardless.
-  const host = {
-    legacyMemory: legacyMemoryEnabled,
-    skillAuthoring: skillAuthoringEnabled(cfg),
-    sharedComputers: botLending(),
-    cloudHome: Boolean(CLOUD_HOME),
-    team: Boolean(CLOUD_TEAM),
-    voiceNotes: tts.voiceReady(cfg, speaking?.voice) && speaking?.voiceNotes !== false,
-    x: Boolean(researchCredential(cfg.treg?.key)),
-    research: researchAvailability.available(),
-    imageGeneration: imageGenerationReady(cfg),
-  };
+  const host = agentsCatalogHost(speaking);
   return { ...agentsProxyLaunch(), env: agentsServerEnv({ threadId, bot: bot ?? { id: botId }, room: Boolean(store.groupByThread(threadId)), botDriven: automated || botDrivenConversation(store.taskByThread(botId, threadId)), host },
     { generation, depth, skillAuthoring, roomHandoffId, ...(hostFiles && !CLOUD_HOME && !HOSTED_WORKSPACE ? { deliversSavedFiles: true } : {}) },
     (turn) => mintInternalCapability({ botId, threadId, kind: "agents", createdBots: 0, openedThreads: 0, ...turn }), `http://127.0.0.1:${PORT}`) };
@@ -2282,7 +2289,7 @@ function cancelDirectTurnDispatch(botId: string, expectedThreadId?: string): Dir
 const {
   browserRuntime, browserLive, usedBrowserSessions, browserSweep, temporaryBrowserSessions,
   currentBrowserSession, forgetTemporaryBrowser, myChromeAvailable, usesMyChrome, lentChromeSummary, browserSessionSpec, browserIntegration,
-  browserReady, currentBrowserSpec, loginInput, browserSystemPrompt, closeBrowser, browserEngineSwitched, eraseDeletedBrowser, engineSummary, browserSessionsOf, signedInSitesTarget, uploadPaths,
+  browserReady, currentBrowserSpec, loginInput, browserSystemPrompt, closeBrowser, browserEngineSwitched, eraseDeletedBrowser, engineSummary, browserSessionsOf, signedInSitesTarget, uploadPaths, usesChromeToolCatalog,
 } = createBrowserHost({ cfg, language: appLanguage, store: () => store, turnResources, activeInternalGenerationByThread, mintInternalCapability, DESKTOP_MANAGED, CLOUD_HOME, HOSTED_WORKSPACE, PORT, engineMemory, audienceOf: teamHost.browserAudience, ...(CLOUD_TEAM ? { browserBox: (fd: number, ro: readonly string[]) => botBox.browserBox(fd, ro) } : {}), lendRefusal: (turn) => cloudLendingRefusal({ botId: store.botByThread(turn.threadId)?.id ?? "", threadId: turn.threadId, generation: turn.generation }), device: () => deviceLinks.route(CLOUD_HOME_LENDER) ?? sharedComputers.internetAway(CLOUD_HOME_LENDER) ?? { unshared: true as const }, lentChrome: CLOUD_PERSONAL ? { route: () => deviceLinks.chromeRoute(CLOUD_HOME_LENDER), lender: () => sharedComputers.chromeLender(CLOUD_HOME_LENDER) } : undefined });
 
 const dataSheets = new DataSheetRegistry({
@@ -11774,6 +11781,36 @@ ROUTES.push(createMcpServerRoutes({
   cloudHome: CLOUD_HOME,
   fallbackPublicUrl: FALLBACK_PUBLIC_URL,
   mcpServerResponse, savedCustomDomain, appCatalog: chatAppsMcp, config: mcpConfig, lender: sessionLendingPrincipal, connectionHealth, ownsVault: () => !CLOUD_TEAM && !HOSTED_WORKSPACE, place: (server, auth) => lentMcp.place(server, { principal: sessionLendingPrincipal(auth), ...(auth.kind === "session" ? { session: auth.session.id } : {}), newest: true }) }));
+ROUTES.push(createBotToolCatalogRoutes({
+  bot: (id) => store.bot(id),
+  facts: (bot) => {
+    const caps = registry.get(bot.modelSelection.instanceId)?.adapter.capabilities;
+    const threadId = botMainThread(bot.id) ?? bot.threadId;
+    const env = agentsServerEnv(
+      { bot, threadId, room: false, host: agentsCatalogHost(bot) },
+      { generation: "", depth: 0, skillAuthoring: false }, () => "", "",
+    );
+    return {
+      caps, profile: catalogProfileFromEnv(env), dataReady: dataEngine.unavailable() === null, emailReady: emailHost.available(),
+      browser: {
+        blocked: !caps?.browserMcp ? "engine" : !builtInBrowserEnabled(cfg) || bot.browser === false || bot.computer === "off" ? "disabled"
+          : !browserReady(bot.browserProfile) ? "environment" : undefined,
+        tools: usesChromeToolCatalog(bot.browserProfile) ? CHROME_TOOL_LIST : undefined,
+      },
+      phoneTools: phones.toolListing()?.phone,
+      apps: composio.configured(cfg),
+    };
+  },
+  servers: () => mcpServerResponse().servers,
+  apps: async () => {
+    const [tools, services] = await Promise.all([composio.listConnectorTools(cfg), composio.connectedServices(cfg)]);
+    return { tools, connected: new Set(Object.keys(services).filter((slug) => services[slug]?.connected)) };
+  },
+  appBlock: (slug) => !managedPolicy.appAllowed(slug) ? "policy" : teamConnections.personApps().includes(slug) ? "turn-dependent" : undefined,
+  test: mcpConfig.test,
+  probeAs: (bot) => ({ id: bot.id, cwd: existsSync(workspaceDir(bot.id)) ? workspaceDir(bot.id) : DATA_DIR }),
+  ownConnection: teamConnections.people.connection,
+}));
 ROUTES.push(createSetupImportRoutes({ local: DESKTOP_MANAGED && !CLOUD_HOME && !HOSTED_WORKSPACE, cfg, mcpPolicyRefusal, persistMcpServers: persistAnnouncedMcpServers,
   mcpConfigBusy: mcpConfig.busy }));
 ROUTES.push(createComputerRoutes({

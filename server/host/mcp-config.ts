@@ -61,6 +61,7 @@ export interface McpConfig {
   test(name: string, options: {
     asBot?: { id: string; cwd: string };
     signal: AbortSignal;
+    catalogOnly?: boolean;
     /** A person's own connection, asked for only when the server is theirs; null when there is no one to answer for it. */
     person?: (url: string) => { oauth: McpOAuthManager; key?: { header: string; value: string } } | null;
     /** Whose lent computers a server that runs elsewhere is tested on; null or absent: nobody's. */
@@ -80,7 +81,7 @@ async function probeAsBots(path: BrokerPath, name: string, target: StoredRemoteM
   } finally {
     await brokered.done();
   }
-  if (result.ok || result.auth === "required" || signal.aborted) return result;
+  if (options.catalogOnly || result.ok || result.auth === "required" || signal.aborted) return result;
   const direct = await probeMcpServer(target, undefined, signal);
   return direct.ok
     ? { ok: false, reason: "unreachable", error: `Your bots can't reach this server: ${result.error.replace(/ Check [^.]*\.$/, "")} It answers when tested directly, so the fault is on our side, not in your settings: tell us with @devs in any chat.` }
@@ -137,6 +138,61 @@ export function createMcpConfig(deps: McpConfigDeps & { changed(): void }): McpC
     if (personalRefusal) return { status: 400, ...personalRefusal };
     const refusal = mcpPolicyRefusal(name, server);
     return refusal ? { status: 403, error: refusal, code: "managed_policy" } : null;
+  };
+
+  type ProbeRequest = Parameters<McpConfig["test"]>[1];
+  const prepareProbe = async (name: string, storedServer: StoredMcpServer, { person, asBot, catalogOnly }: ProbeRequest) => {
+    let target = storedServer;
+    let oauth = mcpOAuth;
+    const personal = deps.teamConnections.personMcp().includes(name);
+    if (personal && isRemoteMcpServer(target) && (catalogOnly || (!target.oauth && Object.keys(target.headers).length > 0))) {
+      const own = person?.(target.url);
+      if (!own) return { refusal: { status: 403, ...userError("serverError.mcp.testSignInFirst") } };
+      oauth = own.oauth;
+      target = { ...target, headers: own.key ? { [own.key.header]: own.key.value } : {} };
+    } else if (!personal && isRemoteMcpServer(target)) {
+      target = { ...target, headers: { ...target.headers, ...postizKeyHeaders(cfg.postiz, name, target) } };
+    }
+    let cataloged = storedServer;
+    if (!personal && deps.keys) {
+      await deps.keys.warm(name, target);
+      const keyed = deps.keys.resolve(name, target, asBot?.id);
+      if (!keyed.ok) return { refusal: { status: 200, body: { ok: false, reason: "keys", error: keyed.why } satisfies McpProbeResult } };
+      if (keyed.server !== target) cataloged = target = keyed.server;
+    }
+    return { target, oauth, personal, cataloged };
+  };
+
+  const probeOptions = (name: string, target: StoredMcpServer, cataloged: StoredMcpServer, personal: boolean, { asBot, catalogOnly }: ProbeRequest) => ({
+    ...(catalogOnly ? { catalogOnly: true } : { tryReadOnlyTool: true, ...(personal ? {} : appCatalog?.probeOptions(name, cataloged) ?? {}) }),
+    ...(asBot ? { asBot } : isRemoteMcpServer(target) ? {} : { asBot: deps.probeAs?.(target) ?? {} }),
+  });
+
+  const probeLocal = async (name: string, server: StoredMcpServer, request: ProbeRequest): Promise<McpConfigResult> => {
+    const prepared = await prepareProbe(name, server, request);
+    if (prepared.refusal) return prepared.refusal;
+    let { target } = prepared;
+    const { oauth, personal, cataloged } = prepared;
+    const { signal, catalogOnly } = request;
+    let sentSignIn = false;
+    if (isRemoteMcpServer(target) && oauth.authState(name, target.url) === "signed-in") {
+      const signedIn = (await withMcpSignIn({ [name]: target }, oauth))[name];
+      if (signedIn) {
+        target = { ...signedIn, enabled: target.enabled } as typeof target;
+        sentSignIn = true;
+      }
+    }
+    const options = probeOptions(name, target, cataloged, personal, request);
+    const viaBots = isRemoteMcpServer(target) ? deps.botsPath?.() ?? null : null;
+    const result = viaBots && isRemoteMcpServer(target)
+      ? await probeAsBots(viaBots, name, target, signal, options)
+      : await probeMcpServer(target, undefined, signal, options);
+    if (!catalogOnly && !result.ok && result.auth === "required" && isRemoteMcpServer(target)) {
+      // Only a Bearer we sent and the server refused drops the sign-in; a probe that sent none must not sign anyone out.
+      if (sentSignIn) oauth.markNeedsSignIn(name, target.url);
+      else oauth.requireSignIn(name, target.url);
+    }
+    return { status: 200, body: result };
   };
 
   return {
@@ -239,56 +295,21 @@ export function createMcpConfig(deps: McpConfigDeps & { changed(): void }): McpC
       deps.connectionsChanged?.("removed");
       return saved(200);
     }),
-    test: async (name, { signal, person, asBot, lender }) => {
+    test: async (name, request) => {
+      const { signal, lender, catalogOnly } = request;
       const raw = cfg.mcpServers?.[name];
       if (raw === undefined) return { status: 404, error: mcpServerNotFound(name) };
       const parsed = parseStoredMcpServer(name, raw);
       if (!parsed.ok) return { status: 400, error: parsed.error };
       const { runsOn } = parsed.server;
+      if (catalogOnly && (!parsed.server.enabled || runsOn)) return { status: 409, error: "This server cannot be listed here." };
       if (runsOn) return deps.testElsewhere ? deps.testElsewhere(name, { ...parsed.server, runsOn }, lender ?? null, signal) : { status: 409, error: runsElsewhere(runsOn) };
       if (mcpProbesInFlight >= MAX_CONCURRENT_MCP_PROBES) {
         return { status: 429, error: "Two MCP connection tests are already running." };
       }
       mcpProbesInFlight += 1;
       try {
-        let target = parsed.server;
-        let oauth = mcpOAuth;
-        const personal = deps.teamConnections.personMcp().includes(name);
-        if (personal && isRemoteMcpServer(target) && !target.oauth && Object.keys(target.headers).length > 0) {
-          const own = person?.(target.url);
-          if (!own) return { status: 403, ...userError("serverError.mcp.testSignInFirst") };
-          oauth = own.oauth;
-          target = { ...target, headers: own.key ? { [own.key.header]: own.key.value } : {} };
-        } else if (!personal && isRemoteMcpServer(target)) {
-          target = { ...target, headers: { ...target.headers, ...postizKeyHeaders(cfg.postiz, name, target) } };
-        }
-        // Plain servers keep probing as they are saved; the app catalog is keyed by what actually runs.
-        let cataloged: StoredMcpServer = parsed.server;
-        if (!personal && deps.keys) {
-          await deps.keys.warm(name, target);
-          const keyed = deps.keys.resolve(name, target, asBot?.id);
-          if (!keyed.ok) return { status: 200, body: { ok: false, reason: "keys", error: keyed.why } satisfies McpProbeResult };
-          if (keyed.server !== target) cataloged = target = keyed.server;
-        }
-        let sentSignIn = false;
-        if (isRemoteMcpServer(target) && oauth.authState(name, target.url) === "signed-in") {
-          const signedIn = (await withMcpSignIn({ [name]: target }, oauth))[name];
-          if (signedIn) {
-            target = { ...signedIn, enabled: target.enabled } as typeof target;
-            sentSignIn = true;
-          }
-        }
-        const options = { tryReadOnlyTool: true, ...(personal ? {} : appCatalog?.probeOptions(name, cataloged) ?? {}), ...(asBot ? { asBot } : isRemoteMcpServer(target) ? {} : { asBot: deps.probeAs?.(target) ?? {} }) };
-        const viaBots = isRemoteMcpServer(target) ? deps.botsPath?.() ?? null : null;
-        const result = viaBots && isRemoteMcpServer(target)
-          ? await probeAsBots(viaBots, name, target, signal, options)
-          : await probeMcpServer(target, undefined, signal, options);
-        if (!result.ok && result.auth === "required" && isRemoteMcpServer(target)) {
-          // Only a Bearer we sent and the server refused drops the sign-in; a probe that sent none must not sign anyone out.
-          if (sentSignIn) oauth.markNeedsSignIn(name, target.url);
-          else oauth.requireSignIn(name, target.url);
-        }
-        return { status: 200, body: result };
+        return await probeLocal(name, parsed.server, request);
       } finally {
         mcpProbesInFlight -= 1;
       }

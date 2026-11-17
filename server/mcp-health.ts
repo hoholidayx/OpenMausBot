@@ -20,6 +20,8 @@ export interface McpStartCheck { ok: boolean; at: number; error?: string }
 interface ServerHealth { key: string; checks: Record<string, McpStartCheck>; told?: string }
 type Bot = { id: string; name: string };
 type CommandServer = StdioMcpSpec & { bot?: string };
+const commandOf = (servers: Record<string, CommandServer>, name: string): CommandServer | undefined =>
+  Object.hasOwn(servers, name) ? servers[name] : undefined;
 
 export interface McpHealthDeps {
   file: string;
@@ -74,7 +76,7 @@ export function createMcpHealth(deps: McpHealthDeps) {
   const due = (check: McpStartCheck | undefined) => !check || now() - check.at >= (check.ok ? RECHECK_STARTED_MS : RECHECK_FAILED_MS);
 
   const record = (name: string, server: CommandServer, botId: string, key: string, generation: number, result: { ok: true } | { ok: false; error: string }) => {
-    const current = deps.servers()[name];
+    const current = commandOf(deps.servers(), name);
     if (!current || (generations.get(name) ?? 0) !== generation || current.bot !== server.bot || startKey(current) !== key) return;
     const health = state[name]?.key === key && state[name]!.checks ? state[name]! : (state[name] = { key, checks: {} });
     health.checks[standsFor(server, botId)] = result.ok ? { ok: true, at: now() } : { ok: false, at: now(), error: result.error };
@@ -101,7 +103,7 @@ export function createMcpHealth(deps: McpHealthDeps) {
   };
 
   const checkUsers = (name: string, force: boolean) => {
-    const server = deps.servers()[name];
+    const server = commandOf(deps.servers(), name);
     if (!server) return;
     for (const bot of deps.users(name)) {
       if (force || due(checkOf(name, server, bot.id))) void check(name, server, bot.id);
@@ -115,7 +117,7 @@ export function createMcpHealth(deps: McpHealthDeps) {
     async prepare(botId: string, names: readonly string[]): Promise<void> {
       const servers = deps.servers(), first: Promise<void>[] = [];
       for (const name of names) {
-        const server = servers[name];
+        const server = commandOf(servers, name);
         if (!server) continue;
         const last = checkOf(name, server, botId);
         if (!last) first.push(check(name, server, botId));
@@ -126,25 +128,32 @@ export function createMcpHealth(deps: McpHealthDeps) {
     /** `mounted` without the command servers that did not start. */
     usable<T extends McpServerSpec>(botId: string, mounted: Record<string, T>): Record<string, T> {
       const servers = deps.servers();
-      return Object.fromEntries(Object.entries(mounted).filter(([name]) => !servers[name] || checkOf(name, servers[name], botId)?.ok !== false));
+      return Object.fromEntries(Object.entries(mounted).filter(([name]) => {
+        const server = commandOf(servers, name);
+        return !server || checkOf(name, server, botId)?.ok !== false;
+      }));
     },
     /** Which of `names` are left out of this bot's turns, with why. */
     off(botId: string, names: readonly string[]): Array<{ name: string; error: string }> {
       const servers = deps.servers();
       return names.flatMap((name) => {
-        const last = servers[name] ? checkOf(name, servers[name], botId) : undefined;
+        const server = commandOf(servers, name);
+        const last = server ? checkOf(name, server, botId) : undefined;
         return last && !last.ok ? [{ name, error: last.error ?? "It did not start." }] : [];
       });
     },
     /** Who a server is off for, by bot id. */
     offFor(name: string): string[] {
-      const server = deps.servers()[name];
+      const server = commandOf(deps.servers(), name);
       return server ? deps.users(name).filter((bot) => checkOf(name, server, bot.id)?.ok === false).map((bot) => bot.id) : [];
     },
     /** The bot's AI reported these did not connect: each is checked again now. */
     engineFailed(botId: string, names: readonly string[]): void {
       const servers = deps.servers();
-      for (const name of names) if (servers[name]) void check(name, servers[name], botId);
+      for (const name of names) {
+        const server = commandOf(servers, name);
+        if (server) void check(name, server, botId);
+      }
     },
     /** A server was added, changed or turned on: checked again now. */
     changed(name: string): void {

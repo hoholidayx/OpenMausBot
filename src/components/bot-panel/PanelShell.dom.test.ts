@@ -49,13 +49,14 @@ const bot: Bot = {
   modelSelection: { instanceId: "claude", model: "claude-opus-5-5" },
 };
 const onClose = vi.fn();
+const onOpenTools = vi.fn();
 const derived = { activeState: "idle", patch: vi.fn() } as never;
 
 let host: HTMLDivElement;
 let root: Root;
 // The panel sits inside BotSettingsDialog's <aside role="dialog">, as it does in the app.
 const render = (linkedSection: BotSettingsSection | null) =>
-  flushSync(() => root.render(createElement("aside", { role: "dialog" }, createElement(BotPanel, { bot, derived, linkedSection, onClose }))));
+  flushSync(() => root.render(createElement("aside", { role: "dialog" }, createElement(BotPanel, { bot, derived, linkedSection, onClose, onOpenTools }))));
 // Passive effects and the renders they schedule.
 const settle = async () => {
   for (let i = 0; i < 3; i++) await new Promise((resolve) => setTimeout(resolve, 0));
@@ -176,10 +177,10 @@ describe("the panel's tabs", () => {
     expect([...host.querySelectorAll('[role="tab"]')].map((element) => [element.getAttribute("data-panel-tab"), element.textContent]))
       .toEqual([["details", "Details"], ["library", "Library"], ["computer", "Computer"]]);
     expect(tab()).toBe("details");
-    const strip = host.querySelector('[role="tablist"]')!.className.split(" ");
+    const strip = host.querySelector('[role="tablist"]')!.parentElement!.parentElement!.className.split(" ");
     expect(strip).toEqual(expect.arrayContaining(["sticky", "top-0", "bg-app"]));
-    expect(host.querySelector('[role="tab"]')!.parentElement!.className.split(" ")).toEqual(expect.arrayContaining(["rounded-full", "bg-ink/[0.05]"]));
-    expect(host.querySelector('[role="tab"]')!.className.split(" ")).toEqual(expect.arrayContaining(["h-[26px]", "text-[13px]", "bg-ink/[0.1]", "font-medium"]));
+    expect(host.querySelector('[role="tablist"]')!.parentElement!.className.split(" ")).toEqual(expect.arrayContaining(["rounded-full", "bg-ink/[0.05]"]));
+    expect(host.querySelector('[role="tab"]')!.className.split(" ")).toEqual(expect.arrayContaining(["h-7", "text-[13px]", "bg-ink/[0.1]", "font-medium"]));
     for (const id of ["library", "computer", "details"]) {
       click(host.querySelector(`[data-panel-tab="${id}"]`));
       expect(tab()).toBe(id);
@@ -397,7 +398,7 @@ describe("one body for every bot", () => {
   const roundBot: Bot = { ...bot, mascotBody: "circle" };
   const everywhere = () => host.querySelector("[data-avatar-body-everywhere]");
   const openEditor = async (shown: Bot) => {
-    flushSync(() => root.render(createElement("aside", { role: "dialog" }, createElement(BotPanel, { bot: shown, derived, linkedSection: null, onClose }))));
+    flushSync(() => root.render(createElement("aside", { role: "dialog" }, createElement(BotPanel, { bot: shown, derived, linkedSection: null, onClose, onOpenTools }))));
     await settle();
     click(host.querySelector("[data-panel-avatar]"));
     await settle();

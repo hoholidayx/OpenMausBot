@@ -17,6 +17,10 @@ export function shownToolGroups(available: readonly ToolGroup[] | undefined, off
   return TOOL_GROUPS.filter((group) => available?.includes(group) || off?.includes(group));
 }
 
+export function toolGroupLabel(group: ToolGroup): string {
+  return t(GROUP_WORDS[group][0]);
+}
+
 export function ToolGroupsCard({ bot, patch }: { bot: Bot; patch: (patch: { toolsOff: ToolGroup[] }) => void }) {
   const { state } = useStore();
   const off = bot.toolsOff ?? [];
