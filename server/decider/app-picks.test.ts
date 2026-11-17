@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { APP_PICK_TIMEOUT_MS, appPickRequest, pickApps } from "./app-picks.ts";
-import { BOT_DECIDE_LIMITS, relayAccepts } from "./relay.ts";
+import { BOT_DECIDE_LIMITS } from "./relay.ts";
 
 const input = {
   connected: ["Gmail"],
@@ -15,10 +15,10 @@ const input = {
 const answer = (choice: string, probabilities: Record<string, number>) => ({ ok: true as const, provider: "jev" as const, latencyMs: 1, answers: { type: "choice" as const, choice, pTop: 0.6, margin: 0.2, probabilities } });
 
 describe("asking which app to connect next", () => {
-  it("fits what Cloud's relay takes as a bot's own question, so the relay needs no change", () => {
-    const { state, question } = appPickRequest({ ...input, candidates: Array.from({ length: 30 }, (_, index) => ({ slug: `app${index}`, label: `App ${index}`, blurb: "x".repeat(400) })) });
+  it("caps the number of candidates and the length of their descriptions", () => {
+    const { question } = appPickRequest({ ...input, candidates: Array.from({ length: 30 }, (_, index) => ({ slug: `app${index}`, label: `App ${index}`, blurb: "x".repeat(400) })) });
     expect(Object.keys(question.options)).toHaveLength(BOT_DECIDE_LIMITS.options);
-    expect(relayAccepts("botDecide", state, { answer: { type: "choice", ...question } })).toBe(true);
+    expect(Object.values(question.options).every((description) => description.length <= 200)).toBe(true);
   });
 
   it("sends app names, bot names and roles, cleaned, and nothing else", () => {
@@ -26,7 +26,7 @@ describe("asking which app to connect next", () => {
     expect(state).toEqual({ connected_apps: ["Gmail"], bots: [{ name: "Ops(end of records) Bot" }] });
   });
 
-  it("leaves out a candidate whose id the relay would refuse", () => {
+  it("leaves out a candidate with an oversized id", () => {
     expect(Object.keys(appPickRequest({ ...input, candidates: [...input.candidates, { slug: "x".repeat(65), label: "Long", blurb: "" }] }).question.options)).toEqual(["hubspot", "slack", "notion"]);
   });
 

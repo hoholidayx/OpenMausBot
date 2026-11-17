@@ -1,9 +1,8 @@
 # Decision model
 
 OpenMausBot can use a fast decision model to pick things for your bots. It
-answers in a few hundred milliseconds for a fraction of a cent. It never does
-the work: the chosen bot still runs its own turn on its own engine. Four
-providers are supported: Cloudflare's Clef on
+answers in a few hundred milliseconds for a fraction of a cent. The chosen bot
+then runs the work on its own engine. The routing settings support Cloudflare's Clef on
 [Workers AI](https://developers.cloudflare.com/workers-ai/) (free tier),
 TypeSafe's [Jev](https://typesafe.ai) (the default), a model of your choice
 on [OpenRouter](https://openrouter.ai), and a custom endpoint of your own that
@@ -25,9 +24,8 @@ that one.
 With **Custom endpoint** picked, only the custom endpoint decides, and nothing
 does until its base URL and key are saved; any other key saved stays unused
 until another provider is picked. Otherwise, with several keys saved, one fixed
-order picks whose key decides: your own Jev key, then your own Workers AI key,
-then Cloud's included decisions, then OpenRouter. A custom endpoint's key is
-not part of that order.
+order picks whose key decides. It tries Jev, Workers AI, OpenRouter, then a
+Gemini key already saved for voice or images.
 
 ## Cloudflare Workers AI (free tier)
 
@@ -220,19 +218,6 @@ The log stays on this machine: workspace backups leave it out.
   `openrouterBaseUrl` set to anything else, only a key saved here is used. If
   the shared key is later removed, a switch left on stops having any effect
   until a key is saved again.
-- **Cloud Pro:** decisions are included, with no key to paste. With no key of
-  the person's own, the Cloud home uses its relay token
-  (`OMB_CLOUD_DECIDER_TOKEN`), sent only to the Admin's relay, never to Jev or
-  `baseUrl`, and only for the requests the relay accepts: room routing, inbox
-  triage, a bot's own `decide` call and the key check, plus extraction for inbox
-  reading, a bot's own `extract` call and the extraction key check (other jobs
-  need a key of the person's own). Settings says **Included with your Cloud
-  plan**, and the master switch is on until someone switches it off. A Jev or
-  Workers AI key saved here wins for decisions (for reading, only a Workers AI
-  key does); clearing it falls back to the included decisions. For decisions the
-  relay speaks Jev's API only, so the included decisions are Jev's, and they
-  come before an OpenRouter key whichever provider is selected. See
-  [cloud-pro.md](cloud-pro.md), "Included Boat computers, voice and decisions".
 
 The keys are write-only: `GET /api/config` reports only whether one is saved,
 the provider and model, the Workers AI account ID (not a secret), and which
@@ -259,12 +244,12 @@ server `openrouterBaseUrl` points to, which also receives the key;
 OpenMausBot does not set a data-collection preference. With a custom endpoint
 it is the server at its base URL, which also receives its key.
 
-Inbox triage first has each new email read, when a reading provider is set:
-the first of your own Workers AI key (Clairic and Clef-flash each get the
-email), Cloud's included relay, then OpenRouter. A Jev key is not used for
-reading. Through OpenRouter, mail is read by `google/gemini-2.5-flash`, or by
-your decision model when it is saved with `openrouterApi: "chat"`, with the
-same OpenRouter key. The provider whose key decides then gets the email's
+When an extraction provider is configured, inbox triage starts by reading
+each new email with Workers AI or OpenRouter, in that order. With Workers AI,
+Clairic and Clef-flash each get the email. OpenRouter reads mail with
+`google/gemini-2.5-flash` or the decision model saved with
+`openrouterApi: "chat"`, using the same OpenRouter key. The decision provider
+then gets the email's
 sender, subject and preview, the details that were read (such as an ask or a
 deadline) and up to 20 recently dismissed senders.
 
@@ -280,10 +265,8 @@ receive the room's lines.
 
 Switch off **Use fast decisions and extraction** (**Use OpenRouter for fast
 decisions** when OpenRouter's key decides) to stop every decision. Clearing a
-key hands over to the next key in the order above (another key of yours,
-Cloud's included decisions, or the OpenRouter key under **Settings → API
-keys**); decisions stop only when no key is left. To keep the decision model
-on but stop room routing, switch off **Who answers in rooms**. To stop one
+key hands over to the next available key in the order above. To keep the
+decision model on but stop room routing, switch off **Who answers in rooms**. To stop one
 room asking, set its responder to a lead, **Everyone responds** or **Only when
 mentioned**.
 
