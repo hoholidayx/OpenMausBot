@@ -18,10 +18,10 @@ beforeEach(() => {
 type Node = ReactElement<{ children?: ReactNode; onClick?: () => void }>;
 const nodes = (value: ReactNode): Node[] => !isValidElement(value) ? [] : [value as Node, ...Children.toArray((value as Node).props.children).flatMap(nodes)];
 
-it("says one plain thing, names OpenAI, and offers only the way to Settings → API keys", () => {
+it("says one plain thing, names OpenAI, and offers only the way to Settings → AI → Other services", () => {
   const html = renderToStaticMarkup(createElement(LiveKeyNeeded));
   expect(html).toContain('<h2 id="live-key-title"');
-  expect(html).toContain("Live calls use your own OpenAI key. Add it in Settings → API keys.");
+  expect(html).toContain("Live calls use your own OpenAI key. Add it in Settings → AI → Other services.");
   expect(html).toContain(">Open AI › Other services</button>");
   expect(html.match(/<button/g)).toHaveLength(1);
   expect(html).toContain("The OpenAI key stays on your computer.");

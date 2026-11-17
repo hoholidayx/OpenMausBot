@@ -748,7 +748,7 @@ posixOnly("Live call on the person's Cloud", () => {
   }, 40_000);
 });
 
-// No plan anywhere and no Live key: a phone's call starts once the person's own OpenAI key is in Settings → API keys.
+// No plan anywhere and no Live key: a phone's call starts once the person's own OpenAI key is in Settings → AI → Other services.
 posixOnly("Live calls for everyone, with the person's own OpenAI key", () => {
   const OPENAI_KEY = "sk-fake-api-keys-openai";
   const phone = { "x-openmausbot-companion": "1", "x-openmausbot-companion-device": "phone-byok" };
@@ -827,7 +827,7 @@ posixOnly("Live calls for everyone, with the person's own OpenAI key", () => {
 
     for (const [client, headers] of [["ios", phone], ["android", {}], ["desktop", {}]] as const) {
       expect(await start(client, headers), client).toEqual({
-        status: 409, body: { error: "Live calls use your own OpenAI key. Add it in Settings → AI.", needsKey: true },
+        status: 409, body: { error: "Live calls use your own OpenAI key. Add it in Settings → AI → Other services.", needsKey: true },
       });
     }
     expect(live.sessions).toHaveLength(0);

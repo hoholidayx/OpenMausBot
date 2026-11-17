@@ -1,6 +1,7 @@
 import { PAIRING_INPUT_PROBLEM_TEXT } from "../shared/pairing-code.ts";
 import { redactParams } from "../shared/redact.ts";
 import { formatServerText, type ServerErrorBody, type ServerTextParams } from "../shared/server-text.ts";
+import { placePath } from "./app-settings/places.ts";
 
 /** The client translates by key and falls back to this English, which the server keeps sending for older clients. */
 export const USER_ERROR = {
@@ -219,7 +220,7 @@ export const USER_ERROR = {
   "serverError.mailbox.adminOnly": "Only the owner or an admin can manage the mailboxes.",
   "serverError.mailbox.addressAndPassword": "Enter your email address and password.",
   "serverError.mailbox.outgoingFields": "Check the outgoing server: a name like mail.example.com, a port from 1 to 65535, and SSL/TLS or STARTTLS.",
-  "serverError.voice.fishKeyRequired": "Add a Fish Audio or ElevenLabs key in Settings → API keys to talk to your bots here.",
+  "serverError.voice.fishKeyRequired": `Add a Fish Audio or ElevenLabs key in ${placePath("keys")} to talk to your bots here.`,
   "serverError.voice.fishTranscribeConnection": "Couldn't reach Fish Audio to hear you — check your connection.",
   "serverError.voice.elevenLabsTranscribeConnection": "Couldn't reach ElevenLabs to hear you — check your connection.",
   "serverError.file.tooLarge": "This file is {size}, over the {limit} limit for opening files from chat. The file itself is still saved as {name}.",

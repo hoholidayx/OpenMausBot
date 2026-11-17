@@ -25,7 +25,7 @@ describe("live settings", () => {
 });
 
 describe("the key a Live call uses", () => {
-  it("is the OpenAI API key from Settings → API keys when there is no separate Live key", () => {
+  it("is the OpenAI API key from Settings → AI → Other services when there is no separate Live key", () => {
     const cfg = { openai: { key: " sk-openai " } } as AppConfig;
     expect(liveCallKey(cfg)).toEqual({ key: "sk-openai", source: "openai" });
     for (const live of [{}, { key: "" }, { key: "  " }]) expect(liveCallKey({ ...cfg, live }), JSON.stringify(live)).toEqual({ key: "sk-openai", source: "openai" });

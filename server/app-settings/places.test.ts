@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { SETTINGS_PLACES, type SettingsPlace } from "../../shared/settings-places.ts";
+import english from "../../src/locales/en.json" with { type: "json" };
 import { findPlaces, placePath, placesList } from "./places.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -29,6 +30,20 @@ describe("places", () => {
     const lines = placesList().split("\n");
     expect(lines[0]).toMatch(/^Settings opens from/);
     expect(lines).toHaveLength(SETTINGS_PLACES.length + 1);
+  });
+
+  it("points call and readout key guidance to the key settings section", () => {
+    const keys = [
+      "call.capability.turnsNeedFishKeyReason",
+      "call.live.needsKey",
+      "call.live.keyFromApiKeys",
+      "serverError.voice.fishKeyRequired",
+      "voice.grok.missingKey",
+      "voice.openai.missingKey",
+      "voice.openai.error.key",
+    ] as const;
+
+    for (const key of keys) expect(english[key], key).toContain(placePath("keys"));
   });
 });
 
