@@ -1247,6 +1247,13 @@
 .chat-md :is(p, li, blockquote) {
   text-wrap: pretty;
 }
+/* WebKit 26.5 can shorten most lines of a narrow CJK paragraph with pretty wrapping. */
+@media (max-width: 767.98px), (pointer: coarse) {
+  [data-chat-bubble="simple"],
+  .chat-md :is(p, li, blockquote) {
+    text-wrap-style: auto;
+  }
+}
 [data-chat-bubble="simple"] .chat-md > * + .md-heading {
   margin-top: 18px;
 }

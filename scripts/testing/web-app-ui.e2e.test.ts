@@ -154,7 +154,14 @@ async function connect(url: string) {
       const layout = await evaluate(`[${userBubble}, ${botBubble}].map(bubble => {
         const row = bubble.closest('[data-message-row]').getBoundingClientRect();
         const box = bubble.getBoundingClientRect();
-        return { width: box.width, rowWidth: row.width, startGap: box.left - row.left, endGap: row.right - box.right };
+        const text = bubble.querySelector('.chat-text, .chat-md p');
+        const range = document.createRange();
+        range.selectNodeContents(text);
+        const firstLineFill = range.getClientRects()[0].width / text.getBoundingClientRect().width;
+        return {
+          width: box.width, rowWidth: row.width, startGap: box.left - row.left, endGap: row.right - box.right,
+          wrapStyle: getComputedStyle(text).textWrapStyle, firstLineFill,
+        };
       })`);
       bubbleLayouts.push({ width, layout });
       const [user, bot] = layout;
@@ -164,6 +171,10 @@ async function connect(url: string) {
       expect(bot.startGap).toBeCloseTo(0);
       expect(user.startGap).toBeGreaterThan(0);
       expect(bot.endGap).toBeGreaterThan(0);
+      for (const row of [user, bot]) {
+        expect(row.wrapStyle).toBe("auto");
+        expect(row.firstLineFill).toBeGreaterThanOrEqual(0.9);
+      }
       const shot = await request("Page.captureScreenshot", { format: "png" });
       writeFileSync(`${logPath}.bubbles-${width}.png`, Buffer.from(shot.data, "base64"));
     }
