@@ -17,6 +17,16 @@ When an invasive change or instrumentation is necessary, keep it localized.
 Add a concise comment at the affected site explaining why it is needed and any
 assumptions that matter when syncing with upstream.
 
+When merging an official upstream branch into this fork, review conflicts
+against the merge base. Prefer preserving the fork's intentional changes and
+incorporate compatible upstream changes where possible. Resolve conflicts at
+the affected change so unrelated upstream work comes through.
+
+If a conflict could have a major impact or the correct resolution is unclear,
+pause the merge. Report the conflicting files, what each side changes, the
+likely impact, and the available resolutions. Wait for the maintainer's
+decision before resolving those conflicts or committing and pushing the merge.
+
 ## Local change checks
 
 Use the pnpm version pinned in `package.json`. If the `pnpm` on `PATH` differs,
