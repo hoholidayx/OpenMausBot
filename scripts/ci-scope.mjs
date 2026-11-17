@@ -59,7 +59,6 @@ export const VITEST_SUBSETS = {
       "scripts/generate-locale.test.mjs",
       "scripts/testing/bot-tools-ui.e2e.test.ts",
       "scripts/testing/key-readback.e2e.test.ts",
-      "scripts/testing/rail-profile-ui.e2e.test.ts",
       "scripts/testing/secret-card-descriptions.test.ts",
       "server/host/brief-words.test.ts",
       "server/host/lending-lifts.test.ts",

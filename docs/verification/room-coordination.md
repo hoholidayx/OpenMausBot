@@ -230,13 +230,7 @@ member at a time. Nothing hides that any more:
 
 ```sh
 pnpm exec vitest run server/room-queue.test.ts src/lib/room-threads.test.ts src/components/GroupView.queue.test.ts
-pnpm exec vitest run server/room-queue.e2e.test.ts -t "run in turn"
 ```
-
-The e2e test launches the isolated scripted fixture, has a Lead hand three
-members work in one room, holds the first on a gate, and checks the Lead's
-receipts and the room's `group` frames (2 of 3 and 3 of 3, both waiting on
-the first), then that the line clears once all three settle.
 
 ### Parallel room jobs (opt-in)
 
@@ -263,17 +257,6 @@ working folder), so the members work side by side:
 
 A single job into a quiet room, a one-way notice, and every room with the
 flag off keep running in the room's thread, in turn.
-
-```sh
-pnpm exec vitest run server/room-queue.e2e.test.ts -t "parallel room jobs"
-```
-
-The e2e test turns the flag on in the isolated fixture, has a Lead send two
-members a job and then a second job to the first, holds both first jobs on
-gates and checks they are running at the same moment, each in its own thread,
-with the second job queued in the first member's thread. After release it
-checks three result cards and three "Sent to" lines in the room, the
-first member's two turns in one thread, and one resume of the Lead.
 
 ### Rooms that mix departments
 

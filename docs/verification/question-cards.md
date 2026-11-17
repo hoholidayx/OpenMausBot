@@ -8,7 +8,7 @@ an answer from either place, by tap or in the person's own words, reaches the bo
 
 ## Hosted question cards
 
-The archived fixture started a Team Cloud on the two-server fixture (`scripts/testing/cloud-send-fixture.ts`) with the scripted fake engine
+The archived fixture started a Team Cloud with the scripted fake engine
 (`server/testing/room-handoff-agent.ts`): Cleo asks Scout, her Chief, whose chat is her inbox, to have Ledger fix
 something, and Scout hands it on with `coordinate_bots`. Both bots are on "Ask me first", so the questions are the
 person's. [Hosted question cards fixture](https://github.com/hoholidayx/OpenMausBot/blob/2d0dc208baffbbd050e291065604641a04a13aa9/server/question-cards.e2e.test.ts)

@@ -31,7 +31,7 @@ it.each([
 });
 
 it("refuses retired Cloud sign-in without consuming a self-hosted pairing code", async () => {
-  const fixture = await launchVerificationServer({ OMB_LEGACY_MEMORY: "0" });
+  const fixture = await launchVerificationServer();
   const { url } = fixture.info;
   const post = (path: string, body: object) => fetch(`${url}${path}`, {
     method: "POST",
@@ -61,7 +61,7 @@ it("refuses retired Cloud sign-in without consuming a self-hosted pairing code",
 });
 
 it("creates local bots without hosted ownership or sharing fields", async () => {
-  const fixture = await launchVerificationServer({ OMB_LEGACY_MEMORY: "0" });
+  const fixture = await launchVerificationServer();
   try {
     const { url } = fixture.info;
     const response = await fetch(`${url}/api/bots`, {

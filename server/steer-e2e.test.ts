@@ -18,6 +18,13 @@ const PORT = workerPort(18800, 10_000);
 const BASE = `http://127.0.0.1:${PORT}`;
 const posixOnly = describe.skipIf(process.platform === "win32");
 
+function withoutEchoedContext(text: string): string {
+  return withoutTurnClock(text).replace(
+    /^reply to: \[You are joining this conversation mid-thread[^\n]*\]\n\n[\s\S]*?\n\n\[Now reply to the user's latest message:\]\n\n/,
+    "reply to: ",
+  );
+}
+
 posixOnly("mid-turn steering e2e", () => {
   let child: ChildProcess;
   let home: string;
@@ -183,7 +190,7 @@ posixOnly("mid-turn steering e2e", () => {
 
       await waitFor(async () => (await getBot(created.id)).busy === false, "the turn to settle");
       const bot = await getBot(created.id);
-      const texts = bot.messages.filter((m: any) => m.kind === "text").map((m: any) => `${m.role}:${m.role === "bot" ? withoutTurnClock(m.text) : m.text}`);
+      const texts = bot.messages.filter((m: any) => m.kind === "text").map((m: any) => `${m.role}:${m.role === "bot" ? withoutEchoedContext(m.text) : m.text}`);
       expect(texts.slice(1)).toEqual([
         "user:first",
         "bot:hello from fake claude",
@@ -224,7 +231,7 @@ posixOnly("mid-turn steering e2e", () => {
     const bot = await getBot(created.id);
     expect(bot.messages.find((m: any) => m.role === "user" && m.text === "a new task for later").steered).toBeUndefined();
     expect(bot.messages.some((m: any) => m.role === "bot" && m.kind === "text" && m.text.includes("steered: a new task for later"))).toBe(false);
-    expect(bot.messages.some((m: any) => m.role === "bot" && m.kind === "text" && withoutTurnClock(m.text).startsWith("reply to: first"))).toBe(true);
+    expect(bot.messages.some((m: any) => m.role === "bot" && m.kind === "text" && withoutEchoedContext(m.text).startsWith("reply to: first"))).toBe(true);
     expect(bot.messages.filter((m: any) => m.role === "user" && m.kind === "text").map((m: any) => m.text)).toEqual(["first", "a new task for later"]);
     // The first turn's end was not the end: the queued message ran next. One "done", for the turn that finished last.
     await waitFor(async () => ((await api("GET", "/api/notifications")).body.notifications ?? []).some((n: any) => n.botId === created.id && n.kind === "done"), "the done notification");
@@ -357,7 +364,7 @@ posixOnly("mid-turn steering e2e", () => {
     await waitFor(async () => (await getBot(created.id)).busy === false, "the turn to settle");
     expect(await internalTools()).toBe(401);
     const bot = await getBot(created.id);
-    const texts = bot.messages.filter((m: any) => m.kind === "text").map((m: any) => `${m.role}:${m.role === "bot" ? withoutTurnClock(m.text) : m.text}`);
+    const texts = bot.messages.filter((m: any) => m.kind === "text").map((m: any) => `${m.role}:${m.role === "bot" ? withoutEchoedContext(m.text) : m.text}`);
     expect(texts.slice(1)).toEqual([
       "user:first",
       "bot:hello from fake claude",
@@ -494,7 +501,7 @@ posixOnly("mid-turn steering e2e", () => {
     expect(steered.steered).toBe(true);
     const replies = bot.messages.filter((m: any) => m.role === "bot" && m.kind === "text" && m.text.startsWith("reply to:"));
     expect(replies).toHaveLength(1);
-    expect(withoutTurnClock(replies[0].text)).toBe("reply to: first + steered: [image] and look at this");
+    expect(withoutEchoedContext(replies[0].text)).toBe("reply to: first + steered: [image] and look at this");
 
     const nativeRows = readFileSync(join(home, ".openmausbot", "native", `${created.threadId}.ndjson`), "utf8")
       .trim().split("\n").map((line) => JSON.parse(line));
@@ -506,68 +513,6 @@ posixOnly("mid-turn steering e2e", () => {
       { type: "image", source: { type: "base64", media_type: "image/png", data: "[image data: 16 base64 chars]" } },
       { type: "text", text: "and look at this\n\n" },
     ]);
-  }, 40_000);
-
-  it("delivers a queued room burst's non-last image natively in the coalesced turn", async () => {
-    rmSync(steerFinishGate, { force: true });
-    const created = (await api("POST", "/api/bots")).body.bot;
-    await api("PATCH", `/api/bots/${created.id}`, {
-      modelSelection: { instanceId: "claudeSteer", model: "claude-fake" },
-    });
-    const room = (await api("POST", "/api/groups", {
-      name: "Burst image room",
-      memberIds: [created.id],
-      setup: { bulletin: "", defaultResponder: { kind: "member", botId: created.id } },
-    })).body.group;
-    const getGroup = async () =>
-      (await api("GET", "/api/bots?messages=30")).body.groups.find((g: any) => g.id === room.id);
-
-    expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "start the room" })).status).toBe(202);
-    await waitFor(async () => (await getGroup())?.busyBotId === created.id, "the room turn to start");
-
-    // Loopback API sends never merge (each is its own identity), so the burst comes from one paired person; the gated opener cannot settle early.
-    const person = await asPairedPerson();
-    const attachments = join(home, ".openmausbot", "attachments");
-    mkdirSync(attachments, { recursive: true });
-    const imagePath = join(attachments, "123e4567-e89b-42d3-a456-426614174004.png");
-    writeFileSync(imagePath, "room png");
-    const imageText = `look at the room screenshot\n\n<attached-image path="${imagePath}" name="shot.png" />`;
-    const firstReceipt = await person("POST", `/api/groups/${room.id}/messages`, { text: imageText });
-    expect((await getGroup())?.working).toBe(true);
-    const secondReceipt = await person("POST", `/api/groups/${room.id}/messages`, { text: "and summarize it" });
-    writeFileSync(steerFinishGate, "finish");
-    expect(firstReceipt.status).toBe(202);
-    expect(firstReceipt.body).toMatchObject({ ok: true, queued: true });
-    expect(secondReceipt.status).toBe(202);
-    expect(secondReceipt.body).toMatchObject({ ok: true, queued: true });
-
-    await waitFor(
-      async () => (await getGroup())?.messages.some((m: any) => m.text === "and summarize it"),
-      "the coalesced burst to drain",
-    );
-    await waitFor(async () => (await getGroup())?.working === false, "the burst turn to settle");
-    expect(
-      (await getGroup())?.messages.filter((m: any) => m.role === "bot" && m.kind === "text" && m.text?.startsWith("reply to:")),
-    ).toHaveLength(2);
-
-    const nativeRows = readFileSync(
-      join(home, ".openmausbot", "native", `${room.threadId}.ndjson`),
-      "utf8",
-    )
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-    const followUp = nativeRows
-      .filter((row) => row.dir === "out" && row.source === "claude.sdk.message")
-      .at(-1)?.msg;
-    expect(followUp.message.content).toEqual([
-      { type: "image", source: { type: "base64", media_type: "image/png", data: "[image data: 12 base64 chars]" } },
-      expect.objectContaining({ type: "text" }),
-    ]);
-    const textBlock = followUp.message.content.find((block: any) => block.type === "text").text;
-    expect(textBlock).toContain("look at the room screenshot");
-    expect(textBlock).toContain("and summarize it");
-    expect(textBlock).not.toContain("<attached-image");
   }, 40_000);
 
   it("rejects a delayed steer acknowledgement after the bot is deleted", async () => {
@@ -796,241 +741,6 @@ posixOnly("mid-turn steering e2e", () => {
     );
     await api("POST", `/api/bots/${created.id}/interrupt`);
     await waitFor(async () => (await getBot(created.id)).busy === false, "the drained turn to settle");
-  }, 40_000);
-
-  it("a room steer folds the queued head into the running codex turn, and room Stop reports no SIGTERM", async () => {
-    const created = (await api("POST", "/api/bots")).body.bot;
-    const instances = (await api("GET", "/api/instances")).body.instances;
-    const model = instances.find((i: any) => i.instanceId === "codex").models.default;
-    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "codex", model } });
-    const room = (await api("POST", "/api/groups", {
-      name: "Steer room",
-      memberIds: [created.id],
-      setup: { bulletin: "", defaultResponder: { kind: "member", botId: created.id } },
-    })).body.group;
-    const getGroup = async () =>
-      (await api("GET", "/api/bots?messages=30")).body.groups.find((g: any) => g.id === room.id);
-
-    expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "first room turn" })).status).toBe(202);
-    await waitFor(async () => (await getGroup())?.busyBotId === created.id, "the room turn to start");
-    await waitFor(async () => (await getGroup())?.messages.some((m: any) => m.card), "the room question card");
-
-    const person = await asPairedPerson();
-    const queued = await person("POST", `/api/groups/${room.id}/messages`, { text: "steer these room words" });
-    expect(queued.status).toBe(202);
-    expect(queued.body).toMatchObject({ ok: true, queued: true });
-    expect((await getGroup())?.messages.some((m: any) => m.text === "steer these room words")).toBe(false);
-
-    const steered = await api("POST", `/api/groups/${room.id}/queue/${queued.body.queueId}/steer`, {
-      threadId: room.threadId,
-    });
-    expect(steered.status).toBe(200);
-    expect(steered.body).toMatchObject({ ok: true, steered: true });
-    expect(steered.body.queueIds).toEqual([queued.body.queueId]);
-    const folded = (await getGroup())?.messages.find((m: any) => m.text === "steer these room words");
-    expect(folded?.steered).toBe(true);
-    expect(folded?.sender).toEqual(PAIRED);
-
-    const nativeRows = readFileSync(join(home, ".openmausbot", "native", `${room.threadId}.ndjson`), "utf8")
-      .trim().split("\n").map((line) => JSON.parse(line));
-    const steerRow = nativeRows.find((row) => row.dir === "out" && row.msg?.method === "turn/steer")?.msg;
-    expect(steerRow?.params).toMatchObject({ input: [{ type: "text", text: "steer these room words" }] });
-
-    await api("POST", `/api/groups/${room.id}/interrupt`, {});
-    await waitFor(async () => (await getGroup())?.working === false, "the steered room turn to settle");
-    expect(JSON.stringify((await getGroup())?.messages)).not.toContain("SIGTERM");
-    expect(stderr).not.toContain("signal SIGTERM");
-  }, 40_000);
-
-  it("a room whose engine cannot steer keeps its queue, then drains after Stop", async () => {
-    const created = (await api("POST", "/api/bots")).body.bot;
-    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "acp", model: "fake-model" } });
-    const room = (await api("POST", "/api/groups", {
-      name: "Queue room",
-      memberIds: [created.id],
-      setup: { bulletin: "", defaultResponder: { kind: "member", botId: created.id } },
-    })).body.group;
-    const getGroup = async () =>
-      (await api("GET", "/api/bots?messages=30")).body.groups.find((g: any) => g.id === room.id);
-
-    expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "first" })).status).toBe(202);
-    await waitFor(async () => (await getGroup())?.busyBotId === created.id, "the hung room turn to start");
-    const person = await asPairedPerson();
-    const queued = await person("POST", `/api/groups/${room.id}/messages`, { text: "second" });
-    expect(queued.status).toBe(202);
-    expect(queued.body).toMatchObject({ ok: true, queued: true });
-
-    const still = await api("POST", `/api/groups/${room.id}/queue/${queued.body.queueId}/steer`, {
-      threadId: room.threadId,
-    });
-    expect(still.status).toBe(200);
-    expect(still.body).toMatchObject({ ok: true, queued: true });
-    expect((await getGroup())?.working).toBe(true);
-    expect((await getGroup())?.messages.some((m: any) => m.text === "second")).toBe(false);
-
-    await api("POST", `/api/groups/${room.id}/interrupt`, {});
-    await waitFor(
-      async () => (await getGroup())?.messages.some((m: any) => m.text === "second"),
-      "the preserved room queue to drain",
-    );
-    expect((await getGroup())?.messages.find((m: any) => m.text === "second")?.sender).toEqual(PAIRED);
-    await api("POST", `/api/groups/${room.id}/interrupt`, {});
-    await waitFor(async () => (await getGroup())?.working === false, "the drained room turn to settle");
-  }, 40_000);
-
-  it("a room steer keeps each burst line's own reply context in the fold", async () => {
-    const created = (await api("POST", "/api/bots")).body.bot;
-    const instances = (await api("GET", "/api/instances")).body.instances;
-    const model = instances.find((i: any) => i.instanceId === "codex").models.default;
-    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "codex", model } });
-    const room = (await api("POST", "/api/groups", {
-      name: "Reply burst room",
-      memberIds: [created.id],
-      setup: { bulletin: "", defaultResponder: { kind: "member", botId: created.id } },
-    })).body.group;
-    const getGroup = async () =>
-      (await api("GET", "/api/bots?messages=30")).body.groups.find((g: any) => g.id === room.id);
-
-    expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "first room turn" })).status).toBe(202);
-    await waitFor(async () => (await getGroup())?.busyBotId === created.id, "the room turn to start");
-    await waitFor(async () => (await getGroup())?.messages.some((m: any) => m.card), "the room question card");
-    const firstTurnId = (await getGroup())?.messages.find(
-      (m: any) => m.role === "user" && m.text === "first room turn",
-    )?.id;
-    expect(firstTurnId).toBeTruthy();
-
-    const person = await asPairedPerson();
-    const replying = await person("POST", `/api/groups/${room.id}/messages`, {
-      text: "steer this reply line",
-      replyToId: firstTurnId,
-    });
-    const plain = await person("POST", `/api/groups/${room.id}/messages`, { text: "and this plain line" });
-    expect(replying.body).toMatchObject({ ok: true, queued: true });
-    expect(plain.body).toMatchObject({ ok: true, queued: true });
-
-    const steered = await api("POST", `/api/groups/${room.id}/queue/${replying.body.queueId}/steer`, {
-      threadId: room.threadId,
-    });
-    expect(steered.status).toBe(200);
-    expect(steered.body.steered).toBe(true);
-    expect(steered.body.queueIds).toEqual([replying.body.queueId, plain.body.queueId]);
-
-    const nativeRows = readFileSync(join(home, ".openmausbot", "native", `${room.threadId}.ndjson`), "utf8")
-      .trim().split("\n").map((line) => JSON.parse(line));
-    const foldRow = nativeRows.find((row) => row.dir === "out" && row.msg?.method === "turn/steer")?.msg;
-    const foldedText = foldRow?.params.input.map((block: any) => block.text).join("\n") ?? "";
-    expect(foldedText).toContain("steer this reply line");
-    expect(foldedText).toContain("and this plain line");
-    expect(foldedText.match(/The current message is a reply to/g)).toHaveLength(1);
-    expect(foldedText).toContain("first room turn");
-
-    await api("POST", `/api/groups/${room.id}/interrupt`, {});
-    await waitFor(async () => (await getGroup())?.working === false, "the steered room turn to settle");
-  }, 40_000);
-
-  it("a queued room attachment refuses the fold and waits for a real turn", async () => {
-    const created = (await api("POST", "/api/bots")).body.bot;
-    const instances = (await api("GET", "/api/instances")).body.instances;
-    const model = instances.find((i: any) => i.instanceId === "codex").models.default;
-    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "codex", model } });
-    const room = (await api("POST", "/api/groups", {
-      name: "Attachment steer room",
-      memberIds: [created.id],
-      setup: { bulletin: "", defaultResponder: { kind: "member", botId: created.id } },
-    })).body.group;
-    const getGroup = async () =>
-      (await api("GET", "/api/bots?messages=30")).body.groups.find((g: any) => g.id === room.id);
-
-    expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "first room turn" })).status).toBe(202);
-    await waitFor(async () => (await getGroup())?.busyBotId === created.id, "the room turn to start");
-    await waitFor(async () => (await getGroup())?.messages.some((m: any) => m.card), "the room question card");
-
-    const attachments = join(home, ".openmausbot", "attachments");
-    mkdirSync(attachments, { recursive: true });
-    const imagePath = join(attachments, "123e4567-e89b-42d3-a456-426614174005.png");
-    writeFileSync(imagePath, "clip png");
-    const imageText = `look at the clip\n\n<attached-image path="${imagePath}" name="clip.png" />`;
-
-    const person = await asPairedPerson();
-    const queued = await person("POST", `/api/groups/${room.id}/messages`, { text: imageText });
-    expect(queued.body).toMatchObject({ ok: true, queued: true });
-
-    const steered = await api("POST", `/api/groups/${room.id}/queue/${queued.body.queueId}/steer`, {
-      threadId: room.threadId,
-    });
-    expect(steered.status).toBe(200);
-    expect(steered.body).toMatchObject({ ok: true, queued: true, blockedBy: "images" });
-    expect(steered.body.steered).toBeUndefined();
-    expect((await getGroup())?.working).toBe(true);
-    expect((await getGroup())?.messages.some((m: any) => m.text === imageText)).toBe(false);
-
-    await api("POST", `/api/groups/${room.id}/interrupt`, {});
-    await waitFor(
-      async () => (await getGroup())?.messages.some((m: any) => m.text === imageText),
-      "the attachment line to drain",
-    );
-    await api("POST", `/api/groups/${room.id}/interrupt`, {});
-    await waitFor(async () => (await getGroup())?.working === false, "the drained attachment turn to settle");
-
-    const nativeRows = readFileSync(join(home, ".openmausbot", "native", `${room.threadId}.ndjson`), "utf8")
-      .trim().split("\n").map((line) => JSON.parse(line));
-    expect(nativeRows.filter((row) => row.dir === "out" && row.msg?.method === "turn/steer")).toHaveLength(0);
-  }, 40_000);
-
-  it("a room steer folds a queued attachment into the running Claude turn as native images", async () => {
-    rmSync(steerFinishGate, { force: true });
-    const created = (await api("POST", "/api/bots")).body.bot;
-    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "claudeSteer", model: "claude-fake" } });
-    const room = (await api("POST", "/api/groups", {
-      name: "Image steer room",
-      memberIds: [created.id],
-      setup: { bulletin: "", defaultResponder: { kind: "member", botId: created.id } },
-    })).body.group;
-    const getGroup = async () =>
-      (await api("GET", "/api/bots?messages=30")).body.groups.find((g: any) => g.id === room.id);
-
-    try {
-      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "start the room" })).status).toBe(202);
-      await waitFor(async () => (await getGroup())?.busyBotId === created.id, "the room turn to start");
-      await waitFor(async () => (await getGroup())?.messages.some((m: any) => m.kind === "activity"), "the room tool chip");
-
-      const attachments = join(home, ".openmausbot", "attachments");
-      mkdirSync(attachments, { recursive: true });
-      const imagePath = join(attachments, "123e4567-e89b-42d3-a456-426614174007.png");
-      writeFileSync(imagePath, "room steer png");
-      const imageText = `what about this one\n\n<attached-image path="${imagePath}" name="room.png" />`;
-      const person = await asPairedPerson();
-      const queued = await person("POST", `/api/groups/${room.id}/messages`, { text: imageText });
-      expect(queued.body).toMatchObject({ ok: true, queued: true });
-
-      const steered = await api("POST", `/api/groups/${room.id}/queue/${queued.body.queueId}/steer`, {
-        threadId: room.threadId,
-      });
-      expect(steered.status).toBe(200);
-      expect(steered.body).toMatchObject({ ok: true, steered: true });
-      expect(steered.body.queueIds).toEqual([queued.body.queueId]);
-      expect(steered.body.blockedBy).toBeUndefined();
-      const folded = (await getGroup())?.messages.find((m: any) => m.text === imageText);
-      expect(folded?.steered).toBe(true);
-      expect(folded?.sender).toEqual(PAIRED);
-    } finally {
-      writeFileSync(steerFinishGate, "finish");
-    }
-    await waitFor(async () => (await getGroup())?.working === false, "the steered room turn to settle");
-    const replies = (await getGroup())?.messages.filter((m: any) => m.role === "bot" && m.kind === "text" && m.text?.startsWith("reply to:"));
-    expect(replies).toHaveLength(1);
-    expect(replies[0].text).toContain("+ steered: [image] what about this one");
-
-    const nativeRows = readFileSync(join(home, ".openmausbot", "native", `${room.threadId}.ndjson`), "utf8")
-      .trim().split("\n").map((line) => JSON.parse(line));
-    const steerRow = nativeRows.filter((row) =>
-      row.dir === "out" && row.source === "claude.sdk.message" && Array.isArray(row.msg?.message?.content),
-    ).at(-1)?.msg;
-    expect(steerRow.uuid).toEqual(expect.any(String));
-    expect(steerRow.message.content).toEqual([
-      { type: "image", source: { type: "base64", media_type: "image/png", data: "[image data: 20 base64 chars]" } },
-      { type: "text", text: "what about this one\n\n" },
-    ]);
   }, 40_000);
 
   it("the queue steer endpoint keeps a codex attachment queued and says why", async () => {

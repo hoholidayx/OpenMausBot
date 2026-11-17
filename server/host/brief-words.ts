@@ -26,7 +26,7 @@ export interface BriefWords {
   more: Count;
   waitingMany: string;
   waitingCount: Count;
-  summary: { needs: Count; meetings: Count; emails: Count; routines: Count; ideas: Count; nothing: string };
+  summary: { needs: Count; meetings: Count; emails: Count; routines: Count; nothing: string };
   finished: string;
   failed: Name;
   missed: Name;
@@ -52,8 +52,6 @@ export interface BriefWords {
   unpreparedMeetings: string;
   unpreparedNote: Name;
   isAsking: Name;
-  ideas: string;
-  noticedAcross: Count;
 }
 
 const en: BriefWords = {
@@ -82,7 +80,6 @@ const en: BriefWords = {
     meetings: (n) => `${n} meeting${n === 1 ? "" : "s"}`,
     emails: (n) => `${n} important email${n === 1 ? "" : "s"}`,
     routines: (n) => `${n} routine result${n === 1 ? "" : "s"}`,
-    ideas: (n) => `${n} idea${n === 1 ? "" : "s"}`,
     nothing: "nothing needs you right now",
   },
   finished: "Finished",
@@ -110,8 +107,6 @@ const en: BriefWords = {
   unpreparedMeetings: "I didn't prepare meetings",
   unpreparedNote: (name) => `That needs a Claude model as ${name}'s AI. Your email is still sorted, and your day, reminders and clashes show here.`,
   isAsking: (bot) => `${bot} is asking you`,
-  ideas: "Ideas",
-  noticedAcross: (n) => `Noticed across ${n} chats`,
 };
 
 const ptBr: BriefWords = {
@@ -142,7 +137,6 @@ const ptBr: BriefWords = {
     meetings: (n) => `${n} ${n === 1 ? "reunião" : "reuniões"}`,
     emails: (n) => `${n} ${n === 1 ? "e-mail importante" : "e-mails importantes"}`,
     routines: (n) => `${n} ${n === 1 ? "resultado de rotina" : "resultados de rotina"}`,
-    ideas: (n) => `${n} ${n === 1 ? "ideia" : "ideias"}`,
     nothing: "nada precisa de você agora",
   },
   finished: "Concluída",
@@ -170,8 +164,6 @@ const ptBr: BriefWords = {
   unpreparedMeetings: "Não preparei as reuniões",
   unpreparedNote: (name) => `Para isso, a IA de ${name} precisa ser um modelo Claude. Seus e-mails continuam organizados, e a agenda do dia, os lembretes e os conflitos de horário aparecem aqui.`,
   isAsking: (bot) => `${bot} está perguntando a você`,
-  ideas: "Ideias",
-  noticedAcross: (n) => `Conversas em que isso foi percebido: ${n}`,
 };
 
 const es: BriefWords = {
@@ -202,7 +194,6 @@ const es: BriefWords = {
     meetings: (n) => `${n} ${n === 1 ? "reunión" : "reuniones"}`,
     emails: (n) => `${n} ${n === 1 ? "correo importante" : "correos importantes"}`,
     routines: (n) => `${n} ${n === 1 ? "resultado de rutina" : "resultados de rutina"}`,
-    ideas: (n) => `${n} ${n === 1 ? "idea" : "ideas"}`,
     nothing: "nada te necesita ahora mismo",
   },
   finished: "Terminada",
@@ -230,8 +221,6 @@ const es: BriefWords = {
   unpreparedMeetings: "No preparé las reuniones",
   unpreparedNote: (name) => `Para eso, la IA de ${name} debe ser un modelo Claude. Tu correo sigue ordenado, y tu día, los recordatorios y los solapamientos se muestran aquí.`,
   isAsking: (bot) => `${bot} te está preguntando algo`,
-  ideas: "Ideas",
-  noticedAcross: (n) => `Visto en ${n} chats`,
 };
 
 const de: BriefWords = {
@@ -262,7 +251,6 @@ const de: BriefWords = {
     meetings: (n) => `${n} ${n === 1 ? "Termin" : "Termine"}`,
     emails: (n) => `${n} wichtige E-Mail${n === 1 ? "" : "s"}`,
     routines: (n) => `${n} ${n === 1 ? "Routinenergebnis" : "Routinenergebnisse"}`,
-    ideas: (n) => `${n} ${n === 1 ? "Idee" : "Ideen"}`,
     nothing: "gerade wartet nichts auf dich",
   },
   finished: "Erledigt",
@@ -290,8 +278,6 @@ const de: BriefWords = {
   unpreparedMeetings: "Ich habe keine Termine vorbereitet",
   unpreparedNote: (name) => `Dafür braucht ${name} ein Claude-Modell als KI. Deine E-Mails werden weiterhin sortiert, und dein Tag, deine Erinnerungen und Terminüberschneidungen werden hier angezeigt.`,
   isAsking: (bot) => `${bot} fragt dich etwas`,
-  ideas: "Ideen",
-  noticedAcross: (n) => `In ${n} Chats bemerkt`,
 };
 
 const fr: BriefWords = {
@@ -322,7 +308,6 @@ const fr: BriefWords = {
     meetings: (n) => `${n} réunion${n < 2 ? "" : "s"}`,
     emails: (n) => `${n} ${n < 2 ? "e-mail important" : "e-mails importants"}`,
     routines: (n) => `${n} ${n < 2 ? "résultat de routine" : "résultats de routine"}`,
-    ideas: (n) => `${n} ${n < 2 ? "idée" : "idées"}`,
     nothing: "rien ne demande votre attention pour le moment",
   },
   finished: "Terminée",
@@ -350,8 +335,6 @@ const fr: BriefWords = {
   unpreparedMeetings: "Je n'ai pas préparé les réunions",
   unpreparedNote: (name) => `${name} doit utiliser un modèle Claude comme IA. Vos e-mails restent triés, et votre journée, vos rappels et les chevauchements s'affichent ici.`,
   isAsking: (bot) => `${bot} vous pose une question`,
-  ideas: "Idées",
-  noticedAcross: (n) => `Remarqué dans ${n} discussions`,
 };
 
 const ja: BriefWords = {
@@ -380,7 +363,6 @@ const ja: BriefWords = {
     meetings: (n) => `会議${n}件`,
     emails: (n) => `重要なメール${n}件`,
     routines: (n) => `ルーティンの結果${n}件`,
-    ideas: (n) => `アイデア${n}件`,
     nothing: "今は対応が必要なものはありません",
   },
   finished: "完了",
@@ -408,8 +390,6 @@ const ja: BriefWords = {
   unpreparedMeetings: "会議の準備は行っていません",
   unpreparedNote: (name) => `${name}のAIにはClaudeモデルが必要です。メールは引き続き整理され、今日の予定、リマインダー、重なりはここに表示されます。`,
   isAsking: (bot) => `${bot}が質問しています`,
-  ideas: "アイデア",
-  noticedAcross: (n) => `${n}件のチャットから気づいたこと`,
 };
 
 const zh: BriefWords = {
@@ -438,7 +418,6 @@ const zh: BriefWords = {
     meetings: (n) => `${n} 个会议`,
     emails: (n) => `${n} 封重要邮件`,
     routines: (n) => `${n} 个例行任务结果`,
-    ideas: (n) => `${n} 个想法`,
     nothing: "目前没有需要你处理的事",
   },
   finished: "已完成",
@@ -466,8 +445,6 @@ const zh: BriefWords = {
   unpreparedMeetings: "我没有准备会议",
   unpreparedNote: (name) => `需要将 ${name} 的 AI 设为 Claude 模型。你的邮件仍会整理，你的日程、提醒和时间冲突会显示在这里。`,
   isAsking: (bot) => `${bot} 正在向你提问`,
-  ideas: "想法",
-  noticedAcross: (n) => `从 ${n} 个对话中发现`,
 };
 
 const zhTw: BriefWords = {
@@ -496,7 +473,6 @@ const zhTw: BriefWords = {
     meetings: (n) => `${n} 場會議`,
     emails: (n) => `${n} 封重要郵件`,
     routines: (n) => `${n} 個例行工作結果`,
-    ideas: (n) => `${n} 個想法`,
     nothing: "目前沒有需要你處理的事",
   },
   finished: "已完成",
@@ -524,8 +500,6 @@ const zhTw: BriefWords = {
   unpreparedMeetings: "我沒有準備會議",
   unpreparedNote: (name) => `需要將 ${name} 的 AI 設為 Claude 模型。你的郵件仍會整理，你的行程、提醒和時間重疊會顯示在這裡。`,
   isAsking: (bot) => `${bot} 正在問你問題`,
-  ideas: "想法",
-  noticedAcross: (n) => `從 ${n} 個對話中發現`,
 };
 
 const hi: BriefWords = {
@@ -556,7 +530,6 @@ const hi: BriefWords = {
     meetings: (n) => `${n} मीटिंग`,
     emails: (n) => `${n} ज़रूरी ईमेल`,
     routines: (n) => (n === 1 ? `${n} रूटीन का नतीजा` : `${n} रूटीन के नतीजे`),
-    ideas: (n) => `${n} सुझाव`,
     nothing: "अभी किसी चीज़ को आपकी ज़रूरत नहीं है",
   },
   finished: "पूरा हुआ",
@@ -584,8 +557,6 @@ const hi: BriefWords = {
   unpreparedMeetings: "मैंने मीटिंग की तैयारी नहीं की",
   unpreparedNote: (name) => `इसके लिए ${name} के AI के रूप में Claude मॉडल चाहिए। आपके ईमेल अब भी छाँटे जा रहे हैं, और आपका दिन, रिमाइंडर और टकराव यहाँ दिखते हैं।`,
   isAsking: (bot) => `${bot} आपसे कुछ पूछ रहा है`,
-  ideas: "सुझाव",
-  noticedAcross: (n) => `${n} चैट में देखा गया`,
 };
 
 const ukRules = new Intl.PluralRules("uk");
@@ -619,7 +590,6 @@ const uk: BriefWords = {
     meetings: (n) => ukCount(n, "зустріч", "зустрічі", "зустрічей"),
     emails: (n) => ukCount(n, "важливий лист", "важливі листи", "важливих листів"),
     routines: (n) => ukCount(n, "результат рутини", "результати рутин", "результатів рутин"),
-    ideas: (n) => ukCount(n, "ідея", "ідеї", "ідей"),
     nothing: "зараз ніщо не потребує вашої уваги",
   },
   finished: "Завершено",
@@ -647,8 +617,6 @@ const uk: BriefWords = {
   unpreparedMeetings: "Зустрічі не підготовлено",
   unpreparedNote: (name) => `Для цього потрібна модель Claude як ШІ бота «${name}». Пошта й далі розбирається, а ваш день, нагадування та накладання подій показуються тут.`,
   isAsking: (bot) => `${bot} ставить вам запитання`,
-  ideas: "Ідеї",
-  noticedAcross: (n) => `Помічено в ${n} чатах`,
 };
 
 const vi: BriefWords = {
@@ -677,7 +645,6 @@ const vi: BriefWords = {
     meetings: (n) => `${n} cuộc họp`,
     emails: (n) => `${n} email quan trọng`,
     routines: (n) => `${n} kết quả tác vụ định kỳ`,
-    ideas: (n) => `${n} ý tưởng`,
     nothing: "hiện không có việc nào cần bạn xử lý",
   },
   finished: "Đã hoàn tất",
@@ -705,8 +672,6 @@ const vi: BriefWords = {
   unpreparedMeetings: "Tôi chưa chuẩn bị cuộc họp",
   unpreparedNote: (name) => `Để làm việc đó, AI của ${name} phải là mô hình Claude. Email của bạn vẫn được sắp xếp, còn lịch hôm nay, lời nhắc và lịch trùng hiện ở đây.`,
   isAsking: (bot) => `${bot} đang hỏi bạn`,
-  ideas: "Ý tưởng",
-  noticedAcross: (n) => `Nhận thấy qua ${n} cuộc trò chuyện`,
 };
 
 const tr: BriefWords = {
@@ -735,7 +700,6 @@ const tr: BriefWords = {
     meetings: (n) => `${n} toplantı`,
     emails: (n) => `${n} önemli e-posta`,
     routines: (n) => `${n} rutin sonucu`,
-    ideas: (n) => `${n} fikir`,
     nothing: "şu anda seni bekleyen bir şey yok",
   },
   finished: "Tamamlandı",
@@ -763,8 +727,6 @@ const tr: BriefWords = {
   unpreparedMeetings: "Toplantıları hazırlamadım",
   unpreparedNote: (name) => `Bunun için ${name} adlı botun yapay zekâsı bir Claude modeli olmalı. E-postaların ayıklanmaya devam ediyor; bugünkü programın, hatırlatıcılar ve çakışmalar burada görünür.`,
   isAsking: (bot) => `${bot} sana bir şey soruyor`,
-  ideas: "Fikirler",
-  noticedAcross: (n) => `${n} sohbette fark edildi`,
 };
 
 const ko: BriefWords = {
@@ -793,7 +755,6 @@ const ko: BriefWords = {
     meetings: (n) => `회의 ${n}개`,
     emails: (n) => `중요한 이메일 ${n}개`,
     routines: (n) => `루틴 결과 ${n}개`,
-    ideas: (n) => `아이디어 ${n}개`,
     nothing: "지금 확인할 일 없음",
   },
   finished: "완료",
@@ -821,8 +782,6 @@ const ko: BriefWords = {
   unpreparedMeetings: "회의 준비를 하지 못했어요",
   unpreparedNote: (name) => `그러려면 ${name}의 AI가 Claude 모델이어야 해요. 이메일은 계속 정리되고, 오늘 일정, 미리 알림, 일정 충돌은 여기에 표시돼요.`,
   isAsking: (bot) => `${bot}이(가) 묻고 있어요`,
-  ideas: "아이디어",
-  noticedAcross: (n) => `채팅 ${n}개에서 발견`,
 };
 
 const WORDS = { en, de, es, fr, hi, ja, ko, "pt-br": ptBr, zh, "zh-tw": zhTw, uk, vi, tr };

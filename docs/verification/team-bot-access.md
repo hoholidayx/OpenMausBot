@@ -44,18 +44,7 @@ pnpm exec vitest run server/bot-access.test.ts server/host/access-requests.test.
   may hand the bot on, the read-only view of someone who can't edit, keys staying inside it over Settings, and no button
   off a team.
 
-## The pictures
-
-```sh
-node --experimental-strip-types scripts/verify-team-bot-access.ts --shots <dir>
-```
-
-It starts the same kind of Team Cloud, sets Payroll up through the routes, and photographs the whole app
-(`scripts/testing/team-access-preview.tsx`) in a headless Chrome with a throwaway profile, at 1280×800 at 2x, each page's
-every request sent as that person through the preview's proxy. It fails if the app is refused anything naming a bot, a
-room or a conversation while it is shown. The `-dark` pictures use the Midnight skin and the `-390` ones a 390×844
-window; the many-people and many-bots ones add six people to Payroll and bring the team to fifty bots. `--before` takes the same setup through the older visibility route, for a
-checkout of the code before levels.
+## Archived screenshots
 
 | | Before | After |
 |---|---|---|

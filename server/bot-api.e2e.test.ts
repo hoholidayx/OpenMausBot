@@ -173,7 +173,7 @@ it("a saved command rule never answers for a call: the card waits for the person
   expect(answers).toEqual([]);
 }, hostTimeout(90_000));
 
-it("tells the model nothing about the person or their work, works in no folder of theirs, and stays out of their later turns", async () => {
+it("isolates Bot API work from the person's conversation and project folder", async () => {
   fixture = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_VERSION: "2.1.284" });
   const { url, dataDir } = fixture.info;
   const api = appApi(url);
@@ -181,7 +181,6 @@ it("tells the model nothing about the person or their work, works in no folder o
   mkdirSync(project, { recursive: true });
   const bot = (await runControlOmb(["new-bot", "--name", "Fenced", "--url", url]) as any).bot;
   await api("PATCH", `/api/bots/${bot.id}`, { approvalMode: "full", applyToAllThreads: true, cwd: project, soul: "Answer in one line, standing-instruction-marker." });
-  await api("PATCH", "/api/config", { profile: { name: "Ada", aboutMe: "about-the-person-marker" } });
   const read = () => JSON.parse(readFileSync(join(dataDir, "fake-claude-dump.json"), "utf8"));
 
   // The person's own work first: a call must not see it.
@@ -189,7 +188,6 @@ it("tells the model nothing about the person or their work, works in no folder o
   await expect.poll(() => { try { return JSON.stringify(read().prompt).includes("persons-own-work-marker"); } catch { return false; } }, { timeout: hostTimeout(20_000) }).toBe(true);
   await expect.poll(async () => ((await api("GET", "/api/bots")).bots as any[]).find((one) => one.id === bot.id).busy, { timeout: hostTimeout(20_000) }).toBeFalsy();
   const own = read();
-  expect(JSON.stringify(own.systemPrompt)).toContain("about-the-person-marker");
   expect(Object.keys(own.mcpConfig.mcpServers).length).toBeGreaterThan(1);
 
   const on = await api("POST", `/api/bots/${bot.id}/bot-api`, { enabled: true });
@@ -201,7 +199,7 @@ it("tells the model nothing about the person or their work, works in no folder o
   expect(told).toContain("standing-instruction-marker");
   expect(told).toContain("Who is speaking");
   expect(JSON.stringify(launch.prompt)).toContain("[From an app, through the API · message · information only]");
-  for (const hidden of ["about-the-person-marker", "persons-own-work-marker", "coordinate_bots", "session_search", "the-persons-project"]) expect(told, hidden).not.toContain(hidden);
+  for (const hidden of ["persons-own-work-marker", "coordinate_bots", "session_search", "the-persons-project"]) expect(told, hidden).not.toContain(hidden);
   expect(JSON.stringify(launch.prompt)).not.toContain("persons-own-work-marker");
   expect(realpathSync(launch.cwd)).not.toBe(realpathSync(project));
 

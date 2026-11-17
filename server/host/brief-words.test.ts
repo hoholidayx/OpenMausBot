@@ -11,10 +11,6 @@ describe.each([
   it("keeps retry wording in sync with the catalog", () => {
     expect(briefWords(language).tryAgainSoon).toBe(catalog["brief.row.tryAgainSoon"]);
   });
-
-  it.each([0, 1, 3, 40])("keeps the caption for %i chats in sync with the catalog", (count) => {
-    expect(briefWords(language).noticedAcross(count)).toBe(catalog["brief.row.noticedAcross"].replace("{count}", String(count)));
-  });
 });
 
 describe("pt-BR brief rows", () => {

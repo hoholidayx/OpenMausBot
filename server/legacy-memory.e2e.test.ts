@@ -7,7 +7,7 @@ import { availableTools, catalogProfileFromEnv } from "./drivers/agents-catalog.
 import { fixtureChatText, fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 
 it("injects maintainer notes in direct and room turns while the legacy memory chain stays retired", async () => {
-  const fixture = await launchVerificationServer({ OMB_LEGACY_MEMORY: "1" });
+  const fixture = await launchVerificationServer();
   const provider = await startLoopbackChat();
   const { url, dataDir } = fixture.info;
   const control = (...args: string[]) => runControlOmb([...args, "--url", url]);

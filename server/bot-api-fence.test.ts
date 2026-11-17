@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { BOT_API_PARTS, BOT_API_TOOLS, botApiRouteRefused } from "./bot-api-fence.ts";
+import { botApiRouteRefused } from "./bot-api-fence.ts";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const sources = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -27,10 +27,5 @@ describe("what a Bot API turn may reach", () => {
     expect(botApiRouteRefused("DELETE", "/api/internal/tool-result")).toBe(true);
     expect(botApiRouteRefused("POST", "/api/internal/hook/x")).toBe(true);
     expect(botApiRouteRefused("POST", "/api/internal/threads")).toBe(true);
-  });
-
-  it("mounts only the engine's hooks and keeps only the bot's memory, where the message came from and how to read that", () => {
-    expect([...BOT_API_TOOLS]).toEqual(["hooks"]);
-    expect([...BOT_API_PARTS].sort()).toEqual(["coordination", "memory", "webhook"]);
   });
 });

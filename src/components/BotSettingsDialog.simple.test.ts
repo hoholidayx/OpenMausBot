@@ -187,9 +187,6 @@ const fresh = () => {
   fixture.values = [];
   fixture.own = 0;
 };
-const enableLegacyMemory = () => {
-  fixture.storeState.config = { features: { legacyMemory: true }, composio: { configured: false } };
-};
 const patch = vi.fn();
 const onOpen = vi.fn();
 const onClose = vi.fn();
@@ -340,7 +337,6 @@ describe("the bot panel in Simple mode", () => {
     expect(shown(panel(bot))).toEqual({ tab: "details", page: undefined });
 
     click(find(panel(bot), "data-panel-tab", "library"));
-    enableLegacyMemory();
     (ofType(panel(bot), LibraryTab)!.props.onOpen as (page: string) => void)("skills");
     expect(ofType(panel(bot), PageHeader)!.props).toMatchObject({ back: "Library", title: "Skills" });
     (ofType(panel(bot), PageHeader)!.props.onBack as () => void)();
@@ -903,8 +899,7 @@ describe("the Bot settings page", () => {
 });
 
 describe("the Library tab", () => {
-  it("hides memory in both modes and ignores a direct memory link when the server disables it", () => {
-    fixture.storeState.config = { features: { legacyMemory: false } };
+  it("hides the retired memory settings and ignores old memory links", () => {
     expect(library(makeBot()).html).not.toContain('data-panel-page="memory"');
     expect(shown(panel(makeBot(), "memory"))).toEqual({ tab: "library", page: undefined });
     fixture.advanced = true;
@@ -912,7 +907,6 @@ describe("the Library tab", () => {
   });
 
   it("says what it will hold while the bot has made nothing, then its skills and folder", () => {
-    enableLegacyMemory();
     const rendered = library(makeBot());
     expect(rendered.html).toContain('data-panel-empty="library"');
     const order = ['data-panel-empty="library"', 'data-panel-page="skills"', 'data-panel-page="folder"'].map((marker) => rendered.html.indexOf(marker));
@@ -1307,7 +1301,6 @@ describe("the bot settings dialog", () => {
   });
 
   it("leaves Advanced mode on the full accordion", () => {
-    enableLegacyMemory();
     fixture.advanced = true;
     const rendered = dialog(makeBot());
     expect(ofType(rendered, BotPanel)).toBeUndefined();

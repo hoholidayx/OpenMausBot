@@ -1771,22 +1771,6 @@ processes the kernel stopped (`killed`), and in how many minutes the machine
 stalled on memory. Counted in memory since boot, so a restart starts them
 again.
 
-**`firstHour`** is there on a personal Cloud that began with its first hour
-(`server/host/first-hour.ts`), else `null`: `startedAt` is the first boot,
-and each milestone in `ms` is how long after it that step happened, present
-once it has: the person first opened the app (`seen`), wrote (`firstMessage`),
-was offered Gmail and Google Calendar (`offered`), connected one (`firstApp`)
-or set the offer aside (`declined`), got the first look (`firstLook`), was
-told the 8:00 morning brief is on (`briefOn`), was offered the phone
-(`phoneOffered`), paired it (`phonePaired`), and got the day-two recap
-(`recap`). `apps` names the apps connected when the first look began (whether or not it
-ran), and `look` says whether
-it was `delivered`, `failed`, or left to the person's own task (`own-task`).
-**`value`** is on any personal Cloud: what its Chief really did, counted when
-it happened (`server/host/value-ledger.ts`): emails sorted, reply drafts
-written, meetings prepared, routine results posted since the first hour
-began, and the minutes that adds up to at 1, 5, 10 and 3 minutes each.
-
 **Incidents** come from one tap on the store: every failed-turn row
 (`shared/failed-turn.ts`, the only way a server writes one) is counted in a
 bucket by `kind` (`place` when the row names a place, else `turn`), `code`

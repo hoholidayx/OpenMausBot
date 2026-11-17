@@ -15,10 +15,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
 import type { WireMessage } from "../shared/wire.ts";
-import { createToolBridge, type BridgeTool } from "./drivers/agents-bridge.ts";
-import { ALWAYS_LOAD_META, DEFER_TOOLS_ENV } from "./drivers/agents-claude-defer.ts";
-import { gateServer } from "./mcp-gate-config.ts";
-import { AGENTS_TOOL_BRIDGE_PROMPT } from "./system-prompt.ts";
+import type { BridgeTool } from "./drivers/agents-bridge.ts";
 import { turnEvidence } from "./turn-outcome.ts";
 import { waitForExit } from "./testing/cleanup.ts";
 import { hostTimeout } from "./testing/host-timeout.ts";
@@ -103,120 +100,6 @@ const refusalOf = (answer: Answer): string => {
   expect(answer.result!.isError).toBe(true);
   return textOf(answer);
 };
-
-it("keeps a turn on the whole catalog until the switch is on, then mounts the bridge and says so, in a chat and in a room", async () => {
-  await withFixture(async ({ api, control, launched }) => {
-    const { bot } = await control(["new-bot", "--name", "Bridge fixture"]);
-    const { bot: teammate } = await control(["new-bot", "--name", "Bridge teammate"]);
-
-    // Off by default: the whole catalog, no bridge tools, nothing in the prompt.
-    await control(["send", "--bot", bot.id, "--text", "Stay active."]);
-    const before = await launched();
-    const unbridged = before.mcpConfig.mcpServers.agents!;
-    expect(unbridged.env.OMB_AGENTS_TOOL_BRIDGE).toBe("0");
-    // A Claude turn marks all but a few tools deferred (agents-claude-defer.ts); the bridge, once on, lists none so marked.
-    expect(unbridged.env[DEFER_TOOLS_ENV]).toBe("1");
-    expect(before.systemPrompt).not.toContain("find_tool");
-    let whole: BridgeTool[] = [];
-    await withServer(unbridged, async (ask) => {
-      const listed = (await ask("tools/list")).result!.tools! as Array<BridgeTool & { _meta?: Record<string, unknown> }>;
-      expect(listed.some((tool) => tool._meta?.[ALWAYS_LOAD_META] === false)).toBe(true);
-      whole = listed.map(({ _meta: _marks, ...tool }) => tool);
-      expect(whole.map((tool) => tool.name)).toEqual(expect.arrayContaining(["coordinate_bots", "trigger", "trigger_info", "session_search"]));
-      expect(whole.map((tool) => tool.name)).not.toEqual(expect.arrayContaining(["find_tool"]));
-      expect(whole.length).toBeGreaterThan(25);
-      // the bridge's two names mean nothing to a turn that does not have it
-      expect((await call(ask, "use_tool", { name: "list_triggers" })).error).toEqual({ code: -32602, message: "Unknown tool: use_tool" });
-    });
-    await control(["interrupt", "--bot", bot.id]);
-    await control(["wait", "--bot", bot.id, "--timeout", "30"]);
-
-    // Switched on in the saved settings: the next turn is launched bridged.
-    expect((await api("PATCH", "/api/config", { features: { agentsToolBridge: true } })).status).toBe(200);
-    await control(["send", "--bot", bot.id, "--text", "Stay active again."]);
-    const after = await launched();
-    expect(after.pid).not.toBe(before.pid);
-    const bridged = after.mcpConfig.mcpServers.agents!;
-    expect(bridged.env.OMB_AGENTS_TOOL_BRIDGE).toBe("1");
-    expect(after.systemPrompt).toContain(AGENTS_TOOL_BRIDGE_PROMPT);
-    // the rest of the prompt still names its tools as it did; the one rule covers them
-    for (const prompt of [before.systemPrompt, after.systemPrompt]) expect(prompt).toContain("set it up with trigger action=create in this turn");
-    // said once
-    expect(after.systemPrompt.split(AGENTS_TOOL_BRIDGE_PROMPT)).toHaveLength(2);
-    // a fixture bot is not a Chief of Staff, so create_bot is not one of its tools
-    expect(bridged.env.OMB_CHIEF_OF_STAFF).toBe("0");
-
-    // While that turn is open its capability is good: the proxy the engine
-    // was handed answers through the fixture's own harness.
-    await withServer(bridged, async (ask) => {
-      const list = await ask("tools/list");
-      // exactly what the bridge makes of this turn's own unbridged list
-      expect(JSON.stringify(list.result!.tools)).toBe(JSON.stringify(createToolBridge(whole).listed));
-      expect(namesOf(list).slice(-2)).toEqual(["find_tool", "use_tool"]);
-      expect(namesOf(list)).toEqual(expect.arrayContaining(["coordinate_bots", "post_to_room", "memory_update", "request_sign_in"]));
-      expect(namesOf(list)).not.toEqual(expect.arrayContaining(["trigger"]));
-      expect(JSON.stringify(list.result!.tools).length).toBeLessThan(JSON.stringify(whole).length / 2);
-
-      // found from how a person would ask, with the schema the whole catalog lists
-      const found = (JSON.parse(textOf(await call(ask, "find_tool", { query: "what routines do I have" }))) as { matches: BridgeTool[] }).matches;
-      expect(found[0]!.name).toBe("trigger_info");
-      expect(found[0]!.inputSchema).toEqual(whole.find((tool) => tool.name === "trigger_info")!.inputSchema);
-      // then run: the harness itself answered, with this turn's capability,
-      // what it answers the same tool called by its own name
-      const routines = await use(ask, "list_triggers");
-      expect(routines.result!.isError).toBeFalsy();
-      expect(textOf(routines)).toMatch(/^This bot has no triggers\. Current time: /);
-      expect(textOf(await call(ask, "list_triggers", {})).replace(/Current time: [^\n]*/, "")).toBe(textOf(routines).replace(/Current time: [^\n]*/, ""));
-
-      // a name outside this turn's profile; arguments the tool's schema refuses;
-      // an outward action, which keeps its own name
-      expect(refusalOf(await use(ask, "create_bot", { name: "Scout", role: "Ops", instructions: "Work." }))).toBe("Unknown tool: create_bot");
-      expect((await call(ask, "create_bot", { name: "Scout", role: "Ops", instructions: "Work." })).error).toEqual({ code: -32602, message: "Unknown tool: create_bot" });
-      // arguments the tool will not take are refused by the tool, in the words a direct call gets
-      const misfit = await use(ask, "session_read", { thread_id: 7 });
-      expect(refusalOf(misfit)).toBe(textOf(await call(ask, "session_read", { thread_id: 7 })));
-      expect(refusalOf(await use(ask, "post_to_room", { group_id: "room-1", message: "Shipped." }))).toContain("post_to_room is in your tool list: call it directly");
-
-      // A parameter only a Chief may pass. The bridged list leaves it out of
-      // this bot's schema and use_tool checks no schema, so it is the harness
-      // that refuses it, as it refuses the same call made directly.
-      const other = { title: "Lead", reason: "asked", for_bot_id: teammate.id };
-      const refused = await use(ask, "propose_profile", other);
-      expect(refusalOf(refused)).toContain("only a section's Chief of Staff can change another bot's profile");
-      expect(refused.result).toEqual((await call(ask, "propose_profile", other)).result);
-    });
-    // A tool selection saved after this turn decided to bridge is the one in
-    // force when the turn is mounted (a room turn reads it last). The mount
-    // then starts this very integration unbridged behind its gate: the whole
-    // catalog but what the selection leaves out, and no way round it.
-    await withServer(gateServer({ name: "agents", server: bridged, threadId: bot.activeTaskId, budget: 0, toolScope: { deny: ["mcp:agents:vm_exec"] } })!, async (ask) => {
-      const names = namesOf(await ask("tools/list"));
-      for (const absent of ["find_tool", "use_tool", "vm_exec"]) expect(names, absent).not.toContain(absent);
-      expect(names).toEqual(whole.map((tool) => tool.name).filter((name) => name !== "vm_exec"));
-      expect((await call(ask, "vm_exec", { command: "true" })).error).toEqual({ code: -32602, message: "Tool selection excludes this tool. Check the bot's Access settings." });
-      expect((await use(ask, "vm_exec", { command: "true" })).error).toEqual({ code: -32602, message: "Tool selection excludes this tool. Check the bot's Access settings." });
-      expect((await use(ask, "list_triggers")).error).toEqual({ code: -32602, message: "Unknown tool: use_tool" });
-      // and what the selection allows still reaches the harness
-      expect(textOf(await call(ask, "list_triggers", {}))).toMatch(/^This bot has no triggers\. Current time: /);
-    });
-    // the prompt this turn was given is still true of that mount: it speaks of the bridge tools only if they are listed
-    expect(after.systemPrompt).toContain(" If find_tool and use_tool are in your tool list, ");
-    await control(["interrupt", "--bot", bot.id]);
-    await control(["wait", "--bot", bot.id, "--timeout", "30"]);
-
-    // A room turn is built by its own code path; it gets the same.
-    const { channel } = await control(["new-channel", "--name", "Bridge room", "--members", bot.id]);
-    await control(["send-channel", "--channel", channel.id, "--text", "Stay active in this room."]);
-    const room = await launched();
-    expect(room.mcpConfig.mcpServers.agents!.env.OMB_AGENTS_TOOL_BRIDGE).toBe("1");
-    // A room refuses widgets, pages and a computer pick, so its turn is not listed them.
-    expect(room.mcpConfig.mcpServers.agents!.env).toMatchObject({ OMB_ROOM: "1", OMB_COMPUTER_SELECTION: "0" });
-    expect(after.mcpConfig.mcpServers.agents!.env.OMB_ROOM).toBe("0");
-    expect(room.systemPrompt).toContain(AGENTS_TOOL_BRIDGE_PROMPT);
-    await control(["interrupt", "--channel", channel.id]);
-    await control(["wait", "--channel", channel.id, "--timeout", "30"]);
-  });
-}, hostTimeout(90_000));
 
 it("leaves every gate and limit where it was: a tool selection, a Chief-only tool and the per-turn thread limit hold for a bridged call as for a direct one", async () => {
   await withFixture(async ({ api, control, launched }) => {

@@ -12,7 +12,6 @@ const MODEL = "fixture/primary";
 const FAST = "fixture/primary-mini";
 const ASK = "Ask a fixture question.";
 const PATH = "/api/model-system-prefixes";
-const FIXTURE_ENV = { OMB_LEGACY_MEMORY: "0" };
 
 interface ChatRequest {
   model: string;
@@ -57,7 +56,7 @@ it("sends the selected API model's current prefix, including in rooms and after 
     upstream.closeAllConnections();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
   };
-  const fixture = await launchVerificationServer(FIXTURE_ENV).catch(async (error) => {
+  const fixture = await launchVerificationServer().catch(async (error) => {
     await closeUpstream();
     throw error;
   });
@@ -169,7 +168,7 @@ it("sends the selected API model's current prefix, including in rooms and after 
     try {
       restarted = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
         cwd: fileURLToPath(new URL("..", import.meta.url)),
-        env: verificationServerEnvironment(FIXTURE_ENV, dataDir, Number(new URL(url).port)),
+        env: verificationServerEnvironment({}, dataDir, Number(new URL(url).port)),
         stdio: ["ignore", log, log],
       });
     } finally {

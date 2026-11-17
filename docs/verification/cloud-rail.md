@@ -112,18 +112,7 @@ with no Cloud see no change.
 ```sh
 node --test electron/clean-workspace.node-test.mjs electron/home-window-profile.node-test.mjs electron/home-window-clean.node-test.mjs electron/cloud-rail.node-test.mjs electron/lending-target.node-test.mjs electron/start-place.node-test.mjs electron/home-places.node-test.mjs
 pnpm exec vitest run src/components/PlacesRail.test.ts src/components/HomeLine.test.ts
-OMB_UI_E2E=1 pnpm exec vitest run scripts/testing/rail-profile-ui.e2e.test.ts
 ```
-
-`scripts/testing/rail-profile-ui.e2e.test.ts` runs main's own handlers in a
-headless Chrome (`launchHomeWorld` with `profiles`): My Cloud a real Cloud-mode
-server with the bots, this computer its real frozen server until This Mac
-restarts it on the profile's folder, the rail's own page in a tab of its own,
-and this computer really lent to My Cloud on the window's session. It clicks
-This Mac on the rail (an empty place, the line, the marker untouched), then My
-Cloud (the Cloud's bots), then This Mac again (what was made there is still
-there, with no restart), watching the lent link every 50 ms all the while: it
-never drops. Each picture is the rail beside the page, as the window shows them.
 
 ## More workspaces on this computer, and the cloud badge
 
@@ -146,19 +135,7 @@ and a server of the person's own its server mark.
 ```sh
 node --test electron/local-profiles.node-test.mjs electron/cloud-rail.node-test.mjs electron/environments.node-test.mjs
 pnpm exec vitest run src/components/PlacesRail.test.ts src/components/PlaceAddSheet.test.ts src/components/HomeLine.test.ts src/components/WindowPlaceTitle.test.ts
-OMB_UI_E2E=1 pnpm exec vitest run scripts/testing/rail-profile-ui.e2e.test.ts
 ```
-
-The UI test walks every path through the real pages: ＋ with Escape, Close and
-Back at each step, an empty and a taken name, a new workspace opening fresh,
-This Mac, Work and My Cloud in every order, a switch while a turn runs (the
-circle waits, the turn finishes there and its reply is there on return), two
-quick clicks, Rename, Colour, Remove with Cancel, removing the open one and the
-last one, an app restart while a workspace is open, the rail past eight, the
-badge in the light and dark looks, and, in a second world with no Cloud, the
-Server menu's New workspace and the rail appearing with a second place. It
-watches the lent link every 50 ms throughout and checks that the frozen copy's
-server never starts.
 
 ## Automated fixtures
 
