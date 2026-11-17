@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { SessionRegistry } from "./sessions.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
+import { fixtureChatSelection, startLoopbackChat } from "./testing/loopback-chat.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
@@ -17,9 +18,12 @@ const BOSS = "boss@example.test";
 const ADA = "ada@example.test";
 const BOB = "bob@example.test";
 const CAPABILITY_KEY = "bot-visibility-fixture-capability";
+const PAYROLL_SEARCH = "payrollfixtureardor";
+const HELPDESK_SEARCH = "helpdeskfixtureardor";
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
 let child: ChildProcess;
+let roomApi: Awaited<ReturnType<typeof startLoopbackChat>>;
 let home: string;
 let log = "";
 const tokens: Record<string, string> = {};
@@ -112,10 +116,10 @@ function openStream(as: string, lastEventId?: string) {
 
 const ids = { pub: "", pubThread: "", hr: "", hrThread: "", board: "", roomPub: "", roomMixed: "", roomMixedThread: "", hrRoutine: "", hrHook: "", hrImage: "", avatar: "", fresh: "" };
 
-async function makeBot(name: string, section?: string) {
+async function makeBot(name: string, section?: string, roomMember = false) {
   const created = await api("POST", "/api/bots", { name, ...(section ? { section } : {}) }, BOSS);
   expect(created.status, JSON.stringify(created.body)).toBe(201);
-  const patched = await api("PATCH", `/api/bots/${created.body.bot.id}`, { modelSelection: { instanceId: "grok", model: "fake-model" } }, BOSS);
+  const patched = await api("PATCH", `/api/bots/${created.body.bot.id}`, { modelSelection: roomMember ? fixtureChatSelection() : { instanceId: "grok", model: "fake-model" } }, BOSS);
   expect(patched.status).toBe(200);
   return created.body.bot as { id: string; threadId: string };
 }
@@ -138,10 +142,12 @@ posixOnly("per-bot visibility on a shared workspace", () => {
   beforeAll(async () => {
     chmodSync(FAKE_CLI, 0o755);
     home = mkdtempSync(join(tmpdir(), "omb-bot-visibility-"));
+    roomApi = await startLoopbackChat();
     const data = join(home, ".openmausbot");
     mkdirSync(data, { recursive: true });
     writeFileSync(join(data, "config.json"), JSON.stringify({
       signIn: { admins: [BOSS], members: [ADA, BOB] },
+      openaiCompat: roomApi.config,
       instances: {
         grok: { driver: "grokAgent", config: { cli: FAKE_CLI, fullAuto: false } },
         // repeats its whole prompt back, so a test can read what a bot was told
@@ -154,9 +160,9 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     registry.close();
     await start();
 
-    const pub = await makeBot("Helpdesk Otter", "Ops");
-    const hr = await makeBot("Payroll Zebra", "People");
-    const board = await makeBot("Board Heron", "People");
+    const pub = await makeBot("Helpdesk Otter", "Ops", true);
+    const hr = await makeBot("Payroll Zebra", "People", true);
+    const board = await makeBot("Board Heron", "People", true);
     Object.assign(ids, { pub: pub.id, pubThread: pub.threadId, hr: hr.id, hrThread: hr.threadId, board: board.id });
     const roomPub = await api("POST", "/api/groups", { memberIds: [pub.id], name: "Front desk" }, BOSS);
     const roomMixed = await api("POST", "/api/groups", { memberIds: [pub.id, hr.id], name: "Pay questions",
@@ -177,9 +183,11 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     // An image sent in Payroll's thread, Payroll's avatar, and an image nothing uses yet.
     const inThread = await upload();
     ids.hrImage = nameOf(inThread);
-    const sent = await api("POST", `/api/bots/${hr.id}/messages`, { text: `Salary sheet <attached-image path="${inThread}" />`, threadId: hr.threadId }, BOSS);
+    const sent = await api("POST", `/api/bots/${hr.id}/messages`, { text: `${PAYROLL_SEARCH} <attached-image path="${inThread}" />`, threadId: hr.threadId }, BOSS);
     expect(sent.status, JSON.stringify(sent.body)).toBe(202);
-    expect(await settledReply(hr.threadId, "Salary sheet"), log.slice(-2_000)).not.toBeNull();
+    expect(await settledReply(hr.threadId, PAYROLL_SEARCH), log.slice(-2_000)).not.toBeNull();
+    expect((await api("POST", `/api/bots/${pub.id}/messages`, { text: HELPDESK_SEARCH, threadId: pub.threadId }, BOSS)).status).toBe(202);
+    expect(await settledReply(pub.threadId, HELPDESK_SEARCH), log.slice(-2_000)).not.toBeNull();
     const avatar = await upload();
     ids.avatar = nameOf(avatar);
     expect((await api("PATCH", `/api/bots/${hr.id}`, { avatarUrl: `/api/attachments/${ids.avatar}` }, BOSS)).status).toBe(200);
@@ -188,7 +196,7 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     expect((await api("POST", `/api/groups/${ids.roomMixed}/messages`, { text: "SECRET-ROOM-42 layoffs list" }, BOSS)).status).toBe(202);
     expect(await waitFor(async () => {
       const { body } = await api("GET", `/api/threads/${roomMixed.body.group.threadId}/messages`, undefined, BOSS);
-      return (body.messages ?? []).some((m: any) => m.role === "bot" && m.from?.botId === pub.id && m.text);
+      return [pub.id, hr.id].every((id) => (body.messages ?? []).some((m: any) => m.role === "bot" && m.from?.botId === id && m.text));
     }), log.slice(-2_000)).toBe(true);
     ids.roomMixedThread = roomMixed.body.group.threadId;
 
@@ -200,6 +208,7 @@ posixOnly("per-bot visibility on a shared workspace", () => {
 
   afterAll(async () => {
     await waitForExit(child, { signal: "SIGTERM" });
+    await roomApi?.close();
     await removeTempDir(home);
   });
 
@@ -281,10 +290,12 @@ posixOnly("per-bot visibility on a shared workspace", () => {
   });
 
   it("narrows search, routines, webhooks and the team map", async () => {
-    const hits = async (as: string) => (await api("GET", "/api/search?q=Zebra", undefined, as)).body.hits as Array<{ threadId: string }>;
+    const hits = async (as: string) => (await api("GET", `/api/search?q=${PAYROLL_SEARCH}`, undefined, as)).body.hits as Array<{ threadId: string }>;
     expect((await hits(ADA)).some((hit) => hit.threadId === ids.hrThread)).toBe(true);
     expect(await hits(BOB)).toEqual([]);
-    expect((await api("GET", "/api/search?q=Otter", undefined, BOB)).body.hits.length).toBeGreaterThan(0);
+    expect((await api("GET", `/api/search?q=${HELPDESK_SEARCH}`, undefined, BOB)).body.hits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ threadId: ids.pubThread }),
+    ]));
 
     const routines = async (as: string) => (await api("GET", "/api/routines", undefined, as)).body.routines.map((r: any) => r.id);
     expect(await routines(ADA)).toContain(ids.hrRoutine);
@@ -331,12 +342,12 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     const hold = join(home, ".openmausbot", "hold-search-result");
     let pending: Promise<{ status: number; body: any }> | undefined;
     try {
-      expect((await api("GET", "/api/search?q=Zebra", undefined, ADA)).body.hits).toEqual(expect.arrayContaining([
+      expect((await api("GET", `/api/search?q=${PAYROLL_SEARCH}`, undefined, ADA)).body.hits).toEqual(expect.arrayContaining([
         expect.objectContaining({ threadId: ids.hrThread }),
       ]));
       writeFileSync(hold, "fixture only");
       let finished = false;
-      pending = api("GET", "/api/search?q=Zebra", undefined, ADA).finally(() => { finished = true; });
+      pending = api("GET", `/api/search?q=${PAYROLL_SEARCH}`, undefined, ADA).finally(() => { finished = true; });
       expect(await waitFor(() => existsSync(`${hold}.ready`), 5000)).toBe(true);
       // The worker already found the private row; pause only delivery, so this cannot pass because revocation beat admission.
       expect(JSON.parse(readFileSync(`${hold}.ready`, "utf8"))).toEqual(expect.arrayContaining([
@@ -352,7 +363,8 @@ posixOnly("per-bot visibility on a shared workspace", () => {
       rmSync(hold, { force: true });
       rmSync(`${hold}.ready`, { force: true });
       await pending;
-      await api("PATCH", `/api/bots/${ids.hr}`, { visibility: { people: [ADA] } }, BOSS);
+      expect((await api("PATCH", `/api/bots/${ids.hr}`, { visibility: { people: [ADA] } }, BOSS)).status).toBe(200);
+      expect((await api("PATCH", `/api/groups/${ids.roomMixed}`, { resetAudience: true }, BOSS)).status).toBe(200);
     }
   }, 20_000);
 
@@ -474,7 +486,7 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     expect((await api("PATCH", `/api/bots/${ids.hr}`, { pinned: false }, BOSS)).body.bot).toMatchObject({ visibility: { people: [ADA] } });
   });
 
-  it("keeps a room fewer people can see out of a visible bot's recall, and refuses to mix audiences in a room", async () => {
+  it("keeps a room fewer people can see out of a visible bot's search, and refuses to mix audiences in a room", async () => {
     // An engine that repeats its prompt shows exactly what the helpdesk was told.
     expect((await api("PATCH", `/api/bots/${ids.pub}`, { modelSelection: { instanceId: "grokecho", model: "fake-model" } }, BOSS)).status).toBe(200);
     const sent = await api("POST", `/api/bots/${ids.pub}/messages`, { text: "What have you been up to?", threadId: ids.pubThread }, BOB);
@@ -485,46 +497,17 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     expect(answer).toContain("echo: ");
     expect(answer).not.toContain("Pay questions");
     expect(answer).not.toContain("SECRET-ROOM-42");
-    expect((await api("PATCH", `/api/bots/${ids.pub}`, { modelSelection: { instanceId: "grok", model: "fake-model" } }, BOSS)).status).toBe(200);
+    expect((await api("PATCH", `/api/bots/${ids.pub}`, { modelSelection: fixtureChatSelection() }, BOSS)).status).toBe(200);
     const minted = await fetch(`${BASE}/api/testing/internal-capability`, {
       method: "POST", headers: { "content-type": "application/json", "x-openmausbot-test-capability": CAPABILITY_KEY },
       body: JSON.stringify({ botId: ids.pub, threadId: ids.pubThread }),
     });
     const { token } = await minted.json() as { token: string };
     const search = await fetch(`${BASE}/api/internal/session-search?fromBotId=${ids.pub}&q=SECRET-ROOM-42`, { headers: { authorization: `Bearer ${token}` } });
-    const found = await search.json() as { hits: Array<{ threadId: string }>; memoryHits: unknown[] };
+    const found = await search.json() as { hits: Array<{ threadId: string }> };
     expect(search.status, JSON.stringify(found)).toBe(200);
     expect(found.hits.map((hit) => hit.threadId)).not.toContain(ids.roomMixedThread);
 
-    const logLines = () => {
-      const dir = join(home, ".openmausbot", "workspaces", ids.pub, "memory", "log");
-      let text = "";
-      try {
-        for (const file of readdirSync(dir)) text += readFileSync(join(dir, file), "utf8");
-      } catch {
-      }
-      return text.split("\n").filter((line) => line.includes('from room "Pay questions"')).length;
-    };
-    const linesBefore = logLines();
-    expect((await api("POST", `/api/groups/${ids.roomMixed}/messages`, { text: "SECRET-AFTER-77 severance list" }, BOSS)).status).toBe(202);
-    expect(await waitFor(async () => {
-      const { body } = await api("GET", `/api/threads/${ids.roomMixedThread}/messages`, undefined, BOSS);
-      const messages = body.messages ?? [];
-      const asked = messages.findIndex((m: any) => m.text?.includes("SECRET-AFTER-77"));
-      return asked >= 0 && messages.slice(asked + 1).some((m: any) => m.role === "bot" && m.from?.botId === ids.pub && m.text);
-    })).toBe(true);
-    await new Promise((r) => setTimeout(r, 500));
-    expect(logLines()).toBe(linesBefore);
-    const roomToken = await fetch(`${BASE}/api/testing/internal-capability`, {
-      method: "POST", headers: { "content-type": "application/json", "x-openmausbot-test-capability": CAPABILITY_KEY },
-      body: JSON.stringify({ botId: ids.pub, threadId: ids.roomMixedThread }),
-    });
-    const note = await fetch(`${BASE}/api/internal/memory/log`, {
-      method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${(await roomToken.json() as { token: string }).token}` },
-      body: JSON.stringify({ text: "SECRET-AFTER-77 noted" }),
-    });
-    expect(note.status).toBe(403);
-    expect(((await note.json()) as { error: string }).error).toMatch(/visible to fewer people than you are/);
     expect((await api("PATCH", `/api/groups/${ids.roomMixed}`, { resetAudience: true }, BOSS)).status).toBe(200);
     const hrMinted = await fetch(`${BASE}/api/testing/internal-capability`, {
       method: "POST", headers: { "content-type": "application/json", "x-openmausbot-test-capability": CAPABILITY_KEY },
@@ -623,7 +606,7 @@ posixOnly("per-bot visibility on a shared workspace", () => {
   it("keeps bots with different audiences from reaching each other", async () => {
     // Payroll (Ada), Benefits (Ada) and Board (admins) share a team. Only the
     // two with the same audience are teammates to each other.
-    const benefits = await makeBot("Benefits Lynx", "People");
+    const benefits = await makeBot("Benefits Lynx", "People", true);
     expect((await api("PATCH", `/api/bots/${benefits.id}`, { visibility: { people: [ADA] } }, BOSS)).status).toBe(200);
     const roster = async (id: string) => JSON.stringify((await api("GET", `/api/bots/${id}/system-prompt`, undefined, BOSS)).body);
     const hr = await roster(ids.hr);

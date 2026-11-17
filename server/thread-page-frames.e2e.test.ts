@@ -69,7 +69,7 @@ describe("transcript pages on bot and room frames", () => {
     // one deliberately unknown driver: no engine CLI runs, nothing answers
     writeFileSync(join(data, "config.json"), JSON.stringify({
       features: { browser: false },
-      instances: { ghost: { driver: "not-a-real-driver", displayName: "Ghost" } },
+      instances: { ghost: { driver: "not-a-real-driver", displayName: "Ghost" }, paging: { driver: "openai-compat", config: { tools: false } } },
     }));
     const port = await freePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
@@ -184,7 +184,7 @@ describe("transcript pages on bot and room frames", () => {
   });
 
   it("sends a room's page only when its open thread changes", async () => {
-    const member = (await api("POST", "/api/bots", { name: "Room Member" })).body.bot;
+    const member = (await api("POST", "/api/bots", { name: "Room Member", modelSelection: { instanceId: "paging", model: "fixture-model" } })).body.bot;
     const created = await api("POST", "/api/groups", { name: "Paging", memberIds: [member.id] });
     expect(created.status).toBe(201);
     const room = created.body.group;

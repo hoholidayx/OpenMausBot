@@ -4,11 +4,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
+import { fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 import { waitForExit } from "./testing/cleanup.ts";
 import { readRegistry, writeRegistry } from "./testing/registry.ts";
 
 it("retains empty teams, moves existing bots, and keeps legacy imports additive through restart", async () => {
   const fixture = await launchVerificationServer();
+  const chat = await startLoopbackChat();
   const { url, dataDir, logPath } = fixture.info;
   const evidence: unknown[] = [{ fixture: fixture.info }];
   let restarted: ChildProcess | undefined;
@@ -112,6 +114,8 @@ it("retains empty teams, moves existing bots, and keeps legacy imports additive 
     await api("/api/section-context?section=Launch", "GET", undefined, 404);
     expect(readFileSync(logPath, "utf8")).not.toMatch(/ReferenceError|store: change listener threw/);
 
+    await chat.connect(url);
+    await control("set-model", "--bot", a.id, "--instance", "openaiCompat", "--model", fixtureModel);
     const room = (await control("new-channel", "--name", "Recovery room", "--members", a.id) as any).channel;
     await control("send-channel", "--channel", room.id, "--text", "Keep this group conversation through recovery.");
     expect(await control("wait", "--channel", room.id, "--timeout", "30")).toMatchObject({ status: "settled" });
@@ -144,6 +148,7 @@ it("retains empty teams, moves existing bots, and keeps legacy imports additive 
   } finally {
     await waitForExit(restarted, { signal: "SIGTERM" });
     await fixture.close();
+    await chat.close();
     const evidencePath = `${logPath}.team-lifecycle.json`;
     writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));
     expect(existsSync(dataDir)).toBe(false);

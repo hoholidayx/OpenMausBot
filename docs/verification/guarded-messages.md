@@ -150,13 +150,11 @@ shared task.
 Run the operator-policy and Full/Ask workflow checks:
 
 ```sh
-pnpm exec vitest run server/hosted-access.test.ts server/full-access-workflows.e2e.test.ts server/store.test.ts
+pnpm exec vitest run server/full-access-workflows.e2e.test.ts server/store.test.ts
 ```
 
-The hosted-access tests exercise the real hosted authorization route with an
-isolated portal/license fixture. The Full workflow exercises exact Full/Ask
-guarded sends, bot creation, delegated continuations, and restart while awaiting
-a teammate, using only fake providers. Neither contacts a real portal or model.
+The Full workflow exercises exact Full/Ask guarded sends, bot creation,
+delegated continuations, and restart while awaiting a teammate with fake providers.
 
 The request and operator-policy fixtures were developed against public `main`
 at `12ee67e7` on 2026-09-21 and verified with real isolated runtime processes.

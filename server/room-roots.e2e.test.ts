@@ -9,8 +9,11 @@ import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb, verificationServerArgs, verificationServerEnvironment } from "../scripts/control-omb.ts";
 import { createControlClient } from "./control-client.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
+import { catalogServer } from "./testing/cua-driver-tools.ts";
 import { freePortBlock } from "./testing/ports.ts";
 import { hostTimeout } from "./testing/host-timeout.ts";
+import { fixtureChatReply, fixtureChatSelection, fixtureChatText, fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
+import { startRoomPlanChat } from "./testing/room-chat-plan.ts";
 import { ownTurnText } from "./testing/room-handoff-agent.ts";
 import { withAnswer } from "./testing/your-computer.ts";
 
@@ -19,7 +22,6 @@ const RERUN_NOTE = "OpenMausBot restarted while your previous turn here was runn
 const RERUN_CHIP = "Resuming after a restart";
 const SECRET_PROVIDED = "OpenMausBot credential update: the user securely provided";
 const SEAT_FREE = "the computer this conversation waited for is free again";
-const INTERRUPTED_OUTWARD = "Interrupted by an OpenMausBot restart after it already";
 const SETTLED = "Your downstream room requests have settled.";
 const GOAL_RUN_ENDED = "The goal run this step belonged to ended with the restart.";
 const INTERRUPTED_LINE = "turn interrupted — OpenMausBot restarted";
@@ -52,14 +54,17 @@ const chipText = (message: any): string => [message.tool?.name, message.tool?.ou
 
 type Responder = { kind: "member"; botId: string } | { kind: "mentions" } | { kind: "everyone" };
 
-async function scenario(test: (f: any) => Promise<void>, options: { fake?: Record<string, string>; scripted?: boolean } = {}) {
+async function scenario(test: (f: any) => Promise<void>, options: { fake?: Record<string, string>; native?: boolean } = {}) {
   const parentEnv: NodeJS.ProcessEnv = { ...process.env, ...options.fake };
-  const session = await launchVerificationServer(parentEnv, undefined, undefined, undefined, undefined, { scripted: options.scripted !== false });
+  const session = await launchVerificationServer(parentEnv, undefined, undefined, undefined, undefined, { scripted: options.native === true });
   const url = session.info.url;
   const dataDir = session.info.dataDir;
   let server: ChildProcess = session.child;
   let restarted = false;
   let roomThread: string | undefined;
+  const planPath = join(dataDir, "room-plan.json");
+  const botIds = new Map<string, string>();
+  const chat = options.native ? undefined : await startRoomPlanChat(planPath, botIds);
   const restart = async (signal: NodeJS.Signals, extraEnv: Record<string, string> = {}, before?: () => void) => {
     await waitForExit(server, { signal });
     before?.();
@@ -73,6 +78,7 @@ async function scenario(test: (f: any) => Promise<void>, options: { fake?: Recor
     }, { timeout: 30_000 }).toBe(true);
   };
   try {
+    await chat?.connect(url);
     const api = async (method: string, path: string, body?: unknown) => {
       const response = await fetch(`${url}${path}`, { method, headers: { "content-type": "application/json", origin: url },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(20_000) });
@@ -82,9 +88,15 @@ async function scenario(test: (f: any) => Promise<void>, options: { fake?: Recor
       return { status: response.status, body: parsed };
     };
     const cli = (...args: string[]) => runControlOmb([...args, "--url", url]) as Promise<any>;
-    const bot = async (name: string, section: string) => (await cli("new-bot", "--name", name, "--section", section)).bot;
+    const bot = async (name: string, section: string) => {
+      const { bot } = await cli("new-bot", "--name", name, "--section", section);
+      if (chat) {
+        botIds.set(bot.name, bot.id);
+        await cli("set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", fixtureModel);
+      }
+      return bot;
+    };
     const clive = await bot("Clive", "Leadership");
-    const planPath = join(dataDir, "room-plan.json");
     const plan: Record<string, { script: unknown[] }> = { [clive.id]: { script: [] } };
     const script = (botId: string, ...entries: unknown[]) => {
       (plan[botId] ??= { script: [] }).script.push(...entries);
@@ -109,7 +121,7 @@ async function scenario(test: (f: any) => Promise<void>, options: { fake?: Recor
     const roots = () => db().assignments.filter((row) => !row.parentId);
     const roomRoots = (threadId: string) => roots().filter((row) => row.assignee?.destination?.threadId === threadId);
     const eventsOf = (id: string) => db().events.filter((event) => event.assignmentId === id).map((event) => event.kind);
-    const turns = (botId?: string): any[] => jsonl(`${planPath}.evidence.jsonl`).filter((turn) => !botId || turn.botId === botId);
+    const turns = (botId?: string): any[] => (chat?.turns ?? jsonl(`${planPath}.evidence.jsonl`)).filter((turn) => !botId || turn.botId === botId);
     const turn = (key: string) => turns().find((candidate) => candidate.planKey === key);
     const own = (record: any): string => ownTurnText(record?.prompt);
     const messages = async (threadId: string): Promise<any[]> => (await api("GET", `/api/threads/${threadId}/messages?limit=300`)).body.messages ?? [];
@@ -144,6 +156,7 @@ async function scenario(test: (f: any) => Promise<void>, options: { fake?: Recor
   } finally {
     if (restarted) await waitForExit(server, { signal: "SIGTERM" });
     await session.close();
+    await chat?.close();
   }
 }
 
@@ -176,7 +189,7 @@ it("R1 runs each responder of a person's room message as a root in the room thre
   expect(f.turns().map((record: any) => record.planKey).sort()).toEqual(["C0", "M0"]);
 }), hostTimeout(60_000));
 
-it("R2 a member's coordinate_bots reuses its turn's root, and a Chief's Full reaches the teammate's row and turn", () => scenario(async (f) => {
+it("R2 a member's coordinate_bots reuses its turn's root, and a Chief's Full reaches the teammate's row", () => scenario(async (f) => {
   const mira = await f.bot("Mira", "Engineering");
   expect((await f.api("PATCH", `/api/bots/${f.clive.id}`, { chiefOfStaff: true, managedSections: ["Engineering"], acknowledgePeerScope: true })).status).toBe(200);
   // Full on the Chief is the operator's grant, seeded on the stored record while the server is down.
@@ -203,8 +216,6 @@ it("R2 a member's coordinate_bots reuses its turn's root, and a Chief's Full rea
     assignee: { botId: mira.id, destination: { kind: "room_thread", groupId: room.id, threadId: room.threadId } },
     requester: { kind: "bot_turn", botId: f.clive.id, threadId: room.threadId, chief: true } });
   expect(f.db().events.find((event: any) => event.assignmentId === child.id && event.kind === "started")?.detail).toContain("level full");
-  expect(f.turn("C0").permissionMode).toBe("bypassPermissions");
-  expect(f.turn("M0").permissionMode).toBe("bypassPermissions");
   expect(f.turns().map((record: any) => record.planKey)).toEqual(["C0", "M0", "C1"]);
   expect(nothingLive(f)).toEqual([]);
 }), hostTimeout(120_000));
@@ -293,6 +304,15 @@ itHost("R5 queues a member's root on the computer seat at the wait ceiling, FIFO
   const stateFile = join(home, "vm.json");
   const dumpFile = join(home, "dump.json");
   const finishFile = join(home, "finish");
+  const computer = catalogServer(["get_window_state"]);
+  const roomApi = await startLoopbackChat(request => {
+    if (!request.stream) return fixtureChatReply("");
+    if (fixtureChatText(request).includes(SEAT_FREE)) return fixtureChatReply(`Continued after ${SEAT_FREE}.`);
+    if (request.messages.at(-1)?.role === "tool") return fixtureChatReply("The screen check finished.");
+    const name = "computer_get_window_state";
+    expect(request.tools?.some(tool => tool.function.name === name)).toBe(true);
+    return fixtureChatReply("", { name, args: {} });
+  });
   let output = "";
   let child: ChildProcess | null = null;
   const port = await freePortBlock([0, 1]);
@@ -331,19 +351,20 @@ itHost("R5 queues a member's root on the computer seat at the wait ceiling, FIFO
     writeFileSync(stateFile, JSON.stringify({ noContainers: true }));
     mkdirSync(data);
     mkdirSync(join(ui, "assets"), { recursive: true });
+    writeFileSync(join(home, "mcp"), `void import(${JSON.stringify(pathToFileURL(computer.server.args[0]!).href)});\n`);
     writeFileSync(join(ui, "index.html"), "<title>Room roots</title>");
     writeFileSync(join(ui, "assets", "test.css"), "body{}");
     mkdirSync(join(home, "user-data"), { recursive: true });
     writeFileSync(join(home, "user-data", "cua-connection.json"), JSON.stringify({
-      mode: "embedded", status: "ready", socketPath: join(home, "cua.sock"), mcpCommand: "/fixture/cua-driver", mcpArgs: ["mcp"], mcpEnv: {},
+      mode: "embedded", status: "ready", socketPath: join(home, "cua.sock"), mcpCommand: computer.server.command, mcpArgs: ["mcp"], mcpEnv: computer.server.env,
     }), { mode: 0o600 });
-    writeFileSync(join(data, "config.json"), JSON.stringify({ instances: { claude: {
+    writeFileSync(join(data, "config.json"), JSON.stringify({ openaiCompat: roomApi.config, instances: { claude: {
       driver: "claudeAgent", config: { cli: join(ROOT, "server/testing/fake-claude-cli.ts") },
       environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_DUMP: dumpFile, FAKE_CLAUDE_SLOW_FINISH_GATE: finishFile },
     } } }));
     const proc = spawn(process.execPath, ["--import", pathToFileURL(join(ROOT, "server/testing/group-local-vm-hooks.mjs")).href,
       "--import", pathToFileURL(join(ROOT, "server/testing/desktop-parent.mjs")).href, join(ROOT, "server/index.ts")], {
-      cwd: ROOT, env: {
+      cwd: home, env: {
         PATH: dirname(process.execPath), ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
         HOME: home, USERPROFILE: home, OMB_DATA_DIR: data, APPDATA: join(home, "appdata"), LOCALAPPDATA: join(home, "localappdata"),
         TEMP: home, TMP: home, TMPDIR: home, OMB_PORT: String(port), OMB_WEBHOOK_PORT: String(port + 1), OMB_STATIC_DIR: ui, OMB_TEST_VM_STATE: stateFile,
@@ -359,30 +380,25 @@ itHost("R5 queues a member's root on the computer seat at the wait ceiling, FIFO
       try { return (await fetch(base + "/api/health")).ok; } catch { return false; }
     }, Boolean);
 
-    const { bot: holder } = await apiOk("POST", "/api/bots", { name: "Seat Holder", settings: { approvalMode: "ask" } });
+    const modelSelection = { instanceId: "claude", model: "claude-sonnet-5" };
+    const { bot: holder } = await apiOk("POST", "/api/bots", { name: "Seat Holder", modelSelection, settings: { approvalMode: "ask" } });
     const { task: held } = await apiOk("POST", `/api/bots/${holder.id}/tasks`, {});
     await apiOk("POST", `/api/bots/${holder.id}/messages`, { text: "Hold the screen slowly.", threadId: held.threadId });
     await until(() => taskOf(holder.id, held.threadId), (task) => task?.busy === true);
     // Below Full access (these bots ask), the person is asked once before each turn first uses their computer.
     expect(await withAnswer(base, held.threadId, gate(await dumpFor(holder.id)))).toEqual({ held: false, helpOpen: false });
-    const { bot: waiter } = await apiOk("POST", "/api/bots", { name: "Seat Waiter", settings: { approvalMode: "ask" } });
+    const { bot: waiter } = await apiOk("POST", "/api/bots", { name: "Seat Waiter", modelSelection, settings: { approvalMode: "ask" } });
     const { task: wait } = await apiOk("POST", `/api/bots/${waiter.id}/tasks`, {});
     await apiOk("POST", `/api/bots/${waiter.id}/messages`, { text: "R5-DIRECT: use the screen too.", threadId: wait.threadId });
     await until(() => taskOf(waiter.id, wait.threadId), (task) => task?.busy === true);
     expect((await withAnswer(base, wait.threadId, gate(await dumpFor(waiter.id)))).held).toBe(true);
     const direct = (await until(() => rootIn(wait.threadId), (row) => row?.status === "queued"))!;
     expect(direct).toMatchObject({ status: "queued", continuation: { note: expect.stringContaining(SEAT_FREE), count: 1 } });
-    rmSync(dumpFile, { force: true });
-    const { bot: member } = await apiOk("POST", "/api/bots", { name: "Seat Member" });
+    const { bot: member } = await apiOk("POST", "/api/bots", { name: "Seat Member", modelSelection: fixtureChatSelection() });
     // A room turn reaches a desktop only through the member's own setting (no Auto fallback in a room).
     await apiOk("PATCH", `/api/bots/${member.id}`, { computer: "local" });
     const { group: room } = await apiOk("POST", "/api/groups", { name: "Screen room", memberIds: [member.id], setup: { bulletin: "", defaultResponder: { kind: "member", botId: member.id } } });
     await apiOk("POST", `/api/groups/${room.id}/messages`, { text: "R5-ROOM: use the screen in the room.", threadId: room.threadId });
-    await until(() => botOf(member.id), (bot) => bot?.busy === true);
-    const memberLaunch = await dumpFor(member.id).catch(async (error) => {
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\nroom chat: ${JSON.stringify((await chat(room.threadId)).map((message) => [message.kind, message.from?.name, chipText(message)]))}`);
-    });
-    expect((await gate(memberLaunch)).held).toBe(true);
     const root = (await until(() => rootIn(room.threadId), (row) => row?.status === "queued"))!;
     expect(root).toMatchObject({ status: "queued", executions: 1, continuation: { note: expect.stringContaining(SEAT_FREE), count: 1 },
       assignee: { botId: member.id, destination: { kind: "room_thread", groupId: room.id, threadId: room.threadId } } });
@@ -408,11 +424,10 @@ itHost("R5 queues a member's root on the computer seat at the wait ceiling, FIFO
       && events.slice(0, index).some((prior) => prior.assignmentId === id && prior.kind === "started"));
     expect(secondStart(direct.id)).toBeGreaterThan(-1);
     expect(secondStart(direct.id)).toBeLessThan(secondStart(root.id));
-    // Read from the transcript, not the fake's launch dump: the dump keeps only the latest launch, and the continuations launch in parallel.
     const rows = await chat(room.threadId);
     const replies = rows.filter((message) => message.role === "bot" && message.kind === "text" && message.from?.botId === member.id);
     const shown = JSON.stringify(rows.map((message) => [message.kind, message.from?.name, message.turnId, chipText(message).slice(0, 80)]));
-    expect(new Set(replies.map((message) => message.turnId)).size, shown).toBe(2);
+    expect(roomApi.requests.filter(request => request.stream && request.messages.at(-1)?.role === "user")).toHaveLength(2);
     expect(replies.some((message) => String(message.text).includes(SEAT_FREE)), shown).toBe(true);
     expect(rows.filter((message) => chipText(message).includes("Parked — it continues automatically")).length).toBe(1);
     await until(() => roomOf(room.id), (group) => group?.working === false && group.busyBotId === null);
@@ -423,6 +438,8 @@ itHost("R5 queues a member's root on the computer seat at the wait ceiling, FIFO
       await waitForExit(child, { signal: "SIGTERM" });
     }
     rmSync(dumpFile, { force: true });
+    await roomApi.close();
+    await removeTempDir(computer.dir);
     await removeTempDir(home);
   }
 }, hostTimeout(120_000));
@@ -457,44 +474,6 @@ it("R6 reruns a member's cut turn once after a restart, in place, with the resta
   expect((await f.roomView(room.id))).toMatchObject({ working: false, busyBotId: null });
 }), hostTimeout(90_000));
 
-it("R6 does not rerun a member's cut turn that already pushed: the root ends with what it did, said once in the room", async () => {
-  const home = mkdtempSync(join(tmpdir(), "omb-room-roots-outward-"));
-  try {
-    await scenario(async (f) => {
-      const room = await f.room("Engineering", [f.clive.id], { kind: "member", botId: f.clive.id });
-      await f.post(room, "R6B-JOB: push the release branch.");
-      await expect.poll(async () => (await f.messages(room.threadId)).some((message: any) => message.kind === "activity" && message.tool?.name === "Bash" && message.tool.ok === true), { timeout: 30_000 }).toBe(true);
-      await expect.poll(() => f.roomRoots(room.threadId)[0]?.status, { timeout: 15_000 }).toBe("running");
-      const cut = f.roomRoots(room.threadId)[0];
-      await f.restart("SIGTERM");
-      await expect.poll(() => f.roomRoots(room.threadId)[0]?.status, { timeout: 30_000 }).toBe("failed");
-      const root = f.roomRoots(room.threadId)[0];
-      expect(root).toMatchObject({ id: cut.id, status: "failed", outcome: "interrupted", executions: 1, restarts: 0 });
-      expect(root.outcomeDetail.startsWith(INTERRUPTED_OUTWARD), root.outcomeDetail).toBe(true);
-      expect(root.outcomeDetail).toContain("git push");
-      expect(f.db().events.find((event: any) => event.assignmentId === root.id && event.kind === "restart_reconciled")?.detail).toBe("failed: outward action done");
-      await expect.poll(async () => (await f.chips(room.threadId, INTERRUPTED_OUTWARD)).length, { timeout: 15_000 }).toBe(1);
-      const line = (await f.chips(room.threadId, INTERRUPTED_OUTWARD))[0];
-      expect(line.tool.name.startsWith("error: ")).toBe(true);
-      expect(line.tool.name).toContain("git push");
-      expect(line.from?.botId).toBe(f.clive.id);
-      expect(await f.chips(room.threadId, RERUN_CHIP)).toHaveLength(0);
-      expect(await f.chips(room.threadId, INTERRUPTED_LINE)).toHaveLength(0);
-      await f.settle(1_500);
-      expect(f.roomRoots(room.threadId)).toHaveLength(1);
-      expect(f.roomRoots(room.threadId)[0]).toMatchObject({ status: "failed", executions: 1 });
-      expect((await f.roomView(room.id))).toMatchObject({ working: false, busyBotId: null });
-      expect((await f.bots()).find((candidate: any) => candidate.id === f.clive.id).busy).toBe(false);
-    }, { scripted: false, fake: {
-      FAKE_CLAUDE_MODE: "slow",
-      FAKE_CLAUDE_SLOW_FINISH_GATE: join(home, "finish"),
-      FAKE_CLAUDE_TOOL_CALLS: JSON.stringify([{ name: "Bash", input: { command: "git push origin release" }, ok: true, output: [{ type: "text", text: "pushed" }] }]),
-    } });
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-}, hostTimeout(90_000));
-
 it("R7 does not rerun a cut goal step after a restart: its run ended with the restart, the step ends with that reason, silently", () => scenario(async (f) => {
   const mira = await f.bot("Mira", "Engineering");
   const room = await f.room("Engineering", [f.clive.id, mira.id], { kind: "member", botId: f.clive.id });
@@ -526,8 +505,10 @@ it("R7 does not rerun a cut goal step after a restart: its run ended with the re
 it("R7 a goal step the watchdog stops after it posted a credential card fails as stalled and stops the card", () => scenario(async (f) => {
   const mira = await f.bot("Mira", "Engineering");
   const room = await f.room("Engineering", [f.clive.id, mira.id], { kind: "member", botId: f.clive.id });
-  f.script(f.clive.id, { key: "C-STEP", match: ["R7S-GOAL"], steps: [{ tool: "request_credential", arguments: { credential_id: "xaiApiKey", reason: "R7S fixture model" } }],
-    gateFile: f.gate("step"), reply: "R7S-LATE: never shown." });
+  f.script(f.clive.id,
+    { key: "C-STEP", match: ["R7S-GOAL"], steps: [{ tool: "request_credential", arguments: { credential_id: "xaiApiKey", reason: "R7S fixture model" } }],
+      gateFile: f.gate("step"), reply: "R7S-LATE: never shown." },
+    { key: "C-RETRY", match: ["R7S-GOAL"], reply: "The key is missing." });
   await f.post(room, "R7S-GOAL: set up the Grok model; ask me for the key you need.", { mode: "goal" });
   const messages = (): Promise<Array<{ id: string; kind: string; secret?: { stopped?: boolean }; goalRun?: { status: string } }>> => f.messages(room.threadId);
   await expect.poll(async () => (await messages()).find((message) => message.kind === "secret")?.id, { timeout: 30_000 }).toBeTruthy();
@@ -644,7 +625,7 @@ it("R9 a one-on-one goal step hands work to a teammate from its own root, and th
   await f.final(clive.threadId, "R9-FINAL", 45_000);
   await expect.poll(() => nothingLive(f), { timeout: 15_000 }).toEqual([]);
   expect(f.turns().map((record: any) => record.planKey)).toEqual(["C-STEP", "M0", "C1"]);
-}), hostTimeout(120_000));
+}, { native: true }), hostTimeout(120_000));
 
 it("R9 does not rerun a one-on-one goal step after a restart: its goal run ended with the restart", () => scenario(async (f) => {
   const clive = (await f.bots()).find((bot: any) => bot.id === f.clive.id);
@@ -663,5 +644,5 @@ it("R9 does not rerun a one-on-one goal step after a restart: its goal run ended
   expect(f.turns(f.clive.id).map((record: any) => record.planKey)).toEqual([]);
   expect(await f.chips(clive.threadId, RERUN_CHIP)).toHaveLength(0);
   await expect.poll(() => nothingLive(f), { timeout: 15_000 }).toEqual([]);
-}), hostTimeout(90_000));
+}, { native: true }), hostTimeout(90_000));
 

@@ -118,12 +118,9 @@ the person's own Cloud, never a Team Cloud.
 node --test electron/screen-status.node-test.mjs electron/computer-asks.node-test.mjs
 pnpm exec vitest run electron/capabilities.test.mjs server/computer-asks.test.ts \
   server/host/computer-asks-host.test.ts shared/computer-ask.test.ts src/components/ComputerAskCard.test.ts
-pnpm exec vitest run server/cloud-lending.e2e.test.ts -t "paused, the PC still hears"
 ```
 
-The last one boots a real Cloud home and lends to it through the real
-connector: paused, the computer hears the bot's ask, Turn on on the card
-resumes it, and the bot's waiting call returns the computer.
+The archived fixture booted a Cloud home and tested the connector's pause, ask, and resume flow. [Hosted lending fixture](https://github.com/hoholidayx/OpenMausBot/blob/2d0dc208baffbbd050e291065604641a04a13aa9/server/cloud-lending.e2e.test.ts)
 
 `node --experimental-strip-types scripts/verify-windows-lend.ts --shots <dir>`
 photographs the taskbar icon's menu as the real module builds it, the card in

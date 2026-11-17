@@ -6,19 +6,20 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
+import { fixtureChatReply, fixtureModel, startLoopbackChat, type ChatFixtureRequest } from "./testing/loopback-chat.ts";
 import { readHandoffs } from "./testing/handoff-rows.ts";
 import { freePortBlock } from "./testing/ports.ts";
 import "./server-line-packs.ts";
 import { serverLine } from "./server-lines.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
-const FAKE_CLAUDE_CLI = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
 const TEST_CAPABILITY_KEY = "post-to-room-fixture-capability";
 
 let PORT = 0;
 let WEBHOOK_PORT = 0;
 let BASE = "";
 let child: ChildProcess;
+const fixtures: Awaited<ReturnType<typeof startLoopbackChat>>[] = [];
 let home: string;
 let fakeClaudeDump = "";
 let mentionerDump = "";
@@ -118,14 +119,14 @@ const messagesOf = async (threadId: string): Promise<StoredMessage[]> => {
 const makeBot = async (
   name: string,
   section: string,
-  instanceId = "claude",
+  instanceId = "roomApi",
 ): Promise<{ id: string; threadId: string }> => {
   const created = await api("POST", "/api/bots");
   const id = str(field(created.body, "bot", "id"));
   const patched = await api("PATCH", `/api/bots/${id}`, {
     name,
     section,
-    modelSelection: { instanceId, model: "claude-sonnet-5" },
+    modelSelection: { instanceId, model: fixtureModel },
   });
   expect(patched.status).toBe(200);
   return { id, threadId: str(field(created.body, "bot", "threadId")) };
@@ -135,7 +136,7 @@ const makeCoordinator = async (
   name: string,
   section: string,
   managedSections: string[],
-  instanceId = "claude",
+  instanceId = "roomApi",
 ): Promise<{ id: string; threadId: string }> => {
   const created = await api("POST", "/api/bots");
   const id = str(field(created.body, "bot", "id"));
@@ -145,7 +146,7 @@ const makeCoordinator = async (
     chiefOfStaff: true,
     managedSections,
     acknowledgePeerScope: true,
-    modelSelection: { instanceId, model: "claude-sonnet-5" },
+    modelSelection: { instanceId, model: fixtureModel },
   });
   expect(patched.status).toBe(200);
   return { id, threadId: str(field(created.body, "bot", "threadId")) };
@@ -180,22 +181,21 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "omb-post-to-room-"));
   fakeClaudeDump = join(home, "fake-claude-dump.json");
   mentionerDump = join(home, "mentioner-dump.json");
+  const chat = await startLoopbackChat(request => {
+    if (request.stream) writeFileSync(fakeClaudeDump, JSON.stringify(request));
+    return fixtureChatReply("Fixture reply.");
+  });
+  fixtures.push(chat);
+  const mentioner = await startLoopbackChat(request => {
+    if (request.stream) writeFileSync(mentionerDump, JSON.stringify(request));
+    return fixtureChatReply(`@${OUTSIDE_BOT} what do you think?`);
+  });
+  fixtures.push(mentioner);
   mkdirSync(join(home, ".openmausbot"), { recursive: true });
   writeFileSync(
     join(home, ".openmausbot", "config.json"),
     JSON.stringify({
-      instances: {
-        claude: { driver: "claudeAgent", displayName: "Fixture Claude", config: { cli: FAKE_CLAUDE_CLI } },
-        mentioner: {
-          driver: "claudeAgent",
-          displayName: "Mentioning fixture",
-          environment: {
-            FAKE_CLAUDE_DUMP: mentionerDump,
-            FAKE_CLAUDE_REPLIES: JSON.stringify([`@${OUTSIDE_BOT} what do you think?`]),
-          },
-          config: { cli: FAKE_CLAUDE_CLI },
-        },
-      },
+      instances: { roomApi: chat.instance("Room fixture"), mentioner: mentioner.instance("Mentioning fixture") },
     }),
   );
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
@@ -207,7 +207,6 @@ beforeAll(async () => {
       USERPROFILE: home,
       OMB_PORT: String(PORT),
       OMB_WEBHOOK_PORT: String(WEBHOOK_PORT),
-      FAKE_CLAUDE_DUMP: fakeClaudeDump,
       OMB_TEST_INTERNAL_CAPABILITY_KEY: TEST_CAPABILITY_KEY,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -227,6 +226,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await waitForExit(child, { signal: "SIGTERM" });
+  await Promise.all(fixtures.map(fixture => fixture.close()));
   await removeTempDir(home);
 });
 
@@ -340,8 +340,8 @@ describe("a room turn and the teammates outside the room", () => {
     expect((await api("POST", `/api/groups/${room.id}/messages`, { text: `get ${OUTSIDE_BOT}'s take on this` })).status).toBe(202);
     await expect.poll(() => existsSync(mentionerDump), { timeout: 10_000 }).toBe(true);
     // SAFETY: the fake CLI writes {systemPrompt, ...}; any other shape fails the assertions below.
-    const dump = JSON.parse(readFileSync(mentionerDump, "utf8")) as { systemPrompt?: string };
-    const system = String(dump.systemPrompt ?? "");
+    const dump = JSON.parse(readFileSync(mentionerDump, "utf8")) as ChatFixtureRequest;
+    const system = dump.messages[0]?.content ?? "";
     expect(system).toContain("Plain @mentions are only for conversational replies in this room");
     expect(system).toContain("list_room_targets");
     expect(system).toContain("coordinate_bots");

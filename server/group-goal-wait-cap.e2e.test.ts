@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,11 +8,11 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
+import { fixtureChatReply, fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
-const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
 
 let child: ChildProcess;
 let home = "";
@@ -36,12 +37,14 @@ const api = async (method: string, path: string, body?: unknown): Promise<{ stat
   return { status: response.status, body: await response.json() };
 };
 
-const fixture = (displayName: string, environment: Record<string, string>) => ({
-  driver: "claudeAgent",
-  displayName,
-  environment,
-  config: { cli: FAKE_CLAUDE },
-});
+const chats: Awaited<ReturnType<typeof startLoopbackChat>>[] = [];
+
+async function fixture(label: string, respond: Parameters<typeof startLoopbackChat>[0]) {
+  const chat = await startLoopbackChat(async (request, signal, progress) =>
+    request.stream && respond ? respond(request, signal, progress) : fixtureChatReply(""));
+  chats.push(chat);
+  return chat.instance(label);
+}
 
 beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "omb-goal-wait-cap-"));
@@ -51,22 +54,17 @@ beforeAll(async () => {
   mkdirSync(join(staticDir, "assets"), { recursive: true });
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Goal wait cap test</title>");
   writeFileSync(join(staticDir, "assets", "smoke.css"), "body{}");
-  writeFileSync(join(data, "config.json"), JSON.stringify({
-    instances: {
-      reassignLead: fixture("Reassigning lead", {
-        FAKE_CLAUDE_MODE: "happy",
-        FAKE_CLAUDE_REPLIES: JSON.stringify(reassignLeadReplies),
-        FAKE_CLAUDE_REPLY_STATE: join(home, "reassign-lead-replies.txt"),
-      }),
-      hang: fixture("Hanging teammate", { FAKE_CLAUDE_MODE: "hang" }),
-      helper: fixture("Helper", {
-        FAKE_CLAUDE_MODE: "happy",
-        FAKE_CLAUDE_REPLIES: JSON.stringify(["Here is the summary draft."]),
-        FAKE_CLAUDE_REPLY_STATE: join(home, "helper-replies.txt"),
-      }),
-      crash: fixture("Crashing lead", { FAKE_CLAUDE_MODE: "exit-early" }),
-    },
-  }));
+  const leadReplies = reassignLeadReplies.slice();
+  const instances = {
+    reassignLead: await fixture("Reassigning lead", () => fixtureChatReply(leadReplies.shift() ?? "Unexpected turn.")),
+    hang: await fixture("Hanging teammate", async (_request, signal) => {
+      await delay(120_000, undefined, { signal });
+      return fixtureChatReply("");
+    }),
+    helper: await fixture("Helper", () => fixtureChatReply("Here is the summary draft.")),
+    crash: await fixture("Crashing lead", () => { throw new Error("Fixture provider disconnected"); }),
+  };
+  writeFileSync(join(data, "config.json"), JSON.stringify({ instances }));
   const port = await freePortBlock([0, 1]);
   base = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
@@ -100,13 +98,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (child) await waitForExit(child, { signal: "SIGTERM" });
+  await Promise.all(chats.map(chat => chat.close()));
   if (home) await removeTempDir(home);
 });
 
 const createBot = async (name: string, instanceId: string) =>
   (await api("POST", "/api/bots", {
     name,
-    modelSelection: { instanceId, model: "claude-sonnet-5" },
+    modelSelection: { instanceId, model: fixtureModel },
     requireAvailableModel: true,
   })).body.bot;
 

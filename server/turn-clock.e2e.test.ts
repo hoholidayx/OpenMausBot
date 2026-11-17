@@ -8,6 +8,8 @@ import type { WireBot } from "../shared/wire.ts";
 import { splitLaunchNote } from "./testing/launch-note.ts";
 import { turnClockLine } from "./turn-clock.ts";
 
+import { fixtureChatSelection, startLoopbackChat } from "./testing/loopback-chat.ts";
+
 const ZONE = "Asia/Kolkata";
 // ICU may report the zone by its older alias (Asia/Calcutta), so the test asks the same runtime.
 const REPORTED = new Intl.DateTimeFormat("en-US", { timeZone: ZONE }).resolvedOptions().timeZone;
@@ -19,6 +21,7 @@ it("stamps every direct and room turn with the time it was sent", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "omb-turn-clock-"));
   const prompts = join(scratch, "prompts.jsonl");
   const fixture = await launchVerificationServer({ ...process.env, TZ: ZONE, FAKE_CLAUDE_PROMPTS: prompts });
+  const chat = await startLoopbackChat();
   const control = (...args: string[]) => runControlOmb([...args, "--url", fixture.info.url]);
   const api = async <T = any>(path: string, method = "GET", body?: unknown, status = 200): Promise<T> => {
     const response = await fetch(fixture.info.url + path, {
@@ -45,7 +48,11 @@ it("stamps every direct and room turn with the time it was sent", async () => {
       return [];
     }
   };
-  const promptWith = (marker: string) => sent().find((prompt) => prompt.includes(marker));
+  const promptWith = (marker: string) => [...sent(), ...chat.requests.flatMap(request => {
+    const text = request.messages.at(-1)?.content;
+    if (typeof text !== "string") return [];
+    return [text.slice(Math.max(0, text.indexOf("Current time when this message was sent")))];
+  })].find(prompt => prompt.includes(marker));
   const expectStamped = (marker: string, from: number, to: number) => {
     const prompt = promptWith(marker);
     expect(prompt, marker).toBeDefined();
@@ -67,10 +74,11 @@ it("stamps every direct and room turn with the time it was sent", async () => {
     expectStamped("First message about the quarterly plan", first.from, first.to);
     expectStamped("Second message in the same session", second.from, second.to);
 
-    const { bot: mate } = await api<{ bot: WireBot }>("/api/bots", "POST", { name: "Roommate" }, 201);
+    await chat.connect(fixture.info.url);
+    const { bot: mate } = await api<{ bot: WireBot }>("/api/bots", "POST", { name: "Roommate", modelSelection: fixtureChatSelection() }, 201);
     const room = (await api<{ group: { id: string } }>("/api/groups", "POST", {
       name: "Clock room",
-      memberIds: [bot.id, mate.id],
+      memberIds: [mate.id],
       setup: { bulletin: "", defaultResponder: { kind: "member", botId: mate.id } },
     }, 201)).group;
     const from = Date.now();
@@ -79,6 +87,7 @@ it("stamps every direct and room turn with the time it was sent", async () => {
     expectStamped("Room message about the launch date", from, Date.now());
   } finally {
     await fixture.close();
+    await chat.close();
     rmSync(scratch, { recursive: true, force: true });
   }
 }, 120_000);

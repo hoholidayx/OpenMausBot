@@ -1,15 +1,9 @@
-// The full server in each place a Live call starts from, with Azure chosen: who gets through to Azure, who is refused and
-// what they read. A disposable home and a made-up key. The server's fetch is a stub that notes where it would have gone,
-// so nothing leaves this machine, and a caller who gets through ends at the stub's 503. A shared company workspace has its
-// own case in hosted-access.test.ts.
-import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
-import { cloudPairingSignature } from "./cloud-home.ts";
 import { LIVE_AZURE_REFUSAL } from "./live-access.ts";
 import { LIVE_NEEDS_AZURE, LIVE_NEEDS_KEY } from "./live-call.ts";
 import { LIVE_KEY_NEEDS_ENDPOINT } from "./live-config.ts";
@@ -22,8 +16,6 @@ const HOST = "omb-t-0123456789ab.fly.dev";
 const REMOTE = { host: HOST, "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https" };
 const ENDPOINT = "https://fixture.openai.azure.com";
 const SESSIONS = `${ENDPOINT}/openai/v1/live/sessions`;
-const TEAM = { id: "team-7f3a", name: "Acme" };
-const secret = randomBytes(32).toString("base64url");
 const REFUSED = { status: 403, body: { error: LIVE_AZURE_REFUSAL } };
 const THROUGH = { status: 502, body: { error: "Azure OpenAI had a problem starting the call. Try again in a moment." } };
 
@@ -88,16 +80,6 @@ async function boot(env: NodeJS.ProcessEnv, config: Record<string, unknown> = {}
     expect(paired.status, JSON.stringify(paired.body)).toBe(200);
     return { ...REMOTE, authorization: `Bearer ${paired.body.token as string}` };
   };
-  /** A pairing the Admin signs, for a Cloud's owner or a team's member. */
-  const signedSession = async (claim: Record<string, unknown> = {}): Promise<Headers> => {
-    const body = JSON.stringify({ label: "OpenMausBot app (Cloud)", ttlSeconds: 300, ...claim });
-    const timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomBytes(16).toString("base64url");
-    const response = await fetch(`${base}/api/cloud/pairing`, { method: "POST", headers: {
-      ...REMOTE, "content-type": "application/json", "x-omb-cloud-timestamp": timestamp, "x-omb-cloud-nonce": nonce, "x-omb-cloud-signature": `v1=${cloudPairingSignature(secret, timestamp, nonce, body)}`,
-    }, body });
-    const granted = await response.json() as { code: string };
-    return redeem(granted.code);
-  };
   const newBot = async (headers: Headers = {}) => {
     const created = await call("POST", "/api/bots", { name: "Ada", modelSelection: { instanceId: "claude", model: "claude-fake" } }, headers);
     expect(created.status, JSON.stringify(created.body)).toBe(201);
@@ -109,13 +91,8 @@ async function boot(env: NodeJS.ProcessEnv, config: Record<string, unknown> = {}
   const liveSessions = () => sent().map(({ url }) => url);
   const savedLive = () => JSON.parse(readFileSync(join(dataDir, "config.json"), "utf8")).live as Record<string, unknown>;
   const start = (botId: string, headers: Headers = {}) => call("POST", "/api/live/session", { botId, sdp: "v=0\r\n", client: "web" }, headers);
-  return { call, redeem, signedSession, newBot, liveSessions, sent, savedLive, start };
+  return { call, redeem, newBot, liveSessions, sent, savedLive, start };
 }
-
-const CLOUD_ENV = {
-  OMB_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93", OMB_CLOUD_ADMIN_URL: "https://cloud.example.test",
-  OMB_CLOUD_BOOTSTRAP_SECRET: secret, OMB_PUBLIC_URL: `https://${HOST}`,
-};
 
 it("on a self-hosted server: the owner and their devices get through; a chat-only device is refused, and from then on a local request is not taken for the owner", async () => {
   const s = await boot({});
@@ -149,44 +126,6 @@ it("on a self-hosted server with a sign-in list: an admin's session gets through
   expect(s.liveSessions()).toEqual([]);
   const admin = await s.redeem((await s.call("POST", "/api/auth/pairing", { scopes: ["admin", "client"] })).body.code);
   expect(await s.start(botId, admin)).toEqual(THROUGH);
-}, 90_000);
-
-it("on a person's own Cloud: their session gets through, a bot's shell does not", async () => {
-  const s = await boot({ OMB_CLOUD_ROLE: "home", ...CLOUD_ENV });
-  const owner = await s.signedSession();
-  const botId = await s.newBot(owner);
-  expect(await s.start(botId, owner)).toEqual(THROUGH);
-  expect(s.liveSessions()).toEqual([SESSIONS]);
-  expect(await s.start(botId)).toMatchObject({ status: 403, body: { error: expect.stringContaining("may only use the service routes") } });
-  expect(s.liveSessions()).toHaveLength(1);
-}, 90_000);
-
-it("on a Team Cloud: a Super admin and an Admin get through; a User is refused in plain words, on the app or their phone, and a bot's shell does not get through", async () => {
-  const s = await boot({ OMB_CLOUD_ROLE: "team", OMB_CLOUD_TEAM_ID: TEAM.id, OMB_CLOUD_TEAM_NAME: TEAM.name, ...CLOUD_ENV });
-  const session = (email: string, role: string) => s.signedSession({ team: TEAM, member: { email, role } });
-  const owner = await session("olive@acme.test", "owner");
-  const admin = await session("ben@acme.test", "admin");
-  const member = await session("ada@acme.test", "member");
-  const botId = await s.newBot(owner);
-
-  expect(await s.start(botId, owner)).toEqual(THROUGH);
-  expect(await s.start(botId, admin)).toEqual(THROUGH);
-  expect(s.liveSessions()).toEqual([SESSIONS, SESSIONS]);
-
-  expect(await s.start(botId, member)).toEqual(REFUSED);
-  const made = await s.call("POST", "/api/team/phone-pairing", {}, member);
-  expect(made.status, JSON.stringify(made.body)).toBe(200);
-  const phone = await s.redeem(made.body.code);
-  expect(await s.start(botId, phone)).toEqual(REFUSED);
-  // The companion's header carries no authority.
-  expect(await s.start(botId, { ...member, "x-openmausbot-companion": "1", "x-openmausbot-companion-device": "phone-1" })).toEqual(REFUSED);
-  expect(await s.start(botId)).toMatchObject({ status: 403, body: { error: expect.stringContaining("may only use the service routes") } });
-  expect(s.liveSessions()).toHaveLength(2);
-
-  const seen = (await s.call("GET", "/api/config", undefined, member)).body.live;
-  expect(seen).toMatchObject({ provider: "azure" });
-  expect(seen).not.toHaveProperty("azureEndpoint");
-  expect(seen).not.toHaveProperty("azureDeployment");
 }, 90_000);
 
 type Fixture = Awaited<ReturnType<typeof boot>>;

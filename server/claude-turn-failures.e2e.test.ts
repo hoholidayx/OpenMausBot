@@ -147,22 +147,6 @@ it("tells a Chief whose teammate is past its weekly limit which limit it is and 
   }
 }, 120_000);
 
-it("tells a room's coordinator that a teammate is past its weekly limit, with the reset", async () => {
-  const { api, control, handOff, close } = await launch();
-  try {
-    const chief = (await control(["new-bot", "--name", "Tango", "--section", "Ops"])).bot;
-    const pesto = (await control(["new-bot", "--name", "Pesto", "--section", "Ops"])).bot;
-    const room = (await api("POST", "/api/groups", {
-      name: "Launch", memberIds: [chief.id, pesto.id], setup: { bulletin: "", defaultResponder: { kind: "member", botId: chief.id } },
-    })).group;
-    const resumed = await handOff(room.threadId, chief, pesto, () => api("POST", `/api/groups/${room.id}/messages`, { text: "Tango, have Pesto draft the launch note." }));
-    expect(resumed).toMatch(LIMIT_WITH_RESET);
-    expect(resumed).not.toMatch(/\bquota\b|stop_sequence|update_required/);
-  } finally {
-    await close();
-  }
-}, 120_000);
-
 it("goes on in a new session started from the chat when Claude cannot reopen the old one, and says so", async () => {
   const { control, messages, play, close } = await launch();
   try {

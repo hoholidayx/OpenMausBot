@@ -165,7 +165,7 @@ server never starts.
 ```sh
 node --test electron/cloud-list.node-test.mjs electron/cloud-rail.node-test.mjs electron/chrome-rail.node-test.mjs electron/home-window.node-test.mjs electron/place-look.node-test.mjs electron/desktop-prefs.node-test.mjs
 pnpm exec vitest run src/components/PlacesRail.test.ts src/components/ChromeRail.test.ts src/components/ChromeRailToggle.test.ts src/components/Sidebar.header.test.ts src/components/PlaceLookCard.test.ts
-pnpm exec vitest run server/workspace-banner.test.ts server/routes/workspace-banner.test.ts server/workspace-banner.e2e.test.ts src/lib/place-banner.test.ts src/components/PlacePicture.test.ts
+pnpm exec vitest run server/workspace-banner.test.ts server/routes/workspace-banner.test.ts src/lib/place-banner.test.ts src/components/PlacePicture.test.ts
 ```
 
 The rail tests load the production preload and check which page gets the list,
@@ -174,9 +174,7 @@ from a click. The colour tests check who may change a place's colour and where
 it is kept, from its own page and from the rail's menu, that nothing is saved
 when the Admin refuses, and that the tint follows at once. The banner tests
 run pictures a real encoder made, carrying EXIF, ICC, XMP and text, through
-the server's checks, and a real Team Cloud where its Super admin sets the
-banner, a member sees it but can't change it, and a signed-out request gets
-nothing. The hiding tests run the rail beside a page that offers the button in
+the server's checks. The hiding tests run the rail beside a page that offers the button in
 time, one that doesn't, one that hangs, crashes or fails to load, and main's
 own wiring of the choice.
 

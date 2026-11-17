@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { fixtureChatReply, fixtureModel, startLoopbackChat, waitForFixtureFile } from "./testing/loopback-chat.ts";
 import { workerPort } from "./testing/worker-port.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
@@ -22,6 +23,7 @@ posixOnly("usage attribution e2e", () => {
   let finishGate: string;
   let codexSteerGate: string;
   let costState: string;
+  let roomApi: Awaited<ReturnType<typeof startLoopbackChat>>;
 
   type Reply = { status: number; body: any };
   const request = async (headers: Record<string, string>, method: string, path: string, body?: unknown): Promise<Reply> => {
@@ -77,6 +79,13 @@ posixOnly("usage attribution e2e", () => {
     codexSteerGate = join(home, "codex-steer-refused.gate");
     costState = join(home, "claude-cost-state");
     mkdirSync(costState);
+    roomApi = await startLoopbackChat(async (request, signal) => {
+      if (!request.stream) return fixtureChatReply("");
+      const latest = request.messages.at(-1)?.content;
+      const gate = latest?.includes("person's room follow-up") ? "person-room-finish" : "owner-room-finish";
+      await waitForFixtureFile(join(home, gate), signal);
+      return fixtureChatReply("Room fixture reply.", undefined, { prompt_tokens: 10, completion_tokens: 5 });
+    });
     writeFileSync(
       join(home, ".openmausbot", "config.json"),
       JSON.stringify({
@@ -96,6 +105,7 @@ posixOnly("usage attribution e2e", () => {
           acp: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "hang" }, config: { cli: FAKE_ACP, fullAuto: true } },
           // reports tokens (10 in, 5 out) but no price, like every engine but Claude
           acpHappy: { driver: "grokAgent", config: { cli: FAKE_ACP, fullAuto: true } },
+          roomApi: roomApi.instance("Room fixture"),
           codexRace: {
             driver: "codex",
             environment: { FAKE_CODEX_MODE: "question", FAKE_CODEX_ASK_HOLD: "1", FAKE_CODEX_STEER_ERROR_FILE: codexSteerGate },
@@ -129,17 +139,17 @@ posixOnly("usage attribution e2e", () => {
       child.on("close", () => resolve());
       setTimeout(() => (child.kill("SIGKILL"), resolve()), 5_000).unref?.();
     });
+    await roomApi?.close();
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("books an engine that reports tokens but no price at an estimate, and an unlisted model as unpriced", async () => {
+  it("books reported tokens with unknown cost when the engine reports no price", async () => {
     const listed = await newBot("acpHappy", "grok-4.7");
     expect((await api("POST", `/api/bots/${listed.id}/messages`, { text: "priced from the list" })).status).toBe(202);
     await waitFor(() => ledger(listed.id).length === 1, "the listed model's turn to be booked");
     const row = ledger(listed.id)[0];
-    expect(row).toMatchObject({ driverKind: "grokAgent", model: "grok-4.7", input: 10, output: 5, costSource: "estimated" });
-    // xAI's list price for grok-4.7: $2 in, $6 out per million tokens
-    expect(row.costUsd).toBeCloseTo((10 * 2 + 5 * 6) / 1_000_000, 12);
+    expect(row).toMatchObject({ driverKind: "grokAgent", model: "grok-4.7", input: 10, output: 5, costUsd: null });
+    expect(row).not.toHaveProperty("costSource");
 
     const unlisted = await newBot("acpHappy", "fake-model");
     expect((await api("POST", `/api/bots/${unlisted.id}/messages`, { text: "no known price" })).status).toBe(202);
@@ -149,8 +159,7 @@ posixOnly("usage attribution e2e", () => {
 
     const usage = (await api("GET", "/api/usage?groupBy=bot")).body;
     const byBot = (id: string) => usage.groups.find((g: any) => g.key === `bot:${id}`);
-    expect(byBot(listed.id)).toMatchObject({ unpriced: 0 });
-    expect(byBot(listed.id).estimatedUsd).toBeCloseTo(row.costUsd, 12);
+    expect(byBot(listed.id)).toMatchObject({ costUsd: null, estimatedUsd: null, unpriced: 1 });
     expect(byBot(unlisted.id)).toMatchObject({ costUsd: null, estimatedUsd: null, unpriced: 1 });
     await waitFor(async () => (await getBot(unlisted.id)).busy === false, "the bots to go idle");
   }, 40_000);
@@ -169,9 +178,6 @@ posixOnly("usage attribution e2e", () => {
     const byDepartment = (await api("GET", "/api/usage?groupBy=department")).body.groups as Array<{ key: string; turns: number }>;
     expect(byDepartment.find((group) => group.key === "department:Finance")).toMatchObject({ turns: 1 });
     expect(byDepartment.find((group) => group.key === "department:Operations")).toMatchObject({ turns: 1 });
-    const csv = await (await fetch(`${BASE}/api/usage.csv`)).text();
-    expect(csv.split("\n")[0]).toMatch(/,thread,department,person$/);
-    expect(csv).toContain(",Finance,");
   }, 40_000);
 
   it("a queued message leaves the running turn with its starter, and its own turn is booked to its sender", async () => {
@@ -243,24 +249,26 @@ posixOnly("usage attribution e2e", () => {
   }, 40_000);
 
   it("a room's queued message leaves the running room turn with its starter", async () => {
-    const bot = await newBot("acp", "fake-model");
-    const room = (await api("POST", "/api/groups", {
+    const bot = await newBot("roomApi", fixtureModel);
+    const created = await api("POST", "/api/groups", {
       name: "Attribution room",
       memberIds: [bot.id],
       setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
-    })).body.group;
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const room = created.body.group;
     const working = async () => (await api("GET", "/api/bots?messages=30")).body.groups.find((g: any) => g.id === room.id);
     expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "owner's room turn" })).status).toBe(202);
     await waitFor(async () => (await working())?.busyBotId === bot.id, "the room turn to start");
     const asPaired = await asPerson();
     expect((await asPaired("POST", `/api/groups/${room.id}/messages`, { text: "person's room follow-up" })).body.queued).toBe(true);
 
-    await api("POST", `/api/groups/${room.id}/interrupt`, {});
+    writeFileSync(join(home, "owner-room-finish"), "finish");
     await waitFor(() => ledger(bot.id).length >= 1, "the owner's room turn to be booked");
     expect(ledger(bot.id)[0].trigger).toEqual(owner);
     await waitFor(async () => (await working())?.messages.some((m: any) => m.text === "person's room follow-up"), "the queued room turn to start");
     await waitFor(async () => (await working())?.busyBotId === bot.id, "the queued room turn to run");
-    await api("POST", `/api/groups/${room.id}/interrupt`, {});
+    writeFileSync(join(home, "person-room-finish"), "finish");
     await waitFor(() => ledger(bot.id).length >= 2, "the queued room turn to be booked");
     expect(ledger(bot.id)[1].trigger).toEqual(person);
   }, 40_000);

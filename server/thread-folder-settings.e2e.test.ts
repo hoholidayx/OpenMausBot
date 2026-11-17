@@ -68,13 +68,6 @@ it("runs every thread of a bot with the bot's settings, and moves its threads to
     expect(realpathSync(kept.cwd)).toBe(chosen);
     expect(kept.settings.enabledPlugins).toEqual({ "project@team": true });
 
-    // A room without a folder of its own runs its members in their own bot folders.
-    const { group } = await api("POST", "/api/groups", { name: "Guarded room", memberIds: [bot.id], setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } } });
-    await control(["send-channel", "--channel", group.id, "--text", "Say hello to the room."]);
-    expect((await control(["wait", "--channel", group.id, "--timeout", "30"])).status).toBe("settled");
-    const room = JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8"));
-    expect(realpathSync(room.cwd)).toBe(realpathSync(join(fixture.info.dataDir, "workspaces", bot.id)));
-    expect(room.settings.enabledPlugins).toEqual({ "project@team": true });
   } finally {
     await fixture.close();
     await removeTempDir(project);

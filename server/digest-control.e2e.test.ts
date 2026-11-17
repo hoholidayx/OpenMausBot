@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
+import { fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 import type { WireMessage } from "../shared/wire.ts";
 
 it("records independent turns and room speakers through the shared control fixture", async () => {
@@ -12,6 +13,7 @@ it("records independent turns and room speakers through the shared control fixtu
     FAKE_CLAUDE_HOOKS: "1",
     FAKE_CLAUDE_TOOL_CALLS: JSON.stringify([{ name: "Bash", id: "reused-tool-id", input: { command: "echo receipt" }, output: "receipt", ok: true }]),
   });
+  const chat = await startLoopbackChat();
   const evidence: unknown[] = [{ fixture: fixture.info }];
   const control = async (args: string[]) => {
     const result = await runControlOmb([...args, "--url", fixture.info.url]);
@@ -50,6 +52,8 @@ it("records independent turns and room speakers through the shared control fixtu
     // and spill file rather than inheriting evidence from its predecessor.
     expect(readdirSync(join(fixture.info.dataDir, "tool-results", first.activeTaskId))).toHaveLength(2);
     expect(JSON.stringify(direct)).not.toContain(fixture.info.dataDir);
+    await chat.connect(fixture.info.url);
+    for (const bot of [first, second]) await control(["set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", fixtureModel]);
     const channel = (await control(["new-channel", "--name", "Receipt room", "--members", `${first.id},${second.id}`])).channel;
     await control(["send-channel", "--channel", channel.id, "--text", "Each reply once"]);
     expect((await control(["wait", "--channel", channel.id, "--timeout", "30"])).status).toBe("settled");
@@ -66,7 +70,10 @@ it("records independent turns and room speakers through the shared control fixtu
       const path = `${fixture.info.logPath}.digests.json`;
       writeFileSync(path, JSON.stringify(evidence, null, 2));
       console.log("Digest control evidence saved.");
-    } finally { await fixture.close(); }
+    } finally {
+      await fixture.close();
+      await chat.close();
+    }
     expect(existsSync(fixture.info.dataDir)).toBe(false);
   }
 }, 90_000);

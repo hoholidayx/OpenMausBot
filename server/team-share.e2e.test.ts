@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 
 import { launchVerificationServer } from "../scripts/control-omb.ts";
+import { fixtureChatSelection, startLoopbackChat } from "./testing/loopback-chat.ts";
 import { NEWER_PACKAGE_MESSAGE, parsePackageDocument } from "../shared/package-format.ts";
 import { includedSkills, requestedSkills, startingTicks } from "../src/lib/team-share-skills.ts";
 
@@ -11,6 +12,7 @@ const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwA
 
 it("shares one team whole (minus chat history) and imports it back as new, inert copies", async () => {
   const fixture = await launchVerificationServer();
+  const chat = await startLoopbackChat();
   console.log(JSON.stringify({ fixture: fixture.info }));
   const url = fixture.info.url;
   const call = async (method: string, path: string, body?: unknown) => {
@@ -25,9 +27,11 @@ it("shares one team whole (minus chat history) and imports it back as new, inert
     return result.body;
   };
   try {
-    const lead = (await ok("POST", "/api/bots", { name: "Morgan", title: "Sales lead", description: "Owns the pipeline.", color: "purple", section: "Sales desk" })).bot;
-    const scout = (await ok("POST", "/api/bots", { name: "Scout", title: "Researcher", color: "cyan", section: "Sales desk" })).bot;
-    const outsider = (await ok("POST", "/api/bots", { name: "Elsewhere", section: "Support" })).bot;
+    await chat.connect(url);
+    await ok("PATCH", "/api/config", { defaultModelSelection: fixtureChatSelection() });
+    const lead = (await ok("POST", "/api/bots", { modelSelection: fixtureChatSelection(), name: "Morgan", title: "Sales lead", description: "Owns the pipeline.", color: "purple", section: "Sales desk" })).bot;
+    const scout = (await ok("POST", "/api/bots", { modelSelection: fixtureChatSelection(), name: "Scout", title: "Researcher", color: "cyan", section: "Sales desk" })).bot;
+    const outsider = (await ok("POST", "/api/bots", { modelSelection: fixtureChatSelection(), name: "Elsewhere", section: "Support" })).bot;
     await ok("PATCH", `/api/bots/${lead.id}`, { chiefOfStaff: true, soul: "Coordinate. The portal password=SalesDesk-Portal-2026 stays private.\n" });
     await ok("PUT", `/api/section-context?section=${encodeURIComponent("Sales desk")}`, { text: "Quote list prices only." });
     await ok("POST", `/api/bots/${scout.id}/skill-template`, {
@@ -104,6 +108,7 @@ it("shares one team whole (minus chat history) and imports it back as new, inert
     expect(() => parsePackageDocument(saved.document)).not.toThrow();
   } finally {
     await fixture.close();
+    await chat.close();
   }
 }, 120_000);
 

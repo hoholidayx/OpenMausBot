@@ -22,11 +22,7 @@ pnpm exec vitest run server/host/netlify-sites.test.ts server/host/published-app
   bot, a 404 from Netlify counts as deleted, and the record is removed. Without a usable token nothing is called and
   the answer offers the site's Netlify page. The token is in no answer and no log line.
 
-A real Team Cloud with four people (two members, an Admin, the Owner) and real turns:
-
-```sh
-pnpm exec vitest run server/cloud-team-published-apps.e2e.test.ts
-```
+The archived Team Cloud scenario used two members, an admin, and the owner. [Hosted published apps fixture](https://github.com/hoholidayx/OpenMausBot/blob/2d0dc208baffbbd050e291065604641a04a13aa9/server/cloud-team-published-apps.e2e.test.ts)
 
 A site whose record is in a conversation's own folder (`task-workspaces/<bot>/<thread>`) is that conversation's; one in
 a folder the bot's conversations share is listed where the bot's own message carries its link, and nowhere when it

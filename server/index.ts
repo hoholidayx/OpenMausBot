@@ -9085,7 +9085,7 @@ async function runClaimedGroupMemberTurn(
     onDispatchError?.(retiredCopy.refusal() ?? "A workspace backup or restore is in progress.");
     return false;
   }
-  if (isCancelled?.()) return false;
+  if (companyShutdown || isCancelled?.()) return false;
   const group = store.group(groupId);
   const bot = store.bot(botId);
   const ownsThread = group?.dm
@@ -10107,7 +10107,7 @@ async function runGroupGoalOperation(args: {
     run,
     coordinator: args.coordinator,
     members: args.members,
-    cancelled: () => args.operation.cancelled,
+    cancelled: () => companyShutdown || args.operation.cancelled,
     current: (botId) => store.bot(botId) ?? undefined,
     step: (bot, coordinator, instructions) => runGroupGoalStep({ ...args, bot, skillAuthoringClaim, coordinator, instructions }),
     finish: (status, detail, text) => finishGroupGoalRun(args.groupId, args.operation, status, detail, text),

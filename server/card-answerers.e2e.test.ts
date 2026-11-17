@@ -116,7 +116,7 @@ posixOnly("who may answer a card on a shared workspace", () => {
     mkdirSync(data, { recursive: true });
     writeFileSync(join(data, "config.json"), JSON.stringify({
       signIn: { admins: [BOSS], members: [ADA, BOB] },
-      instances: { grok: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "permission" }, config: { cli: FAKE_CLI, fullAuto: false } } },
+      instances: { roomApi: { driver: "openai-compat", config: { tools: false } }, grok: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "permission" }, config: { cli: FAKE_CLI, fullAuto: false } } },
     }));
     const role = (email: string) => (email === BOSS ? ["admin", "client"] as const : ["client"] as const);
     const registry = new SessionRegistry({ file: join(data, "sessions.json"), emailScopes: (email) => [...role(email)] });
@@ -163,7 +163,9 @@ posixOnly("who may answer a card on a shared workspace", () => {
     expect(task.status).toBe(201);
     const threadId = task.body.task.threadId as string;
     expect(JSON.stringify(task.body)).not.toContain("startedBy");
-    const room = await api("POST", "/api/groups", { memberIds: [bot.id], name: "Bob's room" }, BOB);
+    const created = await api("POST", "/api/bots", { name: "Room member", modelSelection: { instanceId: "roomApi", model: "fixture-model" } }, BOSS);
+    expect(created.status).toBe(201);
+    const room = await api("POST", "/api/groups", { memberIds: [created.body.bot.id], name: "Bob's room" }, BOB);
     expect(room.status, JSON.stringify(room.body)).toBe(201);
     const roomTask = await api("POST", `/api/groups/${room.body.group.id}/tasks`, { title: "Bob's room thread" }, BOB);
     expect(roomTask.status, JSON.stringify(roomTask.body)).toBe(201);

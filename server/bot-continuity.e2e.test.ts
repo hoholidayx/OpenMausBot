@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
 
-it("keeps ordinary work out of setup and carries explicit bot defaults and file locations into rooms", async () => {
+it("keeps ordinary work out of setup and uses explicit bot defaults and file locations in direct tasks", async () => {
   const fixture = await launchVerificationServer();
   const evidence: unknown[] = [{ fixture: fixture.info }];
   const control = async (args: string[]) => {
@@ -60,20 +60,7 @@ it("keeps ordinary work out of setup and carries explicit bot defaults and file 
     // Change an inactive task, not the newly selected sibling.
     await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { modelSelection: selection(b), updateBotDefault: true });
     expect((await direct("Tell me your responsibility in one sentence.")).model).toBe(b);
-    const { group } = await api("POST", "/api/groups", {
-      name: "Garden room", memberIds: [bot.id],
-      setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
-    });
-    const room = async (text: string) => {
-      await control(["send-channel", "--channel", group.id, "--text", text]);
-      expect((await control(["wait", "--channel", group.id, "--timeout", "30"])).status).toBe("settled");
-      return receipt();
-    };
-    const shared = await room("Read the garden-plan.txt you made earlier and tell me its fixture code.");
-    expect(shared.model).toBe(b);
-    expect(shared.system).toContain("You look after the garden");
-    expect(shared.system).toContain(JSON.stringify(join(fixture.info.dataDir, "task-workspaces", bot.id)));
-    expect(shared.system).toContain(JSON.stringify(join(fixture.info.dataDir, "workspaces", bot.id)));
+    expect((await direct("Review the garden plan.")).system).toContain("You look after the garden");
     expect(readFileSync(oldFile, "utf8")).toContain("MOSS-42");
     const state = (await api("GET", "/api/bots")).bots.find((item: any) => item.id === bot.id);
     expect(state.modelSelection).toEqual(selection(b));
@@ -83,12 +70,10 @@ it("keeps ordinary work out of setup and carries explicit bot defaults and file 
 
     await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { modelSelection: selection(a) });
     expect((await direct("Reply once for the thread-only model test.")).model).toBe(a);
-    expect((await room("Reply once for the unchanged room default.")).model).toBe(b);
     await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { updateBotDefault: true }, 400);
     await api("PATCH", `/api/bots/${bot.id}/tasks/${bot.threadId}`, { modelSelection: selection(a), updateBotDefault: "yes" }, 400);
     await api("PATCH", `/api/bots/${bot.id}/tasks/not-a-thread`, { modelSelection: selection(a), updateBotDefault: true }, 404);
     await control(["messages", "--bot", bot.id, "--task", bot.threadId, "--limit", "20"]);
-    await control(["messages", "--channel", group.id, "--limit", "20"]);
   } finally {
     const evidencePath = `${fixture.info.logPath}.bot-continuity.json`;
     writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));

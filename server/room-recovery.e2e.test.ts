@@ -4,16 +4,20 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb, verificationServerEnvironment } from "../scripts/control-omb.ts";
+import { fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 import { handleToolCall, request } from "../scripts/mcp-server.ts";
 import { waitForExit } from "./testing/cleanup.ts";
 import { readHandoffs } from "./testing/handoff-rows.ts";
 
 it("boots, starts an interrupted routine once more, and reports it back to its source room", async () => {
   const fixture = await launchVerificationServer();
+  const chat = await startLoopbackChat();
   const { url, dataDir, logPath } = fixture.info;
   let restarted: ChildProcess | undefined;
   try {
     const { bot } = await runControlOmb(["new-bot", "--name", "Recovery lead", "--url", url]) as any;
+    await chat.connect(url);
+    await runControlOmb(["set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", fixtureModel, "--url", url]);
     const { channel } = await handleToolCall("create_channel", { name: "Recovery room", member_ids: [bot.id] },
       (path, options) => request(path, options, url)) as any;
     await waitForExit(fixture.child, { signal: "SIGTERM" });
@@ -59,6 +63,7 @@ it("boots, starts an interrupted routine once more, and reports it back to its s
   } finally {
     await waitForExit(restarted, { signal: "SIGTERM" });
     await fixture.close();
+    await chat.close();
   }
 }, 60_000);
 

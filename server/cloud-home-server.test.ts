@@ -59,3 +59,21 @@ it("refuses retired Cloud sign-in without consuming a self-hosted pairing code",
     await fixture.close();
   }
 });
+
+it("creates local bots without hosted ownership or sharing fields", async () => {
+  const fixture = await launchVerificationServer({ OMB_LEGACY_MEMORY: "0" });
+  try {
+    const { url } = fixture.info;
+    const response = await fetch(`${url}/api/bots`, {
+      method: "POST", headers: { origin: url, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Plain" }),
+    });
+    expect(response.status).toBe(201);
+    const { bot } = await response.json() as { bot: Record<string, unknown> };
+    expect(bot).not.toHaveProperty("access");
+    expect(bot).not.toHaveProperty("visibility");
+    expect(bot).not.toHaveProperty("createdBy");
+  } finally {
+    await fixture.close();
+  }
+});

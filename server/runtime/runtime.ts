@@ -170,9 +170,9 @@ export class Runtime {
 
   /** Never throws: an unknown id, a child or a root that is not running is logged and left alone. */
   end(rootId: string, result: EndResult): void {
+    if (this.closing) return;
     const n = this.store.get(rootId);
     if (!n || n.parentId !== undefined || n.status !== "running") { this.log(`end(${rootId}): not a running root`); return; }
-    if (!result.ok && !result.needsInput && !result.continue && this.closing) return;
     const live = this.turns.get(rootId);
     // Dropping the handle without an abort makes turnEnded ignore the run() result that follows.
     this.turns.delete(rootId);
@@ -502,10 +502,9 @@ export class Runtime {
   /** Only the live handle's result settles the node: an ended, cancelled or stalled turn has no handle. */
   private turnEnded(id: string, live: LiveTurn, result: RunResult): void {
     try {
-      if (this.turns.get(id) !== live) return;
+      if (this.closing || this.turns.get(id) !== live) return;
       const n = this.store.get(id);
       if (!n || n.status !== "running") return;
-      if (this.closing && result.kind === "failed") return;
       this.withBatch(() => this.finishTurn(n, result, live));
     } catch (error) {
       this.log(`settling ${id} failed: ${String(error)}`);

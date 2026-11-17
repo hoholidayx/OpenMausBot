@@ -6,16 +6,14 @@ place of its `NEEDS INPUT:` line. On a Team Cloud the card's copy reaches the pe
 an answer from either place, by tap or in the person's own words, reaches the bot. Contract:
 [`docs/runtime-contract.md`](../runtime-contract.md) §2 and §4; routing: [`docs/team-cloud.md`](../team-cloud.md).
 
-## Server, end to end
+## Hosted question cards
 
-```sh
-pnpm exec vitest run server/question-cards.e2e.test.ts
-```
-
-It starts a Team Cloud on the two-server fixture (`scripts/testing/cloud-send-fixture.ts`) with the scripted fake engine
+The archived fixture started a Team Cloud on the two-server fixture (`scripts/testing/cloud-send-fixture.ts`) with the scripted fake engine
 (`server/testing/room-handoff-agent.ts`): Cleo asks Scout, her Chief, whose chat is her inbox, to have Ledger fix
 something, and Scout hands it on with `coordinate_bots`. Both bots are on "Ask me first", so the questions are the
-person's. Expected:
+person's. [Hosted question cards fixture](https://github.com/hoholidayx/OpenMausBot/blob/2d0dc208baffbbd050e291065604641a04a13aa9/server/question-cards.e2e.test.ts)
+
+Expected:
 
 - Ledger's envelope offers its card tool for set answers (`ask it with ask_user`), and Ledger's turn calls the real
   `ask_user` server with three choices. The card is in Ledger's work thread, and its copy is in Cleo's inbox
@@ -31,11 +29,8 @@ person's. Expected:
 
 ## Who answers: Just do it and Ask me first
 
-```sh
-pnpm exec vitest run server/question-routing.e2e.test.ts
-```
+The archived routing scenario ran with Fuchs, Dachs and Otter on Full access and Ask me first. [Hosted question routing fixture](https://github.com/hoholidayx/OpenMausBot/blob/2d0dc208baffbbd050e291065604641a04a13aa9/server/question-routing.e2e.test.ts)
 
-The same Team Cloud with Fuchs, Dachs and Otter on their default Full access ("Just do it"), then on "Ask me first".
 Expected:
 
 - Dachs's `NEEDS INPUT:` question with `Default: CSV` reaches Fuchs, not Marco ("yours to answer"); Fuchs sends no

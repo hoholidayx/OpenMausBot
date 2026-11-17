@@ -1,9 +1,11 @@
+import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage } from "node:http";
+import { setTimeout as delay } from "node:timers/promises";
 
 export type ChatFixtureRequest = {
   model: string;
   stream: boolean;
-  messages: Array<{ role: string; content: string | null }>;
+  messages: Array<{ role: string; content: string | null; tool_call_id?: string }>;
   tools?: Array<{ function: { name: string } }>;
 };
 type ChatFixtureReply = {
@@ -14,6 +16,11 @@ type ChatFixtureReply = {
 
 const key = "synthetic-fixture-key";
 export const fixtureModel = "fixture-model";
+export const fixtureChatSelection = (instanceId = "openaiCompat") => ({ instanceId, model: fixtureModel });
+
+export async function waitForFixtureFile(path: string, signal: AbortSignal): Promise<void> {
+  while (!existsSync(path)) await delay(20, undefined, { signal });
+}
 
 async function readChatRequest(request: IncomingMessage): Promise<ChatFixtureRequest> {
   let body = "";
@@ -21,7 +28,7 @@ async function readChatRequest(request: IncomingMessage): Promise<ChatFixtureReq
   return JSON.parse(body) as ChatFixtureRequest;
 }
 
-export async function startLoopbackChat(respond: (request: ChatFixtureRequest, signal: AbortSignal) => ChatFixtureReply | Promise<ChatFixtureReply> =
+export async function startLoopbackChat(respond: (request: ChatFixtureRequest, signal: AbortSignal, progress: (text: string) => void) => ChatFixtureReply | Promise<ChatFixtureReply> =
   () => ({ choice: { content: "Reply from the API fixture." }, finish_reason: "stop" })) {
   const requests: ChatFixtureRequest[] = [];
   const upstream = createServer(async (req, res) => {
@@ -35,16 +42,24 @@ export async function startLoopbackChat(respond: (request: ChatFixtureRequest, s
     try {
       const request = await readChatRequest(req);
       requests.push(request);
-      const { choice, finish_reason, usage } = await respond(request, closed.signal);
+      const chunk = (delta: ChatFixtureReply["choice"], finish_reason?: string, usage?: ChatFixtureReply["usage"]) => {
+        if (closed.signal.aborted) return;
+        if (!res.headersSent) res.writeHead(200, { "Content-Type": "text/event-stream" });
+        res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason }], usage })}\n\n`);
+      };
+      const { choice, finish_reason, usage } = await respond(request, closed.signal, text => {
+        if (request.stream) chunk({ content: text });
+      });
       if (closed.signal.aborted) return;
       if (!request.stream) {
         res.setHeader("Content-Type", "application/json");
         return res.end(JSON.stringify({ choices: [{ message: choice, finish_reason }], usage }));
       }
-      res.setHeader("Content-Type", "text/event-stream");
-      res.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: choice, finish_reason }], usage })}\n\ndata: [DONE]\n\n`);
+      chunk(choice, finish_reason, usage);
+      res.end("data: [DONE]\n\n");
     } catch (error) {
       if (closed.signal.aborted) return;
+      if (res.headersSent) return res.destroy();
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: { message: String(error) } }));
     }

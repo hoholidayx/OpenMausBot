@@ -2,10 +2,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
+import { fixtureChatText, fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 import type { WireBot } from "../shared/wire.ts";
 
 it("keeps profile identity and excludes retired profile notes from prompts", async () => {
   const fixture = await launchVerificationServer();
+  const chat = await startLoopbackChat();
   const control = (...args: string[]) => runControlOmb([...args, "--url", fixture.info.url]);
   const api = async <T = { profile: { name: string; email: string; aboutMe: string } }>(path: string, method = "GET", body?: unknown, status = 200): Promise<T> => {
     const response = await fetch(fixture.info.url + path, {
@@ -29,14 +31,19 @@ it("keeps profile identity and excludes retired profile notes from prompts", asy
     expect(await control("wait", "--bot", bot.id, "--task", bot.threadId, "--timeout", "30")).toMatchObject({ status: "settled" });
     expect(sentSystem()).not.toContain(aboutMe);
 
+    await chat.connect(fixture.info.url);
+    await control("set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", fixtureModel);
     const created = await control("new-channel", "--name", "Profile room", "--members", bot.id) as { channel: { id: string } };
     await control("send-channel", "--channel", created.channel.id, "--text", "Hello team.");
     expect(await control("wait", "--channel", created.channel.id, "--timeout", "30")).toMatchObject({ status: "settled" });
-    expect(sentSystem()).not.toContain(aboutMe);
+    const roomRequest = chat.requests.find(request => request.stream);
+    expect(roomRequest).toBeDefined();
+    expect(fixtureChatText(roomRequest!)).not.toContain(aboutMe);
 
     await api("/api/config", "PUT", { profile: { name: "Renamed fixture" } });
     expect((await api("/api/config")).profile.name).toBe("Renamed fixture");
   } finally {
     await fixture.close();
+    await chat.close();
   }
 }, 90_000);

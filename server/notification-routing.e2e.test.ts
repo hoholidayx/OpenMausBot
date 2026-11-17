@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,7 @@ import type { HandoffView } from "./coordinator.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { readHandoffs } from "./testing/handoff-rows.ts";
 import { freePortBlock } from "./testing/ports.ts";
+import { fixtureChatReply, fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 import { openSse } from "./testing/sse.ts";
 
 // The ordinary turn is pinned first: a gate that suppressed everything would pass every quiet case.
@@ -26,6 +28,7 @@ let home = "";
 let base = "";
 let stderr = "";
 let dumpFile = "";
+let roomApi: Awaited<ReturnType<typeof startLoopbackChat>>;
 
 const api = async (
   method: string,
@@ -86,6 +89,11 @@ const cleanup = async (groupIds: Array<string | undefined>, botIds: string[]) =>
 };
 
 beforeAll(async () => {
+  roomApi = await startLoopbackChat(async (request, signal) => {
+    const system = request.messages[0]?.content ?? "";
+    if (request.stream && system.startsWith("You are Handsy,")) await delay(90_000, undefined, { signal });
+    return fixtureChatReply(system.startsWith("You are Tagger,") ? TAGGED_REPLY : "Status received.");
+  });
   chmodSync(FAKE_CLAUDE, 0o755);
   chmodSync(FAKE_ACP, 0o755);
   home = mkdtempSync(join(tmpdir(), "omb-notification-routing-"));
@@ -96,6 +104,7 @@ beforeAll(async () => {
     // These tests compare whole conversations; a setup card refreshing after a rename would change under them.
     features: { smartSetupChoices: false },
     instances: {
+      roomApi: roomApi.instance("Room API fixture"),
       // answers at once; its dump is the only place to read the per-boot comms token the internal endpoints need
       quick: {
         driver: "claudeAgent",
@@ -167,6 +176,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (child) await waitForExit(child, { signal: "SIGTERM" });
+  await roomApi?.close();
   if (home) await removeTempDir(home);
 });
 
@@ -197,7 +207,7 @@ describe("an ordinary turn still announces itself", () => {
 
 describe("a room turn belongs to the room", () => {
   it("leaves the speaking bot's own thread unread-free while the room lights up", async () => {
-    const bot = await createBot("Roomie", "quick");
+    const bot = await createBot("Roomie", "roomApi", fixtureModel);
     let roomId: string | undefined;
     try {
       const room = (await api("POST", "/api/groups", {
@@ -224,7 +234,7 @@ describe("a room turn belongs to the room", () => {
   }, 40_000);
 
   it("sends a sign-in request raised mid-room to the room, not to the bot's DM", async () => {
-    const bot = await createBot("Handsy", "stuck");
+    const bot = await createBot("Handsy", "roomApi", fixtureModel);
     let roomId: string | undefined;
     try {
       // a sign-in needs a place to sign in on: this bot works in its built-in browser
@@ -275,7 +285,7 @@ describe("a room turn belongs to the room", () => {
 
 describe("a reply that tags the person", () => {
   it("buzzes once from a room, as a mention that names the room", async () => {
-    const bot = await createBot("Tagger", "tagger");
+    const bot = await createBot("Tagger", "roomApi", fixtureModel);
     let roomId: string | undefined;
     const stream = await openSse(`${base}/api/events`);
     try {

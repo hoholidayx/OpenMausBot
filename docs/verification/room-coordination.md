@@ -283,7 +283,7 @@ other work with `coordinate_bots` like any room. On a Team Cloud, nothing from
 a member's private chat is handed into a room or posted in one.
 
 ```sh
-pnpm exec vitest run server/peer-roster.test.ts server/post-to-room.test.ts server/room-coordination.e2e.test.ts server/direct-coordination.e2e.test.ts server/runtime-coordinator.test.ts server/cloud-team-open-reach.e2e.test.ts
+pnpm exec vitest run server/peer-roster.test.ts server/post-to-room.test.ts server/room-coordination.e2e.test.ts server/direct-coordination.e2e.test.ts server/runtime-coordinator.test.ts
 ```
 
 The coordination suites use `launchVerificationServer`, `control-omb`, and the

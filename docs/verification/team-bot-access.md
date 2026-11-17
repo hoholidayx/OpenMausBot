@@ -7,11 +7,11 @@ and a level for each person added. Admins and the bot's owner always edit. The c
 ## Driving it
 
 ```sh
-pnpm exec vitest run server/cloud-team-bot-access.e2e.test.ts server/bot-access.test.ts server/host/access-requests.test.ts \
-  server/bot-visibility.test.ts src/components/bot-access src/state/team-chats.test.ts src/components/settings/settings-index.test.ts
+pnpm exec vitest run server/bot-access.test.ts server/host/access-requests.test.ts \
+  server/bot-visibility.test.ts server/bot-visibility.e2e.test.ts src/components/bot-access src/state/team-chats.test.ts src/components/settings/settings-index.test.ts
 ```
 
-- `server/cloud-team-bot-access.e2e.test.ts` starts a real Team Cloud (`OMB_CLOUD_ROLE=team`) with the Owner (Olive),
+- The archived team access fixture started a Team Cloud (`OMB_CLOUD_ROLE=team`) with the Owner (Olive),
   an Admin (Ada) and four Users paired with the Admin's signed claims, and the synthetic Claude CLI. Payroll is shared
   with Bob to view, Cara to chat and Dan to edit; Eve is not added. As each of them it tries every route a member
   reaches: the bot list (each copy's `yourAccess`, the sharing only on an editor's), its chat, export, a room with it,
@@ -26,7 +26,7 @@ pnpm exec vitest run server/cloud-team-bot-access.e2e.test.ts server/bot-access.
   before levels keep exactly what their visibility gave. Asking to chat: someone who can't see the bot gets 404 and its
   owner 409; Bob's ask puts one card in Dan's inbox (the owner's, not an admin's), asking again adds none, Bob can't
   answer it, Not now leaves him at Can view, a new ask and Allow give him Can chat, a conversation of his own and a
-  line in his inbox; and an Allow from someone who can no longer edit the bot is refused.
+  line in his inbox; and an Allow from someone who can no longer edit the bot is refused. [Hosted bot access fixture](https://github.com/hoholidayx/OpenMausBot/blob/2d0dc208baffbbd050e291065604641a04a13aa9/server/cloud-team-bot-access.e2e.test.ts)
 - `server/bot-access.test.ts` covers the level rules: the mapping from visibility and back, a member's level (owner,
   damaged sharing, `@domain` entries), each copy of a bot, what each route needs, each level's bot fields, a card that
   changes the bot, a relayed message, and who may be added.
@@ -111,25 +111,23 @@ checkout of the code before levels.
 ## A new bot is its maker's until they share it
 
 ```sh
-pnpm exec vitest run server/cloud-team-private-default.e2e.test.ts server/new-bot-sharing.test.ts server/host/share-notice.test.ts
-OMB_UI_E2E=1 OMB_TEAM_PRIVATE_SHOTS=/tmp/private-shots pnpm exec vitest run scripts/testing/team-private-default-ui.e2e.test.ts
+pnpm exec vitest run server/new-bot-sharing.test.ts server/host/share-notice.test.ts
 ```
 
-The first runs a real Team Cloud with an Owner, an Admin and two Users and makes a bot every way one comes to exist
+The archived server fixture exercised bot creation in a Team Cloud with an owner, an admin and two users
 (New bot, a preset, a copy, a package, or a backup): each starts as Only people added with nobody
 added, another User gets 404 for it on every route that names it and never lists or finds it, a request that says who
 sees it wins, sharing it with one person puts one line in that person's inbox, and a new bot on this computer and on My
 Cloud carries no sharing at all. The store's test covers a bot a Chief makes (shared exactly as the Chief) and bots saved
-before this (unchanged). The second drives the real app in headless Chrome: a User's New bot is under Just me only, a
+before this (unchanged). The archived renderer fixture drove the app in headless Chrome: a User's New bot is under Just me only, a
 User neither sees it nor reaches it, the header's Share adds her and shows her face beside it, she reads the line in her
 inbox and chats, a narrow header folds the faces into a count, the Templates form states General access preset to Just
-me, and `/?connect=bots` opens Bot access for an admin and nothing for a User.
+me, and `/?connect=bots` opens Bot access for an admin and nothing for a User. [Hosted bot defaults fixture](https://github.com/hoholidayx/OpenMausBot/blob/2d0dc208baffbbd050e291065604641a04a13aa9/server/cloud-team-private-default.e2e.test.ts) [Hosted bot defaults renderer fixture](https://github.com/hoholidayx/OpenMausBot/blob/2d0dc208baffbbd050e291065604641a04a13aa9/scripts/testing/team-private-default-ui.e2e.test.ts)
 
 A User makes a bot of their own too. The first test makes one as a User against the real routes: it is private and
 theirs, each setting an admin alone makes is refused by name at creation and on edit, the admin's saved New bot
 defaults stay out of it, another User gets 404, they share it, they delete it only while nobody else can use it, the
-team's bot limit refuses theirs in an admin's words, and `server/cloud-team-rules.e2e.test.ts` refuses a blocked
-engine on it. In the app run the maker is a User.
+team's bot limit refuses theirs in an admin's words. [Hosted blocked-engine fixture](https://github.com/hoholidayx/OpenMausBot/blob/2d0dc208baffbbd050e291065604641a04a13aa9/server/cloud-team-rules.e2e.test.ts)
 
 ## Not proven here
 

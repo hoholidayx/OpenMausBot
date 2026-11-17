@@ -1,6 +1,6 @@
 # The Inbox on every plan
 
-`server/place-inbox.e2e.test.ts` boots this computer's server and My Cloud's with the synthetic Claude CLI, and on each:
+The archived Inbox fixture exercised a local server and a Cloud home with the synthetic Claude CLI.
 
 1. An empty inbox answers with no rows, not 404.
 2. A bot's approval and question, in two threads at once, are listed with count 2, each labelled with its thread.
@@ -13,8 +13,10 @@
 On My Cloud it also checks that nobody connects as a guest, that a bot's shell reads nothing, and that a guest's conversation
 left behind reaches the owner labelled, with its news kept away.
 
+[Archived Inbox fixture](https://github.com/hoholidayx/OpenMausBot/blob/2d0dc208baffbbd050e291065604641a04a13aa9/server/place-inbox.e2e.test.ts)
+
 ```sh
-pnpm exec vitest run server/place-inbox.e2e.test.ts
+pnpm exec vitest run server/host/place-inbox.test.ts
 ```
 
 ## The panel

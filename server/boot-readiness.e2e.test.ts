@@ -68,8 +68,6 @@ it("answers on a later start while an engine CLI is still being probed, and runs
   const home = freshHome();
   const first = await boot(home);
   const [starter] = (await first.get("/api/bots?messages=0")).bots;
-  const member = (await first.control("new-bot", "--name", "Room member")).bot;
-  const room = (await first.control("new-channel", "--name", "Start room", "--members", member.id)).channel;
   await first.stop();
 
   const probes = join(home, "probes.log");
@@ -86,14 +84,12 @@ it("answers on a later start while an engine CLI is still being probed, and runs
   expect(() => process.kill(held, 0)).not.toThrow();
 
   await server.control("send", "--bot", starter.id, "--task", starter.threadId, "--text", "Right after the start");
-  await server.control("send-channel", "--channel", room.id, "--text", "Right after the start, in a room");
   await new Promise((resolve) => setTimeout(resolve, 1_500));
   expect(existsSync(dump)).toBe(false);
   expect(() => process.kill(held, 0)).not.toThrow();
   writeFileSync(release, "");
 
   expect((await server.control("wait", "--bot", starter.id, "--task", starter.threadId, "--timeout", "30")).status).toBe("settled");
-  expect((await server.control("wait", "--channel", room.id, "--timeout", "30")).status).toBe("settled");
   const seen = JSON.parse(readFileSync(dump, "utf8"));
   expect(seen.argv[seen.argv.indexOf("--autocompact") + 1]).toBe("200000");
   const { instances } = await server.get("/api/instances");

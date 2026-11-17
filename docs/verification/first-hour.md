@@ -6,16 +6,12 @@ a model or the Electron app.
 
 ## The end-to-end scenario
 
-```sh
-pnpm exec vitest run server/first-hour.e2e.test.ts
-```
-
-It starts a real Cloud home (`OMB_CLOUD_ROLE=home`) in a temporary home with
+The archived fixture started a Cloud home (`OMB_CLOUD_ROLE=home`) in a temporary home with
 the fake Claude CLI, and the connected-apps service from
 `server/testing/broker-fake.ts`, which the Cloud registers with by itself as
 its plan includes it. The fake CLI answers by a marker in its prompt
 (`FAKE_CLAUDE_MARKER_REPLIES`) and makes the Composio calls written in a file
-(`FAKE_CLAUDE_TOOL_CALLS_FILE`). Nothing reaches Google, Composio or a model.
+(`FAKE_CLAUDE_TOOL_CALLS_FILE`). Nothing reaches Google, Composio or a model. [Hosted first-hour fixture](https://github.com/hoholidayx/OpenMausBot/blob/2d0dc208baffbbd050e291065604641a04a13aa9/server/first-hour.e2e.test.ts)
 
 Expected:
 
