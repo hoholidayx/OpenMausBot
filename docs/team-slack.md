@@ -148,4 +148,4 @@ A picture for Slack (no public address exists), partial text for streaming, file
 and telling `model` and `limit` apart in a `failed`. A card asked by another bot the work was handed to waits in its
 person's inbox, and Slack keeps showing the run as working.
 
-See [Verifying Slack for Team Clouds](verification/team-slack.md).
+See the [archived verification record](archive/upstream-verification/team-slack.md).

@@ -47,7 +47,7 @@ text and extra work can increase token usage.
 | `skillReview` | Off | Reviews long conversations and updates learned skills; also requires `skillAuthoring`. | Background model calls. `skillReviewSteps` controls the interval. |
 | `showToolCalls` | Off | Shows individual tool runs in the transcript. | Display option; it does not start tool runs. |
 | `browser` | On | Makes the built-in browser available, subject to engine and bot settings. | Browser work and the model turns using it still have their usual costs. |
-| `sharedComputers` | Single-owner lending only | Controls ordinary server lending; the bots' home has separate rules below. | Ordinary lending asks for consent; making a server home uses the home workflow. |
+| `sharedComputers` | Single-owner lending only | Controls lending from paired devices to self-hosted servers. | The desktop asks for consent before lending. |
 | `claudeUserMcp` | Off | Claude bots also load this machine's personal Claude Code MCP servers. | Adds tools and may start those servers; their tools can consume tokens or contact services. |
 | `claudeUserSkills` | Off | Claude bots also load the personal skills in `~/.claude/skills`. | Adds skill instructions/files to the engine's available context; does not control Codex native skills. |
 | `llmThreadTitles` | Off | Generates new conversation titles with the engine. | Additional one-shot model calls. |
@@ -69,8 +69,7 @@ file.
 
 ### Ordinary server lending has three states
 
-For an ordinary self-hosted server that is not the bots' home,
-`sharedComputers` being omitted is different from `false`:
+On self-hosted servers, `sharedComputers` determines which paired devices can lend access.
 
 - **Omitted:** a single-owner server accepts lending from its own admin pairings.
 - **`false`:** disables that ordinary owner lending.
@@ -80,13 +79,10 @@ A single-owner server has no sign-in-list members and at most one admin, named
 by an email address rather than a whole domain. A server with members, multiple
 admins or a domain-wide admin entry needs `true` for ordinary computer lending.
 
-The desktop asks its person before ordinary server lending. There is an
-exception after **Make &lt;server&gt; my home** moves the bots to a server owned by
-that person alone: the computer then works for its home automatically, without
-another access dialog, even when `sharedComputers` is `false`. Use the
-OpenMausBot menu bar item to **Pause** that lending. Cloud homes also have their
-own lending rules; this flag is not a universal pause control. See
-[Self-hosting](self-hosting.md) for the move, pairing and trust boundaries.
+The desktop asks for explicit approval before lending to a self-hosted
+server. Use the OpenMausBot menu bar item to **Pause** lending. See
+[Self-hosting](self-hosting.md#using-it-from-your-computer) for pairing,
+computer access, and workspace recovery.
 
 ## Other values under `features`
 

@@ -116,7 +116,7 @@ describe("CI path scope", () => {
   });
 
   it.each([
-    ["server/index.ts"], ["shared/types.ts"], ["companion/src/index.ts"], ["enterprise/license.ts"], ["evals/runners/run-evals.ts"],
+    ["server/index.ts"], ["shared/types.ts"], ["companion/src/index.ts"], ["evals/runners/run-evals.ts"],
     ["skills/pdf/SKILL.md"], ["cloudflare/composio-broker/src/index.ts"], ["Dockerfile"], ["deploy/podman/run.sh"],
     ...SRC_OUTSIDE_RENDERER.map((file) => [file]),
   ])("runs every check that runs the server for %j", (file) => {

@@ -1,5 +1,10 @@
 # OMB Cloud: the home machine
 
+> This is a historical reference for the official upstream hosted service.
+> For a server you operate, see [Self-hosting](self-hosting.md). The fork's
+> workspace transfer and recovery workflow uses
+> [encrypted workspace backups](verification/workspace-backups.md).
+
 OMB Cloud (the Starter, Pro and Max plans) gives one person an always-on
 OpenMausBot server of their own (a plan may instead sleep when idle: see
 [Sleeping homes](#sleeping-homes-the-power-read-and-the-sleep-handshake)). The plans differ in machine size, disk and
@@ -583,10 +588,8 @@ the person's own uses this computer by itself while the desktop app runs and is
 signed in as them (`lendAutomatically` in `electron/computer-sharing.mjs`): My
 Cloud and each other Cloud the verified session lists as theirs
 (`createLendingTarget` in `electron/lending-target.mjs`), never a Team Cloud and
-never a server that only signed in with their account. A server of the person's
-own that they made their bots' home (**Make <server> my home**, docs/self-hosting.md)
-is lent the same way, last, once the move is done and while that server says it
-is theirs alone. A self-hosted server this desktop paired with as its owner
+never a server that only signed in with their account. A self-hosted server
+this desktop paired with as its owner
 (admin scope, no team or Cloud) is asked about once, in a popup, and lent only
 after the person's Allow (`lendOwn`, `electron/server-lending.mjs`); the server
 takes a computer from its admin pairings alone unless `features.sharedComputers`

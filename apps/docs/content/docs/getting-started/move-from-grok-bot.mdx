@@ -1,6 +1,6 @@
 ---
 title: Move from Grok Bot
-description: Bring your Grok Bot Bots to MausBot, on your computer or on My Cloud. What comes over (instructions, skills, routines, memories, apps), what doesn't, and each step.
+description: Bring your Grok Bot Bots to MausBot on your computer or a self-hosted server.
 ---
 
 MausBot is an open-source alternative to Grok Bot, with no tie to xAI. You can bring each of your Grok Bot Bots over, with its instructions, skills, routines, memories and the list of apps it used. It takes a few minutes per Bot, and nothing changes in Grok Bot.
@@ -87,13 +87,15 @@ Choose **Move another Bot** for the next one, or **Done**.
 5. **Check skills that stayed off.** A safety check keeps a skill off when its text has a long base64-looking blob, pipes a download straight into a shell (`curl | sh`), or has invisible Unicode characters. Read it, then switch it on in the bot's skills if you trust it.
 6. **Add files** the bot needs to its folder.
 
-## On My Cloud
+## On a self-hosted server
 
-With MausBot Cloud, your bots live on My Cloud, and the desktop app opens My Cloud by itself (see [One assistant, everywhere](./using-the-desktop-app-with-my-cloud.mdx)). Moving from Grok Bot works the same way there, in **Settings → Import & export → Move from Grok Bot**, with one difference: My Cloud can't look in your computer's Downloads folder or at the Grok Bot app. So in step 3, paste the Bot's reply, or choose or drop the file it made.
+Open **Settings → Import & export → Move from Grok Bot** in the server
+workspace. In step 3, paste the Bot's reply or upload its file. The server
+cannot scan Downloads on your computer.
 
-The moved bots live on My Cloud. Once you turn their routines on, they run with your computer off.
-
-If you moved Bots into MausBot on this computer before you had MausBot Cloud, you don't need to move them again: the desktop app brings everything on this computer to My Cloud by itself, once.
+If you already imported the bots into a local OpenMausBot workspace, use an
+[encrypted workspace backup](../self-hosting/data-and-backups.mdx#move-a-workspace-to-another-installation)
+to move the workspace to the server.
 
 ## What MausBot reads on your computer
 
@@ -120,4 +122,6 @@ It never opens Grok Bot's sign-in files, cookies or chats. A file you drop on th
 
 **Settings → Import & export → Import backup** restores a MausBot backup (an encrypted `.ombbackup` file) and replaces everything in that installation. It does not read Grok Bot files: use **Move from Grok Bot** for those.
 
-If you do restore a MausBot backup, it finishes when MausBot's server starts again. On the desktop app, choose **Restart and restore**. On My Cloud, newer versions restart My Cloud by themselves: the page says it is restarting to finish, and carries on in a minute or two. If the page instead asks you to quit and reopen the app, your My Cloud doesn't have that update yet. The restore is saved and finishes the next time My Cloud's server starts, for example when My Cloud updates itself; if you can't wait, write to MausBot Cloud support. More: [Data and backups](../self-hosting/data-and-backups.mdx).
+Restore finishes when the workspace starts again. On the local desktop app,
+choose **Restart and restore**. For a self-hosted workspace, restart the server
+process. See [Data and backups](../self-hosting/data-and-backups.mdx).

@@ -102,13 +102,8 @@ or taller than the card shows a box the app never draws.
     Long replies stop at 400 characters with an ellipsis, and the card grows to
     at most 240 px with its bottom edge showing (a Japanese reply is cut at ten
     lines).
-15. **My Cloud home.** After moving this computer's bots to My Cloud (window on
-    My Cloud's page): ⌃⌥Space does nothing in MausBot and another app can take
-    it (`talk-shortcut:state` says unavailable, so no Settings row). Come home
-    to this computer again: the key works without a restart. A box still up
-    when the move froze this computer says "MausBot lives on My Cloud now —
-    talk to it there". A Quick asks chat link sent while My Cloud's page is
-    shown does reach it as `chat:open`, and My Cloud has no such chat; with the
-    key off there, no box makes one.
+15. **Switch workspaces.** Test the shortcut on this computer, open a paired
+    server, then switch back. The shortcut should be available again in the
+    local workspace without restarting the desktop app.
 16. **Server starting.** Quit, relaunch and press at once, before the window
     loads: "MausBot is still starting. Try again in a moment."

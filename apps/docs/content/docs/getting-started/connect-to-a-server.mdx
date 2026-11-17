@@ -1,0 +1,20 @@
+---
+title: Connect the desktop app to your server
+description: Pair your desktop app with a self-hosted OpenMausBot workspace and switch between workspaces.
+---
+
+Run OpenMausBot on a server you operate to keep its bots and routines available
+while your desktop app is closed. See [Self-hosting](../self-hosting/index.mdx)
+to set up a server and choose how your devices will reach it.
+
+1. Generate a pairing link on the server. If you start it with
+   `openmausbot serve`, use the link printed by that command.
+2. In the desktop app, choose **＋ → Connect to a server** and paste the link.
+3. Open the server from the workspace switcher. A browser can open the pairing
+   link directly, and the phone app can scan the pairing QR code.
+
+Each workspace keeps its own bots, chats, and settings. To bring existing
+workspace data to the server, follow [Move a workspace to another
+installation](../self-hosting/data-and-backups.mdx#move-a-workspace-to-another-installation).
+Configure providers and connected accounts on the server before re-enabling
+restored automations.

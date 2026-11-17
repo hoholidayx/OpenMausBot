@@ -2,7 +2,7 @@
 
 A wait is a condition a bot sets up once ("tell me when report.txt is there"); plain server
 code checks it on a timer, and no model runs until it fires. See the
-[design](../superpowers/specs/2026-10-27-waits-design.md).
+[design](../archive/upstream-planning/superpowers/specs/2026-10-27-waits-design.md).
 
 ## Automated checks
 

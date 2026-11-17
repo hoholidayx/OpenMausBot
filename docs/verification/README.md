@@ -72,7 +72,6 @@ Use only mapped, tested commands:
 - [Chat widgets](widgets.md)
 - [Pages and apps in a room](room-pages.md)
 - [Published apps](published-apps.md)
-- [Included app hosting](included-hosting.md)
 - [The Inbox on every plan](inbox.md)
 - [Reactions](reactions.md)
 - [Chat widgets: prompts to try with a real bot](widget-prompts.md)
@@ -95,19 +94,15 @@ Use only mapped, tested commands:
 - [Preset bots](presets.md)
 - [Teams and shared instructions](teams.md)
 - [Full workspace backups](workspace-backups.md)
-- [Optional company cloud backups](company-backups.md)
 - [Organization library: the desktop channel](desktop-library.md)
 - [Fleet: many workspaces on one server](fleet.md)
 - [Workspaces screen and the fleet agent](workspaces.md)
-- [Hosted workspace sign-in and revocation](hosted-workspaces.md)
 - [Shared-workspace trust: loopback, card answerers, decision log](shared-workspace-trust.md)
 - [Shared-workspace governance: bot visibility and admin activity](shared-workspace-governance.md)
 - [Who can see, chat with and change each team bot](team-bot-access.md)
 - [Usage ledger](usage-ledger.md)
 - [Bounded built-in tool results](tool-results.md)
-- [Read-only bot notes](../memory.md)
-- [Spend cap and sell prices](spend-cap.md)
-- [Enterprise layer loading and license expiry](enterprise-license.md)
+- [Read-only bot notes](memory-layer.md)
 
 `control-omb ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real
 renderer in a headless Chrome by accessible name, so composer sends, transcript
@@ -161,16 +156,9 @@ real Settings connection component in disposable Electron windows.
 The [loading screen and tray smoke](startup-tray.md) checks the startup close
 button, hidden handoff, tray restore, and Quit in a disposable Electron profile.
 
-The [optional organization connection smoke](organization-settings.md) checks
-the real Settings panel and production desktop client against a synthetic
-Admin server, including cancellation, revocation and unchanged normal startup.
-
-The [personal Cloud account smoke](cloud-account.md) checks optional browser
-sign-in, server-verified Pro status and sign-out in a disposable Electron profile.
-
-The [rail of Clouds](cloud-rail.md) checks the session's list of Clouds, which
-pages may read the rail, opening a place by its id, hiding the rail, and buying
-another Cloud, with a loopback Admin and the real app in a disposable preview.
+The [workspace rail fixture](cloud-rail.md) checks which pages may read the
+rail, switching by workspace id, hiding the rail, and connecting a server
+in a disposable preview.
 
 The [embedded server recovery smoke](desktop-server-recovery.md) crashes real
 Electron-owned fixture servers, verifies bounded recovery and private access,
@@ -211,15 +199,6 @@ against an isolated server, synthetic desktop and VPS SSH forward.
 
 The [bot settings fixture](bot-settings.md) checks profile saves, standing
 instructions, history restore, skill/memory refresh, and stale-response isolation.
-
-The [hosted Slack management fixture](hosted-slack-management.md) checks the
-agent settings link to Admin: hosted-only availability, the member-readable
-route module, and stale-response isolation.
-
-The [Slack for Team Clouds fixture](team-slack.md) checks a Slack message handed over with a member's own session:
-a channel's shared conversation, a direct message's private chat, who may ask and stop, and the signed reports a
-stand-in Admin takes; and the same on a My Cloud, where both are the owner's ordinary conversations. It reaches no
-Slack workspace and no real Admin.
 
 The [chat and settings polish fixture](chat-polish.md) exercises attachment
 galleries, opt-in video playback, persisted tool details, and responsive settings

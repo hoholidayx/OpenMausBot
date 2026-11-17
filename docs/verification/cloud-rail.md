@@ -23,10 +23,9 @@ Nothing here needs a real MausBot Cloud account, a payment or the Electron app.
 - The desktop session may list every Cloud of the person's (`clouds`, at most
   20, contract v1 `CloudEntry`). An older Admin sends none, and the session's
   `cloud` and `teams` say everything exactly as before.
-- Each Cloud the person owns besides My Cloud is a saved place of its own,
-  named and coloured by the Admin, opened like a team's Cloud: the window pairs
-  it through the Admin's `pairing` with that Cloud's id and takes only a grant
-  for its own address. My Cloud stays the one home.
+- Each Cloud the person owns besides My Cloud is a saved place of its own.
+  The window pairs through the Admin using that Cloud's id and a grant
+  for its own address.
 - The person hides the rail and shows it again with a button at the left of the
   sidebar's top row, right after the macOS traffic lights (on the same spot
   either way: the app's preload tells the page how far it moved, in
@@ -60,8 +59,7 @@ Nothing here needs a real MausBot Cloud account, a payment or the Electron app.
   transparency, none with forced colours); no colour, no tint. Every place
   starts plain. Settings → Appearance changes it with the same six swatches,
   the plain one named None: a Cloud's on the Admin
-  (`PATCH /api/cloud/desktop/clouds/:id`, its owner or its team's admins; a
-  member sees it locked), This computer's and a server's connected by hand in
+  (its owner or its team's admins can edit it), This computer's and a server's connected by hand in
   this app (`environments.json`: This computer's as `localColor`, beside the
   saved places, whether or not the app is signed in). An Admin without that
   route changes nothing and says so.
@@ -89,16 +87,16 @@ Nothing here needs a real MausBot Cloud account, a payment or the Electron app.
   pairing steps, and one only reachable on its own network with nothing to
   open.
 
-## This Mac, once My Cloud is home
+## This Mac with a legacy migration marker
 
-Once a person's bots moved to My Cloud, this computer's own copy is frozen and
-is never a place again. The rail then shows This Mac (This PC on Windows and
+For a workspace frozen by an earlier migration, the rail shows
+This Mac (This PC on Windows and
 Linux) first, beside My Cloud: a separate place on this computer, with its own
 bots. A click starts it fresh in a folder of its own beside the data folder
 (`~/.openmausbot-profiles/default`, a profile by its stable id; more profiles
 would be more folders there), on the same address, one server at a time, as a
 local environment switch does. Nothing moves either way, the frozen copy keeps
-its marker and its bots, and the move's code never reaches the profile. A line
+its marker and its bots. A line
 on its page says the bots from before are on My Cloud and that an older copy
 comes in from Settings → Import & export, until its ✕ closes it for good in that
 workspace, or by itself once it was shown on three days or a week went by. My
@@ -135,7 +133,7 @@ Personal, then Workspace 2 and on) and a colour, then opens it fresh: another
 profile under `~/.openmausbot-profiles/<id>`, listed with its name, colour and
 creation time in `~/.openmausbot-profiles/profiles.json` (This Mac, `default`,
 is its first entry, kept as it was). One runs at a time: opening another waits
-for the work under way in the one that runs (as the move waits for it, at most
+for the work under way in the one that runs (at most
 a minute, the circle saying so), then stops it as a quit does and starts the
 next. Once My Cloud is home every workspace is on the rail; with no home the
 named ones sit after This computer, which stays the data folder. A workspace's
@@ -165,13 +163,12 @@ server never starts.
 ## Automated fixtures
 
 ```sh
-node --test electron/cloud-list.node-test.mjs electron/cloud-account-clouds.node-test.mjs electron/cloud-rail.node-test.mjs electron/chrome-rail.node-test.mjs electron/home-window.node-test.mjs electron/place-look.node-test.mjs electron/desktop-prefs.node-test.mjs
+node --test electron/cloud-list.node-test.mjs electron/cloud-rail.node-test.mjs electron/chrome-rail.node-test.mjs electron/home-window.node-test.mjs electron/place-look.node-test.mjs electron/desktop-prefs.node-test.mjs
 pnpm exec vitest run src/components/PlacesRail.test.ts src/components/ChromeRail.test.ts src/components/ChromeRailToggle.test.ts src/components/Sidebar.header.test.ts src/components/PlaceLookCard.test.ts
 pnpm exec vitest run server/workspace-banner.test.ts server/routes/workspace-banner.test.ts server/workspace-banner.e2e.test.ts src/lib/place-banner.test.ts src/components/PlacePicture.test.ts
 ```
 
-The account tests answer as a loopback Admin, with and without `clouds`. The
-rail tests load the production preload and check which page gets the list,
+The rail tests load the production preload and check which page gets the list,
 which ids open, and that a circle, ＋ and a colour change act only
 from a click. The colour tests check who may change a place's colour and where
 it is kept, from its own page and from the rail's menu, that nothing is saved

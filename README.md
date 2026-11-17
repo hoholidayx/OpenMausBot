@@ -4,7 +4,7 @@
 
 **The open-source Grok Bot alternative: your own team of AI bots, in a chat app.**
 
-[**Self-hosting**](#self-hosting) &nbsp;·&nbsp; [Run from source](#run-from-a-terminal-or-on-a-server)
+[**Self-hosting**](#self-hosting) &nbsp;·&nbsp; [Run from source](#run-from-a-terminal-or-on-a-server) &nbsp;·&nbsp; [Documentation](docs/README.md)
 
 <sub>OpenMausBot is an open-source Grok Bot alternative: an independent project inspired by **Grok Bot**, and the open-source alternative to **Meta Muse**, **OpenAI dots** and **Cue by Manus** — bring-your-own-agent, local-first, on the models you already have. Also known as **MausBot**; formerly **OpenGrokBot**. Not affiliated with xAI, Meta, OpenAI or Manus.</sub>
 

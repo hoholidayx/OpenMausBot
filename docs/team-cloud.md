@@ -678,18 +678,6 @@ or posts in one.
 On a My Cloud and on a desktop no bot has an owner: nothing is routed, and one Chief per department holds as before.
 Every bot still reaches every bot there.
 
-## Bringing a bot in from My Cloud
-
-Someone with a My Cloud moves a bot into a team from two places: **Move to Acme** in the bot's menu on My Cloud, and on the
-team's own page in the desktop app, **Bring your stuff**, which lists My Cloud's bots with one **Move** each. Both say the
-same before anything moves: that only they and the team's admins can use it there until they share it, what goes (instructions, skills, files, routines, their chats), what
-stays on My Cloud (what the bot remembers, their connections, MausBot), and that there is no way back.
-
-A team's server isn't the person's own, so its page gets less than My Cloud's does (`electron/team-move-main.mjs`). It reads
-only the names of My Cloud's bots and which can go, and only while it is the window's active page and the Admin's verified
-session says the person is in that team. It names a bot by id, and main reads the name from My Cloud. The confirm is main's
-own window, in English, because a page could soften or skip one of its own.
-
 ## Who can use a bot
 
 Each team bot is shared like a document: what everyone in the team gets, and a level for each person added. A person's
@@ -717,7 +705,7 @@ allow, folders), where it runs, its department, whom it answers to or directs, c
 - **A new bot is its maker's until they share it** (`server/new-bot-sharing.ts`, the one place that decides, set on the
   store before anything is made). A bot made on a team starts as Only people added with nobody added: whoever looks
   after it and the admins reach it, and to every other member it does not exist. That holds for New bot, a preset, a
-  copy, a package or template (the organization library's too), a backup and a bot moved in from My Cloud; an import
+  copy, a package or template (the organization library's too), and a backup; an import
   records the member who ran it as the one who made its bots. Three things differ. A request that says who sees the
   bot wins: `visibility` on `POST /api/bots` ("everyone" is Everyone · Can chat) and `?visibility=` on an import, an
   admin's choice. A bot another bot makes (a Chief's reviewed setup) is shared exactly as its maker is, because bots

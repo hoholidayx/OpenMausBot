@@ -2,7 +2,7 @@
 
 Files is a top-level page in the desktop app, for people with a MausBot Cloud ("My Cloud"). It does two jobs:
 
-- **Lent folders, even while this computer sleeps.** Every folder lent to My Cloud (each moved bot's project folder, a folder added here) also gets a copy on My Cloud, kept up to date while this computer is on. The home folder, which this computer lends My Cloud by itself (`docs/cloud-pro.md`, "This computer works for your Clouds"), is too broad for a copy and stays live only. While it is away, bots read that copy, and a change to a folder lent with editing waits on My Cloud and lands here when the computer is back. Nobody chooses anything: what fits is copied, the rest stays live only.
+- **Lent folders, even while this computer sleeps.** Every folder lent to My Cloud (such as a folder added here) also gets a copy on My Cloud, kept up to date while this computer is on. The home folder, which this computer lends My Cloud by itself (`docs/cloud-pro.md`, "This computer works for your Clouds"), is too broad for a copy and stays live only. While it is away, bots read that copy, and a change to a folder lent with editing waits on My Cloud and lands here when the computer is back. Nobody chooses anything: what fits is copied, the rest stays live only.
 - **Your bots' work.** What Cloud bots make comes down to `Documents/MausBot/<bot>/<conversation>` on this computer.
 
 It never merges two sides. Nothing on this computer is deleted because of something that happened on My Cloud, and a bot changes the person's files only in a folder lent with editing, by the same rules whether the computer is on or away.
@@ -14,7 +14,6 @@ Nothing new. Lending a folder is what it was; the copy happens behind it. There 
 - **Add a folder** on the Files page lends it, read only. The folder picker opens. The app checks the folder, then asks: "Share “Clients” with My Cloud? 1,240 files · 3.2 GB." Choose **Share** or **Cancel**. When it can't be lent (before this computer is signed in to My Cloud, or a change of what is lent overtook it), Files copies it on its own, as before.
 - **Stop sharing**, from the ⋯ menu. The folder is no longer lent (lending stops when it was all that was lent), and My Cloud's copy moves to its trash for 30 days. Nothing on this computer changes.
 - **The Files page lists every folder My Cloud has a copy of.** A lent folder whose copy is too big shows only where lending shows its folders.
-- **After a move to My Cloud**, the folders that stayed on this computer are offered: **Share them with My Cloud**.
 - **The bots' work switch.** It is on by default. Only conversations active since the switch was turned on come down, so old history doesn't flood Documents.
 
 ## Lent folders while the computer is away
@@ -87,7 +86,7 @@ Folders shared from the Files page before lent folders keep working. Once this c
 
 - **Access.** `/api/sync/*` answers only on a Cloud home, and only to the owner's admin session.
 - **Where things live:**
-  - Shared copies are under `/data/Synced/<computer>/<folder>`, outside the data folder, so workspace backups and Move to Cloud don't carry them, and bots read them there.
+  - Shared copies are under `/data/Synced/<computer>/<folder>`, outside the data folder and outside the workspace backup, and bots read them there.
   - Copies of lent folders are under `/data/.openmausbot/sync/lent/<computer>/<folder>` (`lentRoot`): in the data folder, which no bot's box shows, so only `shared_computer`, with lending's own rules (the owner's own conversations and routines, never a webhook or a guest), reaches them, and the prompt never names them. A folder shared from the Files page before it was lent keeps its copy in `/data/Synced`, where it was.
   - Both are on My Cloud's disk, in its daily backups.
   - Sync's own records (`sync/`) are left out of backups: `sync/lent.json` (what each computer lends and how fresh each copy is) and `sync/staged/` (bots' changes waiting for their computer) included.

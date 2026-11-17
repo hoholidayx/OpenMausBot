@@ -6,27 +6,20 @@ icon: DatabaseBackup
 
 MausBot keeps its application state under `~/.openmausbot`, including configuration, transcripts, message attachments, device pairing state, and the SQLite message store.
 
-## Copy from the desktop app
+## Move a workspace to another installation
 
-To bring your computer's bots and chats to a server you run, use the desktop
-app: connect the server with **＋ → Connect to a server**, then choose **Copy this
-computer here** on its row (an empty server also offers it on its own page, and
-its **Settings → Import & export** has **Import from this computer**; both bring you to
-that button). There is no file
-and no password to handle: the app uploads the encrypted workspace backup
-directly, continues where a dropped connection left it, backs up what the
-server had (so **Swap back** can put it back), and the server restarts itself
-to install it. API keys and sign-ins stay where they are; routines arrive
-paused. It needs the desktop app paired with an owner code, and a server whose
-email sign-in lets someone besides you in never receives one. Copying again
-replaces the backup **Swap back** would put back; the app says so first.
+1. In the source workspace, choose **Settings → Import & export → Export full
+   backup** and save the encrypted `.ombbackup` file.
+2. Open **Settings → Import & export → Import backup** in the destination.
+   Select the file, enter its password, and review the preview. Confirm
+   **REPLACE** when you are ready to replace the destination workspace.
+3. Fully quit and reopen a local desktop installation, or restart the
+   destination server. Reconnect your accounts and review restored routines
+   and webhooks before enabling them.
 
-`openmausbot serve`, `openmausbot service install` and the Docker and Podman
-images start the server again on their own after the copy; a server you
-started some other way finishes installing it at its next start.
-
-Export and import below stay for recovery, and for servers with no desktop app
-nearby.
+If an earlier automatic migration left a workspace frozen, open its **Import &
+export** settings to export a recovery backup. Restore it into a separate
+workspace and leave the frozen copy in place.
 
 ## Export and import in Settings
 
@@ -66,7 +59,7 @@ or configure your own reverse proxy's limits appropriately.
 To restore, choose **Import backup**, select the file, and enter its password.
 Validation shows its date, version, contents and exclusions before anything is
 replaced. Type **REPLACE** to confirm, then fully quit and reopen the desktop app,
-or restart the hosted server process. Closing a desktop window is not enough.
+or restart the self-hosted server process. Closing a desktop window is not enough.
 
 Restore **replaces**, rather than combines, workspace data. The previous data is
 kept under `.openmausbot/.backups/safety-<restore-id>/`. A failed or interrupted

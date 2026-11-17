@@ -43,8 +43,7 @@ engine, creates a bot, sends one turn as the owner through the control surface
 and one as a paired device with a label, waits for both to settle, then checks
 the month file has exactly two rows with the right triggers and no message
 text, that `GET /api/usage` groups them by person and by bot with the fake
-engine's `0.01` per turn, that `GET /api/usage.csv` returns three lines, and
-that a client-scoped device is refused. It prints the fixture's server log
+engine's `0.01` per turn, and that a client-scoped device is refused. It prints the fixture's server log
 path as evidence and removes its temporary home.
 
 `server/usage-attribution.e2e.test.ts` boots the server against the fake Claude, ACP
