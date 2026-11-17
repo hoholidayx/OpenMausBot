@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { roomResetNote } from "./room-context.ts";
 import { heldMemberLine, isHeldMemberLine } from "./room-holds.ts";
 import { finishedWithoutSummaryLine } from "./room-reply.ts";
 import { roomTurnTimeoutMessage } from "./room-turn-timeout.ts";
@@ -18,8 +17,7 @@ describe("a room's status rows", () => {
     expect(finishedWithoutSummaryLine("Biber", true, "de")).toBe("Biber ist ohne Zusammenfassung fertig geworden, ich frage nach einem kurzen Ergebnis");
     expect(roomTurnTimeoutMessage("Biber", 1, "de")).toBe("Biber kam im Raum 1 Minute lang nicht voran und wurde gestoppt");
     expect(roomTurnTimeoutMessage("Biber", 20, "de")).toBe("Biber kam im Raum 20 Minuten lang nicht voran und wurde gestoppt");
-    expect(roomResetNote("Biber", { reason: "threshold", percent: 92 }, "de"))
-      .toBe("Der Kontext von Biber war zu 92 % voll: komprimiert zu einer neuen Sitzung mit den letzten Nachrichten des Raums");
+
   });
 
   it("are recognized in every language when read back", () => {

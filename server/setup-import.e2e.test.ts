@@ -166,20 +166,4 @@ describe("bringing in another AI tool's setup through the desktop app's own serv
     expect((await api("PATCH", `/api/bots/${later.id}/skills/review-pr`, { enabled: true })).status).toBe(200);
     expect(await enabled(later.id)).toEqual({ "release-notes": true, "review-pr": true });
   });
-
-  it("reaches a bot's room turns too, which run in its own folder: through the index", async () => {
-    const bots = (JSON.parse((await api("GET", "/api/bots")).text) as { bots: Array<{ id: string; name: string }> }).bots;
-    const later = bots.find((bot) => bot.name === "Later Bot")!;
-    const room = JSON.parse((await api("POST", "/api/groups", {
-      name: "Release room", memberIds: [later.id], setup: { bulletin: "", defaultResponder: { kind: "member", botId: later.id } },
-    })).text).group as { id: string };
-    expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "Room marker 7c1: review the release" })).status).toBe(202);
-    const dumped = () => JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8")) as { prompt?: unknown; systemPrompt?: string };
-    await expect.poll(() => JSON.stringify(dumped().prompt ?? "").includes("Room marker 7c1"), { timeout: 20_000 }).toBe(true);
-    const system = dumped().systemPrompt ?? "";
-    expect(system).toContain("Skills from this computer:");
-    expect(system).toContain("- review-pr: Reviews a pull request.");
-    // "Also use my Claude Code skills" is still on from above: Claude has release-notes from its own folder.
-    expect(system).not.toContain("release-notes");
-  });
 });

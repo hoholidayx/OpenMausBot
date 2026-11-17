@@ -122,7 +122,7 @@
     },
     {
       "name": "coordinate_bots",
-      "description": "The one way to hand work on: ask existing OpenMausBot teammates a question or assign them concrete work. Give 1-4 bot_ids from list_bots; they see only what you send, so include constraints and done_when, and pass files they need in files. In a room it goes to this room; elsewhere to your standing work thread with each teammate. Results return here and resume you, so end your turn after sending; on return, verify the outcome and send fixes with rework true. Never target whoever assigned you this work or anyone above it: end your turn and your reply reaches them. Never thank a finished teammate or repeat a refused call unchanged.",
+      "description": "Ask existing OpenMausBot teammates a question or assign concrete work. Give 1-4 bot_ids from list_bots, explicit constraints and done_when. Pass files they need in files. Room members work in the room. Native agents and other nonmembers receive the brief in a direct work thread. Results return here and resume you. End your turn after sending. On return, verify the outcome and send fixes with rework true. Your reply reaches whoever assigned you this work, so end the turn to respond to them.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -872,7 +872,7 @@
     },
     {
       "name": "manage_room",
-      "description": "Chiefs only, for rooms in your own department. create a room (was create_room) when the user asks for one (at most four per turn), with active bots from list_bots in any department; you are included automatically as the default responder, and it creates no turns or messages. For a room from list_rooms: rename it, change its bulletin, add, remove or set members, with any bots you can reach (keep yourself as a member), or open a new thread in it (new_thread, at most four per turn), which becomes the room's current thread. Busy rooms, pending approvals and team-goal leads are protected. Moving rooms or bots between departments stays with the user; coordinate_bots reaches bots outside a room directly. Follow the tool result under the effective access level; if the change is refused, report the blocker, or ask the user to make the room change, without trying another route.",
+      "description": "Chiefs only, in your own department. Create a room with reachable API bots from list_bots (up to four rooms per turn). An API Chief joins and stays a member. Use the management section of list_rooms to find rooms you can rename, update, or open a new thread in (up to four new threads per turn). Busy rooms, pending approvals and team-goal leads are protected. The user can move rooms or bots between departments. Report any refusal.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,

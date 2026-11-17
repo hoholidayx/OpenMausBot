@@ -28,17 +28,17 @@ describe("context warning", () => {
   it("lists room members at 80% or more in roster order, with a pending Compact now", () => {
     const members = [bot("Scout"), bot("Pixel"), bot("Quill")];
     const warnings = roomContextWarnings({ memberContext: {
-      Quill: { tokens: 190_000, window: 200_000, compactRequested: true },
+      Quill: { tokens: 190_000, window: 200_000 },
       Scout: { tokens: 170_000, window: 200_000 },
       Pixel: { tokens: 100_000, window: 200_000 },
     } }, members);
-    expect(warnings.map(({ bot: member, percent, requested }) => [member.id, percent, requested]))
-      .toEqual([["Scout", 85, false], ["Quill", 95, true]]);
+    expect(warnings.map(({ bot: member, percent }) => [member.id, percent]))
+      .toEqual([["Scout", 85], ["Quill", 95]]);
     expect(roomContextWarnings({ memberContext: null }, members)).toEqual([]);
 
     const onCompact = vi.fn();
-    const markup = renderToStaticMarkup(createElement(RoomContextWarningsView, { warnings, pendingBotId: null, onCompact }));
-    expect(text(markup)).toBe("Scout's context in this room is 85% full. Compact now Quill's context in this room is 95% full. Compacts before its next turn.");
+    const markup = renderToStaticMarkup(createElement(RoomContextWarningsView, { warnings, pendingBotId: "Quill", onCompact }));
+    expect(text(markup)).toBe("Scout's context in this room is 85% full. Compact now Quill's context in this room is 95% full. Compacting…");
   });
 
   it("offers Compact now in the 1:1 header, locked while the bot works", () => {
@@ -50,11 +50,11 @@ describe("context warning", () => {
     expect(busy).toContain("Stop this bot&#x27;s turn first");
   });
 
-  it("shows usage without a compaction action when the provider owns compaction", () => {
+  it("explains provider compaction alongside the usage and action", () => {
     const warning = threadContextWarning(usage(182_000, 200_000), [line("bot", "text"), line("bot", "compaction")], false);
     expect(warning).toEqual({ percent: 91 });
-    const markup = renderToStaticMarkup(createElement(ThreadContextWarningView, { name: "Scout", percent: warning!.percent, busy: false, pending: false }));
-    expect(text(markup)).toBe("Context 91%");
-    expect(markup).not.toContain("<button");
+    const detail = "This engine manages compaction automatically. Manual compaction is unavailable.";
+    const markup = renderToStaticMarkup(createElement(ThreadContextWarningView, { name: "Scout", percent: warning!.percent, busy: false, pending: false, detail, onCompact: vi.fn() }));
+    expect(text(markup)).toBe(`Context 91% Compact now ${detail}`);
   });
 });

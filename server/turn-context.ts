@@ -1,7 +1,7 @@
 import type { DriverKind } from "./contracts.ts";
 import { replaysTranscriptNatively } from "./runtime/capabilities.ts";
 
-export function replaysNatively(kind: DriverKind): boolean {
+export function replaysNatively(kind: DriverKind | undefined): boolean {
   return replaysTranscriptNatively(kind);
 }
 

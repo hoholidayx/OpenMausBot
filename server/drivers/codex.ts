@@ -60,7 +60,7 @@ import { archivedNativeCodexThread, CODEX_MISSING_CREDENTIALS, codexProviderMism
 import { codexLoginCheck, readCodexLogin, storedCodexLogin } from "./codex-login.ts";
 import { keyRejected, noteKeyAccepted, noteKeyRejected } from "../key-rejections.ts";
 import { classifyResumeFailure, mayReplay, rebuiltSessionNotice, recoveryPromptFor } from "../resume-recovery.ts";
-import { extractMcpImages } from "../mcp-tool-images.ts"; import { codexImageInputs, withoutInlineImages } from "./codex-images.ts";
+import { extractMcpImages } from "../mcp-tool-images.ts"; import { codexGeneratedImage, codexImageInputs, withoutInlineImages } from "./codex-images.ts";
 import { parseProtocolAskQuestions, questionChoices } from "../../shared/ask-question.ts";
 import { codexQuestionReply, openAsyncQuestion, type CodexAsk } from "./codex-questions.ts";
 import { codexReleaseUpdate, codexUpdateCommand } from "./codex-update.ts";
@@ -1109,7 +1109,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           }
           case "item/completed": {
             const item = p.item ?? {};
-            if (item.type === "agentMessage") {
+            if (item.type === "contextCompaction") {
+              emit({ ...base(threadId, turnId), type: "context.compacted" });
+            } else if (item.type === "agentMessage") {
               if (item.text?.trim()) {
                 state.lastText = item.text;
                 if (!state.sawStreamDelta) {
@@ -1119,19 +1121,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
                 emit({ ...base(threadId, turnId), ...messageItem(item), type: "item.completed", itemType: "assistant_text", text: item.text });
               }
               openAsyncQuestion(item, asks, steerActiveTurn, (event) => emit({ ...base(threadId, turnId), ...event }));
-            } else if (item.type === "imageGeneration" && item.status !== "failed") {
-              // The app-server returns the generated raster as base64 `result` and may expose a local
-              // `savedPath`; use the bytes, never the provider-owned path.
-              if (typeof item.result === "string" && item.result.trim()) {
-                emit({
-                  ...base(threadId, turnId),
-                  type: "item.completed",
-                  itemType: "assistant_image",
-                  itemId: item.id,
-                  data: item.result,
-                  alt: typeof item.revisedPrompt === "string" ? item.revisedPrompt : undefined,
-                });
-              }
+            } else if (item.type === "imageGeneration") {
+              const image = codexGeneratedImage(item);
+              if (image) emit({ ...base(threadId, turnId), ...image });
             } else if (["commandExecution", "fileChange", "mcpToolCall", "webSearch"].includes(item.type)) {
               emit({
                 ...base(threadId, turnId),

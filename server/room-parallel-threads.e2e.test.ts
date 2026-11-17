@@ -1,10 +1,11 @@
-// The fake Claude CLI in `slow` mode holds every reply until the gate file exists, so "still working" is a state the test controls.
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
 import type { WireGroup } from "../shared/wire.ts";
+import { fixtureChatReply, fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 
 type Message = { role: string; kind: string; text?: string; tool?: { name?: string; ok?: boolean }; from?: { botId: string } };
 
@@ -12,10 +13,10 @@ describe.skipIf(process.platform === "win32")("parallel room threads", () => {
   it("runs threads side by side, stops one thread alone, and queues a shared bot thread by thread", async () => {
     const gateDir = mkdtempSync(join(tmpdir(), "omb-parallel-threads-"));
     const gate = join(gateDir, "finish.gate");
-    const fixture = await launchVerificationServer({
-      ...process.env,
-      FAKE_CLAUDE_MODE: "slow",
-      FAKE_CLAUDE_SLOW_FINISH_GATE: gate,
+    const fixture = await launchVerificationServer();
+    const upstream = await startLoopbackChat(async (request, signal) => {
+      if (request.stream) while (!existsSync(gate)) await delay(30, undefined, { signal });
+      return fixtureChatReply("Fixture answer.");
     });
     const { url } = fixture.info;
     const control = (...args: string[]) => runControlOmb([...args, "--url", url]) as Promise<any>;
@@ -40,8 +41,10 @@ describe.skipIf(process.platform === "win32")("parallel room threads", () => {
     const POLL = { timeout: 30_000, interval: 100 };
 
     try {
+      await upstream.connect(url);
       const xena = (await control("new-bot", "--name", "Xena")).bot;
       const yuri = (await control("new-bot", "--name", "Yuri")).bot;
+      for (const bot of [xena, yuri]) await control("set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", fixtureModel);
 
       const solo = (await control("new-channel", "--name", "Solo room", "--members", xena.id)).channel;
       const soloFirst = solo.activeTaskId as string;
@@ -98,6 +101,7 @@ describe.skipIf(process.platform === "win32")("parallel room threads", () => {
     } finally {
       if (!existsSync(gate)) writeFileSync(gate, "finish");
       await fixture.close();
+      await upstream.close();
       rmSync(gateDir, { recursive: true, force: true });
     }
   }, 120_000);

@@ -4,9 +4,11 @@ import { expect, it } from "vitest";
 
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
 import { availableTools, catalogProfileFromEnv } from "./drivers/agents-catalog.ts";
+import { fixtureChatText, fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 
 it("injects maintainer notes in direct and room turns while the legacy memory chain stays retired", async () => {
   const fixture = await launchVerificationServer({ OMB_LEGACY_MEMORY: "1" });
+  const provider = await startLoopbackChat();
   const { url, dataDir } = fixture.info;
   const control = (...args: string[]) => runControlOmb([...args, "--url", url]);
   const input = () => JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8"));
@@ -56,15 +58,17 @@ it("injects maintainer notes in direct and room turns while the legacy memory ch
     const followUp = input();
     expect(JSON.stringify([followUp.systemPrompt, followUp.prompt])).toContain(revised);
 
+    await provider.connect(url);
+    await control("set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", fixtureModel);
     const { channel } = await control("new-channel", "--name", "Release", "--members", bot.id) as { channel: { id: string } };
     const updated = "The maintainer replaced the release checklist.";
     writeFileSync(trusted, updated);
     await control("send-channel", "--channel", channel.id, "--text", "@Release Worker Check the room.");
     expect(await control("wait", "--channel", channel.id, "--timeout", "25")).toMatchObject({ status: "settled" });
-    const room = input();
-    expect(room.systemPrompt).toContain(updated);
-    expect(room.systemPrompt).not.toContain(approved);
-    expect(JSON.stringify(room.prompt)).toContain("Check the room.");
+    const room = fixtureChatText(provider.requests.findLast(request => request.stream)!);
+    expect(room).toContain(updated);
+    expect(room).not.toContain(approved);
+    expect(room).toContain("Check the room.");
 
     const search = await fetch(`${url}/api/search?q=fixture+smoke+check`);
     expect(search.ok).toBe(true);
@@ -82,5 +86,6 @@ it("injects maintainer notes in direct and room turns while the legacy memory ch
     expect(existsSync(join(dataDir, "memory-journal"))).toBe(false);
   } finally {
     await fixture.close();
+    await provider.close();
   }
 }, 90_000);

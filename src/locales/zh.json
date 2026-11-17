@@ -9081,7 +9081,7 @@
   "serverError.model.accountUpdating": "这个提供方账号正在更新——请稍后再试",
   "serverError.chat.busyEdit": "对话正在工作——请先停止它再编辑",
   "serverError.chat.busyVersion": "对话正在工作——请先停止它再切换版本",
-  "serverError.chat.providerManagedContext": "此引擎自行管理上下文压缩。",
+  "serverError.chat.providerManagedContext": "此引擎自动压缩上下文，暂不支持手动压缩。",
   "serverError.chat.questionGone": "这个问题已不可用",
   "serverError.chat.askerGone": "提出这个问题的机器人已不可用",
   "serverError.chat.routineElsewhere": "这个机器人正在另一个对话里运行例行任务",
@@ -9850,5 +9850,7 @@
   "devices.computers.pairButton": "配对电脑",
   "devices.computers.title": "你的其他电脑",
   "devices.computers.pairTitle": "配对另一台电脑",
-  "remote.tailscale.needsApproval": "这台电脑正在等待你的 Tailscale 网络批准。请在 Tailscale 管理控制台中批准它，然后重试。"
+  "remote.tailscale.needsApproval": "这台电脑正在等待你的 Tailscale 网络批准。请在 Tailscale 管理控制台中批准它，然后重试。",
+  "serverError.chat.requiredContextTooLarge": "当前请求及其必需的上下文超出容量。请缩短消息或移除附件。",
+  "serverError.room.apiBotRequired": "添加一个 API bot 后继续群聊。"
 }

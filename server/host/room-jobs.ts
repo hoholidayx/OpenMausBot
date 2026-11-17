@@ -10,6 +10,7 @@ export interface RoomRoundLine { current?: string; pending: string[] }
 
 export interface RoomJobsDeps {
   store: Store;
+  includes?(group: GroupRecord, botId: string): boolean;
   // Read lazily: index.ts builds the coordinator after this module.
   coordinator: Pick<Coordinator, "active">;
   cfg: AppConfig;
@@ -24,16 +25,16 @@ export function parallelRoomJobsEnabled(cfg: AppConfig): boolean {
 
 const live = (n: HandoffView) => n.parentId !== undefined && (n.status === "queued" || n.status === "running");
 
-export function createRoomJobs({ store, coordinator, cfg, operations, speakerOf, laneRoomThread }: RoomJobsDeps) {
+export function createRoomJobs({ store, includes = (group, botId) => group.memberIds.includes(botId), coordinator, cfg, operations, speakerOf, laneRoomThread }: RoomJobsDeps) {
   function roomLineOf(record: GroupRecord): RoomQueueEntry[] {
     const items: RoomLineItem[] = [];
     for (const operation of operations(record.id)) {
       if (operation.cancelled || !operation.line) continue;
       const { current, pending } = operation.line;
-      if (current) items.push({ botId: current, threadId: operation.threadId, state: "running" });
-      for (const botId of pending) items.push({ botId, threadId: operation.threadId, state: "queued" });
+      if (current && includes(record, current)) items.push({ botId: current, threadId: operation.threadId, state: "running" });
+      for (const botId of pending.filter(id => includes(record, id))) items.push({ botId, threadId: operation.threadId, state: "queued" });
     }
-    const jobs = coordinator.active().filter(n => n.groupId === record.id && live(n)).sort((a, b) => a.createdAt - b.createdAt);
+    const jobs = coordinator.active().filter(n => n.groupId === record.id && includes(record, n.botId) && live(n)).sort((a, b) => a.createdAt - b.createdAt);
     for (const n of jobs) items.push({ botId: n.botId, threadId: n.threadId, state: n.status === "running" ? "running" : "queued", assignmentId: n.id });
     const speakers = new Map<string, string>();
     for (const threadId of new Set(items.map(item => item.threadId))) {

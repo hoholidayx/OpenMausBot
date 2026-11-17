@@ -22,6 +22,7 @@ import { z } from "zod";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { startFakeHttpMcp } from "./testing/fake-http-mcp-server.ts";
 import { startFakeOAuth } from "./testing/fake-oauth-server.ts";
+import { fixtureChatText, fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 import { freePortBlock, withFreeSignInPort } from "./testing/ports.ts";
 import { openSse } from "./testing/sse.ts";
 import { STARTER_COLORS } from "./bot-look.ts";
@@ -44,6 +45,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const WEBHOOK_PORT = workerPort(39000, 10_000);
 const WEBHOOK_BASE = `http://127.0.0.1:${WEBHOOK_PORT}`;
 const TEST_CAPABILITY_KEY = "index-fixture-internal-capability";
+const roomFixtureModel = { instanceId: "plainApi", model: "fixture-plain-model" };
 
 async function mintTestCapability(
   baseUrl: string,
@@ -1602,9 +1604,8 @@ describe("harness HTTP API", () => {
   });
 
   it("sets and clears a room description through PATCH", async () => {
-    const [first, second] = await Promise.all([api("POST", "/api/bots"), api("POST", "/api/bots")]).then(
-      (created) => created.map((response) => response.body.bot),
-    );
+    const [first, second] = await Promise.all([1, 2].map(async () =>
+      (await api("POST", "/api/bots", { modelSelection: roomFixtureModel })).body.bot));
     const room = (await api("POST", "/api/groups", { name: "Kitchen", memberIds: [first.id, second.id] })).body.group;
     try {
       const set = await api("PATCH", `/api/groups/${room.id}`, { description: "  The Family Hub Kitchen  " });
@@ -2374,8 +2375,23 @@ describe("harness HTTP API", () => {
 
   it("scopes Chief room management to its own department and explicit room fields", async () => {
     const section = `Chief rooms ${Date.now()}`;
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const provider = await startLoopbackChat(async request => {
+      if (fixtureChatText(request).includes("Hold this room turn")) await held;
+      return { choice: { content: "Room fixture reply" }, finish_reason: "stop" };
+    });
+    const endpoint = await api("POST", "/api/instances/openai-compat", {
+      displayName: "Room management fixture", key: provider.config.key, url: provider.config.url, models: [fixtureModel],
+    });
+    expect(endpoint.status).toBe(201);
+    const instanceId = String(endpoint.body.instanceId);
+    await api("POST", `/api/instances/${instanceId}/refresh-models`, {});
     const bots = await Promise.all(["Chief", "Peer", "Second", "Excluded", "Foreign"].map(async (name, index) => {
-      const created = await api("POST", "/api/bots", { name, section: index === 4 ? `${section} foreign` : section });
+      const created = await api("POST", "/api/bots", {
+        name, section: index === 4 ? `${section} foreign` : section,
+        modelSelection: { instanceId, model: fixtureModel },
+      });
       expect(created.status).toBe(201);
       return created.body.bot as { id: string; threadId: string };
     }));
@@ -2440,7 +2456,6 @@ describe("harness HTTP API", () => {
       for (let count = 2; count <= 4; count += 1) expect((await manage({ action: "new_thread" })).status).toBe(201);
       expect((await manage({ action: "new_thread", name: "Fifth thread" })).status).toBe(429);
       expect((await api("GET", "/api/bots?messages=0")).body.bots.find((bot: { id: string }) => bot.id === foreign.id).section).toBe(`${section} foreign`);
-      expect((await api("PATCH", `/api/bots/${chief.id}`, { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).status).toBe(200);
       const busyToken = await mintTestCapability(BASE, chief.id, chief.threadId);
       expect((await api("POST", `/api/groups/${roomId}/messages`, { text: "Hold this room turn" })).status).toBe(202);
       await expect.poll(async () => (await readRoom()).working).toBe(true);
@@ -2460,12 +2475,15 @@ describe("harness HTTP API", () => {
         expect((await api("DELETE", `/api/groups/${id}`)).status).toBe(200);
       }
       for (const bot of bots) expect((await api("DELETE", `/api/bots/${bot.id}`)).status).toBe(200);
+      release();
+      await provider.close();
+      expect((await api("DELETE", `/api/instances/${instanceId}`)).status).toBe(200);
     }
   });
 
   it("binds Chief room management to the bearer and rechecks it after a slow body", async () => {
-    const chief = (await api("POST", "/api/bots")).body.bot;
-    const peer = (await api("POST", "/api/bots")).body.bot;
+    const chief = (await api("POST", "/api/bots", { modelSelection: roomFixtureModel })).body.bot;
+    const peer = (await api("POST", "/api/bots", { modelSelection: roomFixtureModel })).body.bot;
     const room = (await api("POST", "/api/groups", { name: "Guarded room", memberIds: [chief.id, peer.id] })).body.group;
     let held: Awaited<ReturnType<typeof delayedJsonBody>> | undefined;
     try {

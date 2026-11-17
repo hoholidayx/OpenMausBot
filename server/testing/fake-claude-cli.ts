@@ -58,9 +58,7 @@
 //   FAKE_CLAUDE_REJECT_GATE  path: that refusal first writes `<path>.waiting`, then waits until <path> exists
 //   FAKE_CLAUDE_AUTOCOMPACT_AT  tokens: a turn that starts at or above it compacts first, as Claude Code does at its threshold
 //     (PreCompact, FAKE_CLAUDE_COMPACT_MS of nothing, compact_boundary, then SessionStart "compact")
-//   FAKE_CLAUDE_COMPACT_MS  how long a compaction takes: that one, or a one-shot `/compact` on a fork
-//   FAKE_CLAUDE_COMPACT_DUMP  path: a one-shot `/compact` on a fork (`--resume S --fork-session`) writes its {argv, env, prompt,
-//     systemPrompt, mcpConfig, settings} here and answers with a new session; FAKE_CLAUDE_COMPACT_RESULT is its raw answer
+//   FAKE_CLAUDE_COMPACT_MS  how long an automatic compaction takes
 //   FAKE_CLAUDE_CONTEXT_TOKENS  latest-prompt size reported in a scripted room-plan reply
 //   FAKE_CLAUDE_AUTH  in (default) | out | unsupported | malformed | inherited-api-key: what `auth status` says
 //     | api-key: signed in on the CLI's own API key (authMethod "api_key")
@@ -416,32 +414,6 @@ if (["text", "json"].includes(argAfter("--output-format") ?? "")) {
     process.stdin.on("end", () => resolve(input));
   });
   if (argv.includes("--fork-session")) startListedMcpServers();
-  if (argv.includes("--fork-session") && prompt.trimStart().startsWith("/compact")) {
-    const file = (flag: string) => {
-      const path = argAfter(flag);
-      if (!path) return null;
-      try { return readFileSync(path, "utf8"); } catch { return null; }
-    };
-    if (process.env.FAKE_CLAUDE_COMPACT_DUMP) {
-      writeDumpAtomic(process.env.FAKE_CLAUDE_COMPACT_DUMP, JSON.stringify({
-        pid: process.pid, argv, env: process.env, prompt, cwd: process.cwd(), mcpConfig: JSON.parse(file("--mcp-config") ?? "null"),
-        settings: JSON.parse(file("--settings") ?? "null"), systemPrompt: file("--append-system-prompt-file"),
-        hookEnv: Object.keys(process.env).filter((key) => key.startsWith("OMB_HOOK_")),
-      }, null, 2));
-    }
-    compactionPause();
-    const parent = argAfter("--resume") ?? "fake-session";
-    const forked = argv.includes("--no-session-persistence") ? parent : `fork-${process.pid}-${Date.now()}`;
-    const read = readContext(parent);
-    writeContext(forked, compactedTokens());
-    const forkModel = argAfter("--model") ?? "claude-fake";
-    process.stdout.write(process.env.FAKE_CLAUDE_COMPACT_RESULT ?? JSON.stringify({
-      type: "result", subtype: "success", is_error: false, result: "", session_id: forked,
-      usage: { input_tokens: 4, cache_read_input_tokens: read, cache_creation_input_tokens: 40, output_tokens: 2400 },
-      total_cost_usd: 0.2, modelUsage: { [forkModel]: { inputTokens: 4, cacheReadInputTokens: read, cacheCreationInputTokens: 40, outputTokens: 2400, costUSD: 0.2 } },
-    }));
-    process.exit(0);
-  }
   if (argv.includes("--fork-session")) {
     const read = (flag: string) => {
       const path = argAfter(flag);

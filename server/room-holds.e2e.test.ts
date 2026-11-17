@@ -1,17 +1,18 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
+import { fixtureChatReply, fixtureChatText, fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
-const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
 const HELD = (name: string) => `${name} is held (stopped by you) — @mention it or say resume`;
 
 let child: ChildProcess;
@@ -20,6 +21,7 @@ let data = "";
 let base = "";
 let stderr = "";
 let slowGate = "";
+const upstreams: Array<Awaited<ReturnType<typeof startLoopbackChat>>> = [];
 
 type StateMessage = {
   id: string;
@@ -40,12 +42,11 @@ const api = async (method: string, path: string, body?: unknown): Promise<{ stat
   return { status: response.status, body: await response.json() };
 };
 
-const fixture = (displayName: string, environment: Record<string, string>) => ({
-  driver: "claudeAgent",
-  displayName,
-  environment,
-  config: { cli: FAKE_CLAUDE },
-});
+async function fixture(displayName: string, respond?: Parameters<typeof startLoopbackChat>[0]) {
+  const upstream = await startLoopbackChat(respond);
+  upstreams.push(upstream);
+  return upstream.instance(displayName);
+}
 
 beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "omb-room-holds-"));
@@ -56,22 +57,27 @@ beforeAll(async () => {
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Room holds test</title>");
   writeFileSync(join(staticDir, "assets", "smoke.css"), "body{}");
   slowGate = join(home, "slow-finish");
+  let passed = false;
   writeFileSync(join(data, "config.json"), JSON.stringify({
     instances: {
-      // Holds its turn open until the gate file exists; its closing reply echoes the prompt it was given.
-      patient: fixture("Patient fixture", { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: slowGate }),
-      quick: fixture("Quick fixture", { FAKE_CLAUDE_MODE: "happy" }),
-      // a working note that names a teammate, then the actual answer
-      narrator: fixture("Narrating fixture", {
-        FAKE_CLAUDE_MODE: "happy",
-        FAKE_CLAUDE_REPLIES: JSON.stringify([["Let me check with @Ann later.", "All done here."]]),
-        FAKE_CLAUDE_REPLY_STATE: join(home, "narrator-replies.txt"),
+      patient: await fixture("Patient fixture", async (request, signal) => {
+        if (!request.stream) return fixtureChatReply("Ready.");
+        while (!existsSync(slowGate)) await delay(30, undefined, { signal });
+        const text = fixtureChatText(request);
+        return fixtureChatReply(text.includes("While you were held") && text.includes("Hello team")
+          ? "While you were held: Hello team" : "No replay received.");
       }),
-      // a turn that ends on "(pass)", then the re-ask's answer
-      passer: fixture("Passing fixture", {
-        FAKE_CLAUDE_MODE: "happy",
-        FAKE_CLAUDE_REPLIES: JSON.stringify(["(pass)", "Result: the title is fixed."]),
-        FAKE_CLAUDE_REPLY_STATE: join(home, "passer-replies.txt"),
+      quick: await fixture("Quick fixture"),
+      narrator: await fixture("Narrating fixture", request => {
+        const tool = request.stream && !request.messages.some(message => message.role === "tool") &&
+          request.tools?.find(tool => tool.function.name.endsWith("list_bots"));
+        return tool ? fixtureChatReply("Let me check with @Ann later.", { name: tool.function.name, args: {} }) : fixtureChatReply("All done here.");
+      }),
+      passer: await fixture("Passing fixture", request => {
+        if (!request.stream) return fixtureChatReply("Ready.");
+        if (passed) return fixtureChatReply("Result: the title is fixed.");
+        passed = true;
+        return fixtureChatReply("(pass)");
       }),
     },
   }));
@@ -105,13 +111,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (child) await waitForExit(child, { signal: "SIGTERM" });
+  await Promise.all(upstreams.map(upstream => upstream.close()));
   if (home) await removeTempDir(home);
 });
 
 const createBot = async (name: string, instanceId: string) =>
   (await api("POST", "/api/bots", {
     name,
-    modelSelection: { instanceId, model: "claude-sonnet-5" },
+    modelSelection: { instanceId, model: fixtureModel },
     requireAvailableModel: true,
   })).body.bot;
 

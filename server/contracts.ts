@@ -121,6 +121,21 @@ export type InstanceConfigMap = Record<InstanceId, InstanceConfig>;
 export type RequestOutcome = "allowed-once" | "rejected" | "answered" | "unavailable";
 
 // Sessions start implicitly on the first turn; resumeCursor carries the provider-native continuation (e.g. a Claude session id).
+export interface ChatReplay {
+  text?: string;
+  transcript: Array<{ role: "user" | "assistant"; text: string }>;
+}
+
+export interface ChatContextFootprint {
+  tokens: number;
+  base: string;
+}
+
+export interface HostChatContext {
+  prepare(model: string, measure: (replay: ChatReplay) => ChatContextFootprint, signal: AbortSignal): Promise<ChatReplay>;
+  completed(model: string, footprint: ChatContextFootprint, context?: { tokens: number; window?: number }): void;
+}
+
 export interface SendTurnInput {
   threadId: ThreadId;
   /** Drivers namespace process-level resources (broker socket, CLI session) by botId too: threadIds may coincide across bots. */
@@ -157,6 +172,7 @@ export interface SendTurnInput {
   recoveryText?: string;
   /** Prior turns for transcript-replay providers (API-backed drivers). */
   transcript?: Array<{ role: "user" | "assistant"; text: string }>;
+  hostContext?: HostChatContext;
   /** Bot persona (name/title/description) as a system prompt. */
   system?: string;
   /** `system` without its volatile sections (systemVolatile). A per-thread CLI process keys on this half; request-per-turn drivers
@@ -326,14 +342,10 @@ export interface ProviderAdapter {
   enginePid?(threadId: ThreadId): number | undefined;
   stopAll(): Promise<void>;
   onEvent(listener: RuntimeEventListener): () => void;
-  /** `ping` sends one tool-less forked request without touching the thread's session; `hold` keeps the live session open until
-   * `until` (epoch ms; null releases) and says whether one exists. `compact` summarizes the conversation with the engine's own
-   * compaction on a fork of its session (`session`: the one it must still be on), so the next turn starts small; on success the
-   * thread's process is closed and `session` is the conversation's session from now on. */
+  /** `ping` sends a tool-less request on a disposable fork. `hold` keeps the live session open until an epoch time, or releases it with null. */
   cacheKeepWarm?: {
     ping(threadId: ThreadId, options?: { signal?: AbortSignal }): Promise<CacheWarmPingResult>;
     hold(threadId: ThreadId, until: number | null): boolean;
-    compact?(threadId: ThreadId, options: { instructions: string; session?: string; signal?: AbortSignal }): Promise<IdleCompactResult>;
   };
 }
 
@@ -341,12 +353,6 @@ export interface ProviderAdapter {
  * `limit`: the account's usage limit refused it. */
 export type CacheWarmPingResult =
   | { ok: true; input: number; cacheRead: number; cacheWrite: number; output: number; costUsd: number | null; model: string | null }
-  | { ok: false; reason: string; busy?: boolean; limit?: boolean };
-
-/** A warm summary: the fork's `session` replaces `sessionBefore`; the tokens are the summary call's own. `busy`: a turn ran
- * meanwhile and nothing changed. */
-export type IdleCompactResult =
-  | { ok: true; session: string; sessionBefore: string; input: number; cacheRead: number; cacheWrite: number; output: number; costUsd: number | null; model: string | null }
   | { ok: false; reason: string; busy?: boolean; limit?: boolean };
 
 export type SteerOutcome = "steered" | "refused" | "indeterminate";

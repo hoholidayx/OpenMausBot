@@ -34,3 +34,14 @@ export function withoutInlineImages<T>(value: T): T {
     : Object.fromEntries(Object.entries(value).map(([key, item]) => [key, scrub(item)]));
   return (changed ? next : value) as T;
 }
+
+export function codexGeneratedImage(item: { id: string; status?: string; result?: unknown; revisedPrompt?: unknown }) {
+  if (item.status === "failed" || typeof item.result !== "string" || !item.result.trim()) return undefined;
+  return {
+    type: "item.completed" as const,
+    itemType: "assistant_image" as const,
+    itemId: item.id,
+    data: item.result,
+    alt: typeof item.revisedPrompt === "string" ? item.revisedPrompt : undefined,
+  };
+}

@@ -74,8 +74,10 @@ export interface BotMessageRouteDeps {
   directSendRefusal(botId: string, threadId: string): { status: number; body: Record<string, unknown> } | null;
   startTurn(botId: string, text: string, opts?: {
     threadId?: string; replyTo?: Message; sendId?: string; sender?: ResolvedSender; trigger?: UsageTrigger; relayed?: boolean;
-    dataContext?: DataContext; compactOnly?: boolean; cardContinuation?: boolean; editedMessageId?: string;
+    dataContext?: DataContext; cardContinuation?: boolean; editedMessageId?: string;
   }): Promise<Message>;
+  compactContext(bot: BotRecord): Promise<boolean>;
+  invalidateContext(threadId: string): void;
   usageTriggerFor(auth: RequestAuth): UsageTrigger;
   messageSender(auth: RequestAuth): ResolvedSender | undefined;
   cloudGuestSendRefusal(auth: RequestAuth, threadId: string): string | null;
@@ -475,10 +477,8 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       const bot = requestedTaskBot(m[1], body?.threadId);
       const notYours = cloudThreadRefusal(auth, bot.threadId);
       if (notYours) return json(res, 403, { error: notYours });
-      await startTurn(bot.id, "Summarize conversation context", {
-        threadId: bot.threadId, compactOnly: true, cardContinuation: true, trigger: usageTriggerFor(auth),
-      });
-      return json(res, 202, { ok: true, threadId: bot.threadId });
+      const compacted = await deps.compactContext(bot);
+      return json(res, 202, { ok: true, compacted, threadId: bot.threadId });
     }
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/start-fresh$/);
@@ -491,6 +491,7 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       // Synchronous from here: startTurn flips busy before the next request, so a turn cannot slip past this check.
       if (threadBusy(bot.id, bot.threadId)) return json(res, 409, userError("serverError.chat.busyFresh"));
       if (phoneSecretSubmissions.hasThread(bot.threadId)) return json(res, 409, userError("serverError.chat.savingCredential"));
+      deps.invalidateContext(bot.threadId);
       return json(res, 200, { ok: true, message: startFresh(store, bot.id, bot.threadId), threadId: bot.threadId });
     }
 
@@ -559,6 +560,7 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       }
       const leaf = store.setActiveLeaf(bot.threadId, String(body.messageId ?? ""));
       if (!leaf) return json(res, 404, { error: "no such message" });
+      deps.invalidateContext(bot.threadId);
       store.patchTask(bot.id, bot.threadId, { rewound: true });
       return json(res, 200, { activeLeafId: leaf });
     }

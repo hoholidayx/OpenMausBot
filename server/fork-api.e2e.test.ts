@@ -2,11 +2,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
+import { fixtureChatText, fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
 it("forks bot and room conversations through the public API and keeps a fork after source deletion", async () => {
   const fixture = await launchVerificationServer();
+  const provider = await startLoopbackChat();
   const dump = join(fixture.info.dataDir, "fake-claude-dump.json");
   const { url } = fixture.info;
   const api = async (method: string, path: string, body?: unknown) => {
@@ -60,6 +62,8 @@ it("forks bot and room conversations through the public API and keeps a fork aft
     expect(prompt).toContain("Plan the release");
     expect(prompt).toContain("Continue the fork");
 
+    await provider.connect(url);
+    await runControlOmb(["set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", fixtureModel, "--url", url]);
     const room = (await runControlOmb(["new-channel", "--name", "Fork Room", "--members", bot.id, "--url", url]) as any).channel;
     const roomThreadId = room.activeTaskId as string;
     expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "Room question", threadId: roomThreadId })).status).toBe(202);
@@ -81,10 +85,11 @@ it("forks bot and room conversations through the public API and keeps a fork aft
     expect((await roomState()).unread).toBe(true);
     expect((await api("POST", `/api/groups/${room.id}/tasks/${roomFork.body.task.threadId}?messages=0`)).status).toBe(200);
     expect((await roomState()).unread).toBe(false);
-    const roomPrompt = JSON.stringify(JSON.parse(readFileSync(dump, "utf8")).prompt);
+    const roomPrompt = fixtureChatText(provider.requests.findLast(request => request.stream)!);
     expect(roomPrompt).toContain("Room question");
     expect(roomPrompt).toContain("Continue the room fork");
   } finally {
     await fixture.close();
+    await provider.close();
   }
 }, 90_000);

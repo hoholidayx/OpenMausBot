@@ -166,31 +166,6 @@ it("resumes across an unapplied host summary and recovers from raw history after
   expect(recovered).not.toMatch(/LEGACY_SUMMARY_SENTINEL|HISTORY_BEYOND_BUDGET/);
 }), 120_000);
 
-it("discards a room member's queued host compaction when its model switches to ACP", () => withAcpServer(async ({ dataDir }) => {
-  const { bot } = await control("new-bot", "--name", "Editor") as { bot: BotRef };
-  writeFileSync(join(dataDir, "room-plan.json"), JSON.stringify({ [bot.id]: { reply: "Edited." } }));
-  const room = (await control("new-channel", "--name", "Edit bay", "--members", bot.id)).channel as { id: string; activeTaskId: string };
-  const group = async () => (await api("GET", "/api/bots?messages=0")).body.groups.find((entry: any) => entry.id === room.id);
-  const send = async (text: string) => {
-    await control("send-channel", "--channel", room.id, "--text", `@Editor ${text}`);
-    expect((await control("wait", "--channel", room.id, "--timeout", "30")).status).toBe("settled");
-  };
-  await send("Cut the intro.");
-  await expect.poll(async () => (await group()).memberContext?.[bot.id]?.tokens).toBe(990_000);
-  const compactRoute = `/api/groups/${room.id}/members/${bot.id}/compact`;
-  expect((await api("POST", compactRoute, {})).status).toBe(202);
-  await selectAcp(bot);
-  reports(190_000);
-  expect(await api("POST", compactRoute, {})).toMatchObject({ status: 409, body: { code: "provider_managed_context" } });
-  expect((await group()).memberContext ?? null).toBeNull();
-  await send("Trim the middle.");
-  await send("Tighten the outro.");
-  const messages = await messagesOf(room.activeTaskId);
-  expect(messages.filter((message) => message.role === "bot" && message.kind === "text")).toHaveLength(3);
-  expect(messages.filter((message) => message.kind === "activity" && /compacted/i.test(message.tool?.name ?? ""))).toEqual([]);
-  expect((await group()).memberContext ?? null).toBeNull();
-}), 120_000);
-
 it("shows an agent's plan in the chat as activity only once plan lines are switched on", () => withAcpServer(async () => {
   writeFileSync(updatesFile, JSON.stringify([{ update: { sessionUpdate: "plan", entries: [
     { content: "Read the brief", priority: "high", status: "in_progress" },

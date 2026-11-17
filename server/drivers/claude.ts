@@ -56,7 +56,7 @@ import {
   resolveInjectId,
 } from "./local-inject.ts";
 import { appendNative } from "./native.ts";
-import type { KeepWarmContract } from "./claude-keepwarm.ts"; import { claudeForks } from "./claude-warm-summary.ts";
+import { claudeCacheKeepWarm, type KeepWarmContract } from "./claude-keepwarm.ts";
 import { BACKGROUND_CALL_TIMEOUT_MS, backgroundCallArgs, spawnBackgroundCall } from "./claude-background.ts"; import { withEndpointFolder } from "./claude-endpoint-folder.ts";
 import { permissionLaunchCwd, shellRequest } from "./permission-command.ts"; import { readToolPaths } from "../own-file-reads.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts"; import { OWN_APPS_SERVER } from "../../shared/own-apps.ts";
@@ -913,7 +913,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const s = sessions.get(threadId);
       if (!s || s.closing) return;
       s.closing = true;
-      forks.closed(threadId, why, s.sessionId);
+      warmContracts.delete(threadId);
+      warmHolds.delete(threadId);
       stopIdleClose(`${instanceId}\0${threadId}`, s.idleTimer);
       // Close the broker before a replacement binds the same socket; a late close must not unlink it.
       const broker = s.broker;
@@ -935,10 +936,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       s.idleTimer = armIdleClose(`${instanceId}\0${threadId}`, Math.min(2_147_483_647, Math.max(engineIdleMs(threadId, sessionIdle), held)), { close: () => closeSession(threadId, "idle"),
         idle: () => sessions.get(threadId) === s && !s.closing && !s.turn && !active.has(threadId) && (warmHolds.get(threadId) ?? 0) <= Date.now() });
     };
-    // Keep-warm pings and warm summaries fork a thread's session with its live launch contract (claude-warm-summary.ts).
-    const forks = claudeForks({ cli: config.cli, contracts: warmContracts, holds: warmHolds, armIdle, supports: (flag) => cliVersion === null || claudeCliSupports(cliVersion, flag),
-      live: (threadId) => { const s = sessions.get(threadId); return s && !s.closing && s.child.exitCode === null ? { sessionId: s.sessionId, turn: Boolean(s.turn), busy: Boolean(s.turn) || active.has(threadId) } : null; },
-      summarized: (threadId, run) => { const cost = claudeCostSnapshot(run.costTotal, run.modelUsage); if (cost) recordCostState(run.session, cost); closeSession(threadId, "summarized while idle"); } });
+    const cacheKeepWarm = claudeCacheKeepWarm({ cli: config.cli, contracts: warmContracts, holds: warmHolds, armIdle,
+      supports: (flag) => cliVersion === null || claudeCliSupports(cliVersion, flag),
+      live: (threadId) => { const s = sessions.get(threadId); return s && !s.closing && s.child.exitCode === null ? { sessionId: s.sessionId, turn: Boolean(s.turn), busy: Boolean(s.turn) || active.has(threadId) } : null; } });
     const writeUser = (s: Session, threadId: string, promptMsg: ClaudeUserMessage): Promise<boolean> => {
       if (!s.child.stdin.writable || s.child.stdin.destroyed) return Promise.resolve(false);
       return new Promise((resolve) => {
@@ -2054,7 +2054,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         },
         hasSession: (threadId) => active.has(threadId),
         enginePid: (threadId) => (active.has(threadId) ? sessions.get(threadId)?.child.pid : undefined),
-        cacheKeepWarm: forks.adapter,
+        cacheKeepWarm,
         stopAll: async () => {
           for (const { stop } of active.values()) stop();
           for (const threadId of Array.from(sessions.keys())) closeSession(threadId, "stopAll");

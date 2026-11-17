@@ -1,7 +1,11 @@
 import { RuntimeNoticeError, runtimeErrorText } from "./runtime-notice-error.ts";
-import { createHash } from "node:crypto";
+import { contextWindowFor } from "../context-budget.ts";
+import { userErrorFields } from "../user-errors.ts";
+import { contextFootprint, fingerprint, rememberChatDelivery, replayDelivered, type DeliveredUserMessage } from "./openai-chat-replay.ts";
 import type {
   DriverCreateInput,
+  ChatContextFootprint,
+  ChatReplay,
   ModelCatalog,
   ProviderInstance, ProviderSnapshot,
   RuntimeEvent,
@@ -146,50 +150,6 @@ const MAX_TURN_TOOL_CALLS = 200;
 const MAX_ANNOUNCEMENT_NUDGES = 3;
 const stoppedAfter = (count: string) =>
   `Stopped after ${count} without a final answer. The steps so far already ran, so ask only for what's left.`;
-
-interface DeliveredUserMessage {
-  text: string;
-  sent: string;
-  volatile?: string;
-  after: string;
-}
-
-const MAX_REPLAY_EXTRA_BYTES = 24_000;
-const MAX_DELIVERED_THREADS = 256;
-
-const fingerprint = (text: string) => createHash("sha256").update(text).digest("base64url");
-
-function replayDelivered(
-  transcript: ReadonlyArray<{ role: "user" | "assistant"; text: string }>,
-  records: readonly DeliveredUserMessage[],
-): { content: Map<number, string>; matched: DeliveredUserMessage[]; volatile: string | undefined } {
-  const found: Array<{ index: number; record: DeliveredUserMessage }> = [];
-  let next = records.length - 1;
-  for (let index = transcript.length - 1; index >= 0 && next >= 0; index--) {
-    const message = transcript[index]!;
-    if (message.role !== "user" || !message.text) continue;
-    const after = index > 0 ? fingerprint(transcript[index - 1]!.text) : undefined;
-    for (let at = next; at >= 0; at--) {
-      const record = records[at]!;
-      if (record.text !== message.text && !record.text.endsWith("\n\n" + message.text)) continue;
-      if (after !== undefined && record.after !== after) continue;
-      found.unshift({ index, record });
-      next = at - 1;
-      break;
-    }
-  }
-  const content = new Map<number, string>();
-  let volatile: string | undefined;
-  let budget = MAX_REPLAY_EXTRA_BYTES;
-  for (const { index, record } of found) {
-    const extra = Buffer.byteLength(record.sent) - Buffer.byteLength(transcript[index]!.text);
-    if (extra > budget) break;
-    budget -= extra;
-    content.set(index, record.sent);
-    if (record.volatile !== undefined) volatile = record.volatile;
-  }
-  return { content, matched: found.map(({ record }) => record), volatile };
-}
 
 const CORRECTIVE_ROUND = "[OpenMausBot: a tool call in this turn failed (its result is marked ok:false). Re-run the failed operations with corrected inputs where possible, check the results, then give your final answer. Do not report results you did not get.]";
 const NUDGE_ANNOUNCED_ACTION = "You said what you would do next but called no tool. Use your tools for only the remaining work, or reply with verified results if nothing is left to do. Never repeat an operation that succeeded, was denied, or may already have taken effect; inspect its state instead. Do not retry a destructive operation.";
@@ -483,7 +443,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
 
   const seesImages = (turn: SendTurnInput) =>
     options.imageInput?.(turn.model || options.models().default) ?? true;
-  const messagesFor = (turn: SendTurnInput): OpenAIChatMessage[] => {
+  const messagesFor = (turn: SendTurnInput, remember = true): OpenAIChatMessage[] => {
     const halves = promptHalves(turn);
     const transcript = turn.transcript ?? [];
     const key = JSON.stringify([turn.threadId, turn.botId]);
@@ -501,9 +461,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       ...(note ? { volatile } : {}),
       after: transcript.length ? fingerprint(transcript.at(-1)!.text) : "",
     };
-    delivered.delete(key);
-    delivered.set(key, [...replay.matched, record]);
-    if (delivered.size > MAX_DELIVERED_THREADS) delivered.delete(delivered.keys().next().value!);
+    if (remember) rememberChatDelivery(delivered, key, [...replay.matched, record]);
     const system = halves.stable ?? turn.system;
     return [
       ...(system ? [{ role: "system" as const, content: system }] : []),
@@ -522,8 +480,8 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
 
     const turnId = newId();
     const abort = new AbortController();
-    const messages = messagesFor(turn);
-    const request = messages.at(-1)!;
+    let messages = turn.hostContext ? [] : messagesFor(turn);
+    let request = messages.at(-1)!;
     const retainImages = chatImageBudget();
     for (const message of messages) retainImages(message.content);
     const model = turn.model || options.models().default;
@@ -551,9 +509,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     });
     const grantsKey = JSON.stringify([turn.threadId, turn.botId ?? null]);
     const granted = sessionGrants.get(grantsKey) ?? new Set<string>();
-    sessionGrants.delete(grantsKey);
-    sessionGrants.set(grantsKey, granted);
-    if (sessionGrants.size > MAX_DELIVERED_THREADS) sessionGrants.delete(sessionGrants.keys().next().value!);
+    rememberChatDelivery(sessionGrants, grantsKey, granted);
     const approval = createChatToolApproval({
       signal: abort.signal,
       granted: turn.guestConfined ? undefined : granted,
@@ -603,6 +559,8 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       let callsAtNudge = -1;
       const repeats = options.localModel ? new ChatRepeatGuard() : undefined;
       let unreadable = false, askedAgain = false;
+      let lastFootprint: ChatContextFootprint | undefined;
+      let lastContext: { tokens: number; window?: number } | undefined;
       try {
         const parsed = parseToolScope(turn.toolScope);
         if (!parsed.ok) throw new Error(parsed.error);
@@ -617,6 +575,15 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
           // An MCP server squatting ask_user cannot shadow it (dispatch intercepts the name); skip its definition.
         if (questionAllowed && !tools.definitions.some((definition) => definition.function.name === ASK_USER_TOOL)) {
           tools.definitions.push(ASK_USER_TOOL_DEFINITION);
+        }
+        if (turn.hostContext) {
+          const measured = (replay: ChatReplay) =>
+            contextFootprint(messagesFor({ ...turn, text: replay.text ?? turn.text, transcript: replay.transcript }, false), tools!.definitions);
+          const replay = await turn.hostContext.prepare(model, measured, abort.signal);
+          abort.signal.throwIfAborted();
+          messages = messagesFor({ ...turn, text: replay.text ?? turn.text, transcript: replay.transcript });
+          request = messages.at(-1)!;
+          for (const message of messages) retainImages(message.content);
         }
         for (let round = 0; round < MAX_CHAT_ROUNDS; round++) {
           abort.signal.throwIfAborted();
@@ -729,14 +696,22 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
           }
           native("in", options.nativeLog.incoming(completion));
           unread = [];
+          const contextWindow = contextWindowFor(model, options.models());
+          if (turn.hostContext) {
+            lastFootprint = contextFootprint(messages, tools.definitions);
+            lastFootprint.tokens += Math.ceil(Buffer.byteLength(completion.text) / 2);
+            lastContext = completion.usage?.input ? { tokens: completion.usage.input + completion.usage.output, window: contextWindow } : undefined;
+          }
           if (completion.usage) {
             usage.input += completion.usage.input;
             usage.output += completion.usage.output;
             hasUsage = true;
-            const contextWindow = options.models().options.find((entry) => entry.id === model)?.contextWindow;
+          }
+          if (hasUsage || lastFootprint) {
             // Accounting sums the turn; context occupancy is the latest round only.
             emit({ ...base(turn.threadId, turnId), type: "thread.token-usage.updated", ...usage,
-              contextTokens: completion.usage.input + completion.usage.output, ...(contextWindow ? { contextWindow } : {}) });
+              contextTokens: lastContext?.tokens ?? lastFootprint?.tokens ?? (completion.usage ? completion.usage.input + completion.usage.output : undefined),
+              contextWindow });
           }
           // Reasoning on a tool-call round belongs to the protocol, not a final reply.
           const reply = completion.text.trim() ? completion.text : completion.toolCalls.length || unreadable ? "" : completion.reasoning;
@@ -887,7 +862,8 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       } catch (value) {
         stopReason = abort.signal.aborted ? "interrupted" : stopReason ?? "error";
         failure = safeText(asError(value).message).slice(0, 2_000);
-        failureText = runtimeErrorText(value);
+        const fields = userErrorFields(value);
+        failureText = runtimeErrorText(value) ?? (fields.errorKey ? { key: fields.errorKey, params: fields.errorParams } : undefined);
       } finally {
         turnEntry.ending = true;
         approval.close();
@@ -924,7 +900,13 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
           ...(hasUsage && (options.includeUsageInCompleted || seenCalls.size) ? { usage } : {}),
           ...(denials.length ? { denials } : {}),
         });
-        resolveDone();
+        try {
+          if (ok && lastFootprint) turn.hostContext?.completed(model, lastFootprint, lastContext);
+        } catch (error) {
+          console.warn("chat context measurement:", safeText(asError(error).message));
+        } finally {
+          resolveDone();
+        }
       }
     })();
     return { turnId };

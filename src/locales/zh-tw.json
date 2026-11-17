@@ -9953,5 +9953,8 @@
   "devices.computers.pairButton": "配對電腦",
   "devices.computers.title": "你的其他電腦",
   "devices.computers.pairTitle": "配對另一台電腦",
-  "remote.tailscale.needsApproval": "這台電腦正在等待你的 Tailscale 網路核准。請在 Tailscale 管理主控台中核准它，然後再試一次。"
+  "remote.tailscale.needsApproval": "這台電腦正在等待你的 Tailscale 網路核准。請在 Tailscale 管理主控台中核准它，然後再試一次。",
+  "serverError.chat.providerManagedContext": "此引擎會自動壓縮上下文，暫不支援手動壓縮。",
+  "serverError.chat.requiredContextTooLarge": "目前的請求及其必要上下文超出容量。請縮短訊息或移除附件。",
+  "serverError.room.apiBotRequired": "加入一個 API bot 後繼續群聊。"
 }

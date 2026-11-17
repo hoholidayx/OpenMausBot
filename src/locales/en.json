@@ -9212,7 +9212,7 @@
   "serverError.chat.busyEdit": "the thread is working — stop it before editing",
   "serverError.chat.busyVersion": "the thread is working — stop it before switching versions",
   "serverError.chat.busyFresh": "the thread is working — stop it before starting fresh",
-  "serverError.chat.providerManagedContext": "This engine manages its own context compaction.",
+  "serverError.chat.providerManagedContext": "This engine manages compaction automatically. Manual compaction is unavailable.",
   "serverError.chat.questionGone": "this question is no longer available",
   "serverError.chat.askerGone": "the bot that asked this question is no longer available",
   "serverError.chat.routineElsewhere": "this bot is running a routine in another conversation",
@@ -10619,5 +10619,7 @@
   "routines.noStartStreak": "Its cloud desktop did not start {count} runs in a row. This routine stays on and tries again less often until the cloud desktop starts.",
   "routines.server.part.cloudDown": "this Cloud was asleep or restarting",
   "server.routines.turnedBackOn": "Turned back on: {names}. An earlier version switched it off after its cloud desktop failed to start.",
-  "server.routines.turnedBackOnMany": "Turned back on: {names}. An earlier version switched them off after their cloud desktops failed to start."
+  "server.routines.turnedBackOnMany": "Turned back on: {names}. An earlier version switched them off after their cloud desktops failed to start.",
+  "serverError.chat.requiredContextTooLarge": "The current request and its required context are too large. Shorten the message or remove an attachment.",
+  "serverError.room.apiBotRequired": "Add an API bot to continue in this room."
 }

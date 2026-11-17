@@ -1,4 +1,5 @@
 // Provider instance registry — port of upstream's ProviderInstanceRegistryLive behavior, minus Effect.
+import { replaysTranscriptNatively } from "../runtime/capabilities.ts";
 import { findCliCandidates } from "../env-path.ts";
 import { installNpmEngine, npmAvailable, serverInstallFor, standaloneLookupPath } from "../engine-install.ts";
 import { installStandaloneEngine, isAppStandaloneCopy, type StandaloneInstalled } from "../engine-standalone.ts";
@@ -24,6 +25,11 @@ import type {
   ProviderSnapshot,
   StandaloneRelease,
 } from "../contracts.ts";
+
+function conversationCapabilities(driverKind: string) {
+  const roomChat = replaysTranscriptNatively(driverKind);
+  return { roomChat, contextCompactionOwner: roomChat ? undefined : "provider" as const };
+}
 
 export interface ShadowInstance {
   instanceId: InstanceId;
@@ -519,7 +525,7 @@ export class ProviderRegistry {
             displayName: entry.shadow.displayName ?? entry.shadow.driverKind,
             snapshot: { state: "unavailable", reason: entry.shadow.reason } satisfies ProviderSnapshot,
             models: { default: "", options: [] },
-            capabilities: { computerMcp: false, agentsMcp: false, localComputerMcp: false },
+            capabilities: { computerMcp: false, agentsMcp: false, localComputerMcp: false, ...conversationCapabilities(entry.shadow.driverKind) },
             access: driver?.metadata.access ?? "subscription",
             install: withServerInstall(driver?.install, npmPresent),
             cli: entry.shadow.cli,
@@ -530,6 +536,7 @@ export class ProviderRegistry {
         const inst = entry.live;
         const cli = this.cliByInstance.get(inst.instanceId);
         const snapshot = withWslNotice(await statusOf(inst), cli);
+        const { roomChat, contextCompactionOwner } = conversationCapabilities(inst.driverKind);
         return {
           instanceId: inst.instanceId,
           driverKind: inst.driverKind,
@@ -553,7 +560,8 @@ export class ProviderRegistry {
             localComputerMcp: inst.adapter.capabilities.localComputerMcp === true,
             approvalReview: inst.reviewPermission !== undefined,
             backgroundText: inst.generateText !== undefined || inst.generateMemoryText !== undefined,
-            contextCompactionOwner: inst.adapter.capabilities.contextCompactionOwner,
+            roomChat,
+            contextCompactionOwner,
           },
           access: driver?.metadata.access ?? "subscription",
           install: withServerInstall(driver?.install, npmPresent, this.appStandaloneCopy(driver, cli ?? cliDefaultOf(driver))),

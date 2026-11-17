@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { CacheWarmPingResult } from "../contracts.ts";
+import type { CacheWarmPingResult, ProviderAdapter } from "../contracts.ts";
 import { killCliTree, spawnCli, type CliSpawnOptions } from "../procs.ts";
 import { USAGE_LIMIT } from "./retry.ts";
 
@@ -38,11 +38,9 @@ export interface KeepWarmContract {
 const VALUE_FLAGS = new Set(["--output-format", "--input-format", "--mcp-config", "--settings", "--append-system-prompt-file", "--resume", "--session-id"]);
 const BARE_FLAGS = new Set(["--verbose", "--include-partial-messages", "--replay-user-messages"]);
 
-/** `persist`: the fork is kept as a session of its own (a summary the conversation moves to), not thrown away. */
 export function keepWarmArgs(
   launchArgs: readonly string[],
   files: { sessionId: string; mcpConfigPath: string | null; settingsPath: string | null; systemPromptPath: string | null },
-  persist = false,
 ): string[] {
   const kept: string[] = [];
   for (let i = 0; i < launchArgs.length; i++) {
@@ -56,7 +54,7 @@ export function keepWarmArgs(
   if (files.systemPromptPath) kept.push("--append-system-prompt-file", files.systemPromptPath);
   if (files.mcpConfigPath) kept.push("--mcp-config", files.mcpConfigPath);
   if (files.settingsPath) kept.push("--settings", files.settingsPath);
-  kept.push("--resume", files.sessionId, "--fork-session", ...(persist ? [] : ["--no-session-persistence"]));
+  kept.push("--resume", files.sessionId, "--fork-session", "--no-session-persistence");
   return kept;
 }
 
@@ -129,32 +127,15 @@ export function runKeepWarmPing(opts: {
   signal?: AbortSignal;
   timeoutMs?: number;
 }): Promise<CacheWarmPingResult> {
-  return runForkedPrompt({ ...opts, what: "ping", prompt: KEEP_WARM_PROMPT, persist: false, timeoutMs: opts.timeoutMs ?? KEEP_WARM_TIMEOUT_MS,
-    parse: parseKeepWarmResult, failed: (reason) => ({ ok: false, reason }) });
-}
-
-/** One prompt on a fork of a live session, with that session's exact launch contract so its cached prompt start is read
- * again; no tool can run in it, and the servers it starts run where a turn's do. Never throws. The credentialed MCP
- * config, settings and prompt live in a 0700 temp dir removed at exit. */
-export function runForkedPrompt<T>(opts: {
-  cli: string;
-  contract: KeepWarmContract;
-  sessionId: string;
-  /** what the fork is, in the failure reasons: "the ping timed out" */
-  what: string;
-  prompt: string;
-  persist: boolean;
-  timeoutMs: number;
-  parse: (stdout: string, stderr: string, code: number | null) => T;
-  failed: (reason: string) => T;
-  signal?: AbortSignal;
-}): Promise<T> {
-  const { contract, what } = opts;
+  const { contract } = opts;
+  function failed(reason: string): CacheWarmPingResult {
+    return { ok: false, reason };
+  }
   let dir: string;
   try {
     dir = mkdtempSync(join(tmpdir(), "omb-keepwarm-"));
   } catch (error) {
-    return Promise.resolve(opts.failed(`the ${what} could not start: ${(error as Error).message}`));
+    return Promise.resolve(failed(`the ping could not start: ${(error as Error).message}`));
   }
   const cleanup = () => { try { rmSync(dir, { recursive: true, force: true }); } catch {} };
   let args: string[];
@@ -174,14 +155,14 @@ export function runForkedPrompt<T>(opts: {
       systemPromptPath = join(dir, "prompt.txt");
       writeFileSync(systemPromptPath, contract.system, { mode: 0o600 });
     }
-    args = keepWarmArgs(contract.args, { sessionId: opts.sessionId, mcpConfigPath, settingsPath, systemPromptPath }, opts.persist);
+    args = keepWarmArgs(contract.args, { sessionId: opts.sessionId, mcpConfigPath, settingsPath, systemPromptPath });
     // The harness's hook helper must never hear about a fork.
     for (const key of Object.keys(env)) if (key.startsWith("OMB_HOOK_")) delete env[key];
     // In the packaged app process.execPath is Electron: the deny hook runs it as node.
     if (process.versions.electron) env.ELECTRON_RUN_AS_NODE = "1";
   } catch (error) {
     cleanup();
-    return Promise.resolve(opts.failed(`the ${what} could not start: ${(error as Error).message}`));
+    return Promise.resolve(failed(`the ping could not start: ${(error as Error).message}`));
   }
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawnCli>;
@@ -189,13 +170,13 @@ export function runForkedPrompt<T>(opts: {
       child = spawnCli(opts.cli, args, forkSpawnOptions(contract, env, dir));
     } catch (error) {
       cleanup();
-      resolve(opts.failed(`the ${what} could not start: ${(error as Error).message}`));
+      resolve(failed(`the ping could not start: ${(error as Error).message}`));
       return;
     }
     let stdout = "";
     let stderr = "";
     let settled = false;
-    const finish = (result: T) => {
+    const finish = (result: CacheWarmPingResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -205,12 +186,12 @@ export function runForkedPrompt<T>(opts: {
     };
     const onAbort = () => {
       void killCliTree(child);
-      finish(opts.failed(`the ${what} was interrupted`));
+      finish(failed(`the ping was interrupted`));
     };
     const timer = setTimeout(() => {
       void killCliTree(child);
-      finish(opts.failed(`the ${what} timed out`));
-    }, opts.timeoutMs);
+      finish(failed(`the ping timed out`));
+    }, opts.timeoutMs ?? KEEP_WARM_TIMEOUT_MS);
     timer.unref?.();
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -218,17 +199,48 @@ export function runForkedPrompt<T>(opts: {
       stdout += chunk;
       if (stdout.length > 1_000_000) {
         void killCliTree(child);
-        finish(opts.failed(`the ${what}'s output exceeded 1 MB`));
+        finish(failed(`the ping's output exceeded 1 MB`));
       }
     });
     child.stderr.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-8_192); });
-    child.on("error", (error) => finish(opts.failed(`the ${what} could not start: ${error.message}`)));
-    child.on("close", (code) => finish(opts.parse(stdout, stderr, code)));
+    child.on("error", (error) => finish(failed(`the ping could not start: ${error.message}`)));
+    child.on("close", (code) => finish(parseKeepWarmResult(stdout, stderr, code)));
     if (opts.signal?.aborted) onAbort();
     else {
       opts.signal?.addEventListener("abort", onAbort, { once: true });
       child.stdin.on("error", () => { /* a CLI that exits early closes stdin */ });
-      child.stdin.end(opts.prompt);
+      child.stdin.end(KEEP_WARM_PROMPT);
     }
   });
+}
+
+export function claudeCacheKeepWarm(deps: {
+  cli: string;
+  live(threadId: string): { sessionId: string | null; turn: boolean; busy: boolean } | null;
+  contracts: Map<string, KeepWarmContract>;
+  holds: Map<string, number>;
+  armIdle(threadId: string): void;
+  supports(flag: "--fork-session" | "--no-session-persistence"): boolean;
+}): NonNullable<ProviderAdapter["cacheKeepWarm"]> {
+  return {
+    ping: async (threadId, options) => {
+      const session = deps.live(threadId), contract = deps.contracts.get(threadId);
+      if (!session?.sessionId || !contract) {
+        return { ok: false, reason: "the conversation's Claude session has closed" };
+      }
+      if (session.busy) return { ok: false, reason: "a turn is running", busy: true };
+      if (!deps.supports("--fork-session") || !deps.supports("--no-session-persistence")) {
+        return { ok: false, reason: "this Claude Code is too old to fork a session; update Claude Code" };
+      }
+      return runKeepWarmPing({ cli: deps.cli, contract, sessionId: session.sessionId, signal: options?.signal });
+    },
+    hold(threadId, until) {
+      if (until === null) deps.holds.delete(threadId);
+      else deps.holds.set(threadId, until);
+      const session = deps.live(threadId);
+      if (!session) return false;
+      if (!session.turn) deps.armIdle(threadId);
+      return true;
+    },
+  };
 }

@@ -11,6 +11,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { resolveAgentBrowserBinary } from "../../server/browser-engine.ts";
 import { removeTempDir, waitForExit } from "../../server/testing/cleanup.ts";
+import { fixtureModel, startLoopbackChat } from "../../server/testing/loopback-chat.ts";
 import { runControlOmb } from "../control-omb.ts";
 import { UI_TOOLS_DIR } from "./control-omb-ui.ts";
 import { fixtureApi } from "./preview-fixture.ts";
@@ -152,6 +153,34 @@ describe("control-omb ui drives the real renderer", () => {
     await expect.poll(async () => (await ui("eval", info.ui, "--js", "[...document.querySelectorAll('mark')].some(mark => mark.textContent === 'zebra')")).result, { timeout: 10_000 }).toBe(true);
     await ui("eval", info.ui, "--js", "[...document.querySelectorAll('mark')].find(mark => mark.textContent === 'zebra').closest('button').click(); true");
     await expect.poll(highlighted, { timeout: 10_000 }).toBe("zebra");
+    await waitForExit(launched.child, { signal: "SIGINT", graceMs: 30_000 });
+    expect(launched.child.exitCode).toBe(0);
+  }, LAUNCH_TIMEOUT_MS + 90_000);
+
+  run("offers API bots in the room picker and shows a hint after switching the last member to a native engine", async () => {
+    launched = await launch([]);
+    const { info } = launched;
+    const provider = await startLoopbackChat();
+    try {
+      await provider.connect(info.url);
+      const control = (...args: string[]) => runControlOmb([...args, "--url", info.url]);
+      const { bot } = await control("new-bot", "--name", "API Teammate") as { bot: { id: string; modelSelection: { model: string } } };
+      await control("set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", fixtureModel);
+      await ui("click", info.ui, "--name", "New or share");
+      await ui("click", info.ui, "--name", "New group chat");
+      const picker = () => ui("snapshot", info.ui, "--interactive");
+      await expect.poll(async () => refsNamed(await picker(), "API Teammate", "checkbox").length).toBe(1);
+      expect(refsNamed(await picker(), "Pepper", "checkbox")).toEqual([]);
+      await ui("type", info.ui, "--name", "Group chat name", "--text", "Context fixture room");
+      await ui("click", info.ui, "--name", "API Teammate");
+      await ui("click", info.ui, "--name", "Create group chat · 1 bot");
+      const evaluate = async (js: string) => (await ui("eval", info.ui, "--js", js)).result;
+      await expect.poll(() => evaluate("document.body.textContent.includes('Context fixture room')")).toBe(true);
+      await control("set-model", "--bot", bot.id, "--instance", "claude", "--model", bot.modelSelection.model);
+      await expect.poll(() => evaluate("document.body.textContent.includes('Add an API bot to continue in this room.')")).toBe(true);
+    } finally {
+      await provider.close();
+    }
     await waitForExit(launched.child, { signal: "SIGINT", graceMs: 30_000 });
     expect(launched.child.exitCode).toBe(0);
   }, LAUNCH_TIMEOUT_MS + 90_000);

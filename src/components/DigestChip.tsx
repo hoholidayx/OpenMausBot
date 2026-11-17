@@ -48,10 +48,10 @@ export function DigestChip({ message }: { message: Message }) {
 const COMPACTION_CHIP = "max-w-[600px] rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[12px] text-ink-secondary";
 
 export function CompactionChip({ message }: { message: Message }) {
-  if (!message.compaction) return message.engineCompaction ? (
-    <div className={COMPACTION_CHIP} data-testid="engine-compaction-chip">
-      <p className="font-medium">{t("chat.engineCompactionTitle")}</p>
-      <p className="mt-1">{t("chat.engineCompactionHint")}</p>
+  if (!message.compaction) return message.engineCompaction || message.hostCompaction ? (
+    <div className={COMPACTION_CHIP} data-testid={message.engineCompaction ? "engine-compaction-chip" : "host-compaction-chip"}>
+      <p className="font-medium">{t(message.engineCompaction ? "chat.engineCompactionTitle" : "chat.compactionTitle")}</p>
+      <p className="mt-1">{t(message.engineCompaction ? "chat.engineCompactionHint" : "chat.compactionHint")}</p>
     </div>
   ) : null;
   if (message.compaction.fresh) {

@@ -440,6 +440,7 @@ export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCard
   digest?: TurnDigest;
   /** kind "compaction" with no `compaction` record: the engine condensed its own session. A marker for people, never context. */
   engineCompaction?: true;
+  hostCompaction?: true;
   compaction?: { summary: string; firstKeptId: string; foldedThroughId: string; tokensBefore: number; by: "person" | "harness"; legacyMemoryExcluded?: true;
     /** The divider "Start fresh" leaves: no summary, and a provider reads nothing before it. */ fresh?: true };
   /** Renderers receive only the allowlisted /api/attachments URL. `file` entries are opened through the message-scoped
@@ -832,10 +833,8 @@ export interface GroupTask {
 export interface WireGroup {
   /** Computed from the usage ledger, not stored in groups.json. */
   usage?: GroupThreadUsage | null; /** Transient: the department's Chief of Staff, when this room is without it. Null clears an earlier value. */ chiefAbsent?: { botId: string; name: string } | null;
-  /** transient: each member's context in the active thread, from its last
-   * turn there, and whether its next turn there was asked to start
-   * compacted. */
-  memberContext?: Record<string, { tokens: number; window: number; compactRequested?: true }> | null;
+  /** Each member's latest context reading in the active thread. */
+  memberContext?: Record<string, { tokens: number; window: number }> | null;
   id: string;
   /** The active task's thread. Direct-message channels stay single-threaded. */
   threadId: string;

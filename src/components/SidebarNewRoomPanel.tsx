@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { imeComposing } from "@/lib/send-key";
+import { canJoinRoom } from "@/lib/room-members";
 import { BotPickerList } from "./BotPickerList";
 
 /** Sidebar → New channel: name it, optionally file it under a context, pick its bots. */
@@ -10,7 +11,8 @@ export function NewRoomPanel({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [section, setSection] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const bots = state.bots.filter((b) => !b.hidden);
+  const bots = state.bots.filter((b) => !b.hidden && canJoinRoom(b, state.instances));
+  const memberIds = bots.map(bot => bot.id).filter(id => picked.has(id));
   const toggle = (id: string) =>
     setPicked((prev) => {
       const next = new Set(prev);
@@ -19,10 +21,10 @@ export function NewRoomPanel({ onClose }: { onClose: () => void }) {
       return next;
     });
   const create = () => {
-    if (!picked.size) return;
+    if (!memberIds.length) return;
     dispatch({
       type: "createGroup",
-      memberIds: [...picked],
+      memberIds,
       name: name.trim() || undefined,
       section: section.trim() || undefined,
     });
@@ -66,18 +68,18 @@ export function NewRoomPanel({ onClose }: { onClose: () => void }) {
           bots={bots}
           picked={picked}
           onToggle={toggle}
-          emptyHint={t("sidebar.newChannel.emptyHint")}
+          emptyHint={t("serverError.room.apiBotRequired")}
         />
         <button
           onClick={create}
-          disabled={!picked.size}
+          disabled={!memberIds.length}
           className="mt-3 w-full rounded-lg bg-accent py-2 text-[14px] font-medium text-white hover:brightness-110 disabled:opacity-40"
         >
-          {picked.size === 0
+          {memberIds.length === 0
             ? t("sidebar.newChannel.create")
-            : picked.size === 1
+            : memberIds.length === 1
               ? t("sidebar.newChannel.createOne")
-              : t("sidebar.newChannel.createMany", { count: picked.size })}
+              : t("sidebar.newChannel.createMany", { count: memberIds.length })}
         </button>
       </div>
     </div>

@@ -22,8 +22,8 @@ export function useContextAction() {
   return { pending, run };
 }
 
-export function ThreadContextWarningView({ name, percent, busy, pending, onCompact }: {
-  name: string; percent: number; busy: boolean; pending: boolean; onCompact?: () => void;
+export function ThreadContextWarningView({ name, percent, busy, pending, detail, onCompact }: {
+  name: string; percent: number; busy: boolean; pending: boolean; detail?: string; onCompact?: () => void;
 }) {
   return (
     <span role="status" data-testid="context-warning" className={pill}
@@ -34,6 +34,7 @@ export function ThreadContextWarningView({ name, percent, busy, pending, onCompa
         title={busy ? t("contextWarning.busy") : undefined}>
         {pending ? t("contextWarning.compacting") : t("contextWarning.compactNow")}
       </button>}
+      {detail && <span className="text-ink-secondary">{detail}</span>}
     </span>
   );
 }
@@ -45,10 +46,12 @@ export function ThreadContextWarning({ bot, messages }: { bot: Bot; messages: re
   const providerManaged = state.instances.find((instance) => instance.instanceId === instanceId)?.capabilities?.contextCompactionOwner === "provider";
   const warning = threadContextWarning(task?.usage, messages, !providerManaged);
   const { pending, run } = useContextAction();
+  const [explained, setExplained] = useState<string | null>(null);
   if (!warning) return null;
   return (
-    <ThreadContextWarningView name={bot.name} percent={warning.percent} busy={Boolean(bot.busy)} pending={pending}
-      onCompact={providerManaged ? undefined : () => run(`/api/bots/${bot.id}/compact`, { threadId: bot.threadId })} />
+    <ThreadContextWarningView name={bot.name} percent={warning.percent} busy={!providerManaged && Boolean(bot.busy)} pending={pending}
+      detail={providerManaged && explained === bot.threadId ? t("serverError.chat.providerManagedContext") : undefined}
+      onCompact={providerManaged ? () => setExplained(bot.threadId) : () => run(`/api/bots/${bot.id}/compact`, { threadId: bot.threadId })} />
   );
 }
 
@@ -67,16 +70,13 @@ export function RoomContextWarningsView({ warnings, pendingBotId, onCompact }: {
   if (!warnings.length) return null;
   return (
     <div className="flex flex-col gap-1" data-testid="room-context-warnings">
-      {warnings.map(({ bot, percent, requested }) => (
+      {warnings.map(({ bot, percent }) => (
         <p key={bot.id} role="status" className={cn(pill, "w-fit")}>
           <Gauge size={13} className="shrink-0 text-warning" aria-hidden="true" />
           <span>{t("contextWarning.room", { name: bot.name, percent })}</span>
-          {requested
-            ? <span className="text-ink-secondary">{t("contextWarning.roomRequested")}</span>
-            : <button type="button" className={action} disabled={pendingBotId === bot.id} onClick={() => onCompact(bot.id)}
-              title={t("contextWarning.roomHint")}>
-              {pendingBotId === bot.id ? t("contextWarning.compacting") : t("contextWarning.compactNow")}
-            </button>}
+          <button type="button" className={action} disabled={pendingBotId !== null} onClick={() => onCompact(bot.id)}>
+            {pendingBotId === bot.id ? t("contextWarning.compacting") : t("contextWarning.compactNow")}
+          </button>
         </p>
       ))}
     </div>
@@ -92,7 +92,7 @@ export function RoomContextWarnings({ group, members }: { group: Group; members:
     <div className="w-full px-5 pb-1">
       <RoomContextWarningsView warnings={warnings} pendingBotId={pending ? target : null} onCompact={(botId) => {
         setTarget(botId);
-        run(`/api/groups/${group.id}/members/${botId}/compact`, {});
+        run(`/api/groups/${group.id}/members/${botId}/compact`, { threadId: group.threadId });
       }} />
     </div>
   );

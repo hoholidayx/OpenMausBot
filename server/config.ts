@@ -30,7 +30,7 @@ import { parseJson, schemaIssue, type JsonObject, type JsonValue } from "./schem
 import { deciderConfigSchema, type DeciderConfig } from "./decider/config.ts";
 import { fishKeyFromLiveKey, liveConfigSchema, liveConfigWithEnv, liveSettingEnv, type LiveConfig } from "./live-config.ts";
 import { browserEngineConfigSchema, isValidCdpTarget, type BrowserEngineConfig } from "./browser/config.ts";
-import { roomContextSettings } from "./room-context-settings.ts"; import { usageCapsSchema, type UsageCapsConfig } from "./usage-caps-config.ts";
+import { usageCapsSchema, type UsageCapsConfig } from "./usage-caps-config.ts";
 import { localVmConfigSchema } from "./local-vm-settings.ts";
 export * from "./local-vm-settings.ts";
 
@@ -391,8 +391,10 @@ const appConfigSchema = z.object({
   mcp: mcpConfigSchema.optional(),
   context: z.object({
     compactAt: z.number().positive().max(10_000_000).optional(),
+    keepMessages: z.number().int().positive().optional(),
     autoCompact: z.boolean().optional(),
-  }).extend(roomContextSettings).extend(replaySettings).optional(),
+    idleCompact: z.boolean().optional(),
+  }).extend(replaySettings).optional(),
   /** Memory upkeep timing, for bots with Memory upkeep switched on. */
   memory: z.object({
     /** Quiet time after a turn before its facts are captured (ms). */
@@ -478,7 +480,7 @@ export interface AppConfig {
   rooms?: { turnTimeoutMinutes: number };
   mcp?: { callTimeoutMinutes?: number };
   threads?: { maxConcurrentPerBot: number; eventLogMaxBytes?: number; eventLogRetentionDays?: number }; burst?: { maxParallel?: number };
-  context?: { rebuildBytes?: number; compactAt?: number; autoCompact?: boolean; roomCompactAt?: number; replayToolHistory?: boolean };
+  context?: { rebuildBytes?: number; compactAt?: number; keepMessages?: number; autoCompact?: boolean; idleCompact?: boolean; replayToolHistory?: boolean };
   memory?: { captureQuietMs?: number; tidyHour?: number };
   localVm?: { mode?: "shared" | "per-bot" | "pool"; maxInstances?: number; idleTimeoutMinutes?: number; preserveInstalledApps?: boolean; memoryGb?: number; cpus?: number };
   features?: { skillAuthoring?: boolean; skillReview?: boolean; skillReviewSteps?: number; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; claudeUserSkills?: boolean; llmThreadTitles?: boolean; smartSetupChoices?: boolean; skillsLibrary?: boolean; shareLearnedSkills?: "off" | "ask" | "auto"; parallelRoomJobs?: boolean; acpPlanLines?: boolean; agentsToolBridge?: boolean; savedSteps?: boolean; usbPhoneTakeover?: boolean; cloudComputerAutoReplace?: boolean; phonePush?: boolean };

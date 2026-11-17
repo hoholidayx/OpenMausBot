@@ -14,8 +14,14 @@ export const GROUP_CONTEXT_MESSAGES = DRAIN_COALESCE_MAX_ITEMS;
 export interface RoomLine extends ContextMessage {
   readonly assistantText?: string;
   readonly promptText?: string;
+  counts: boolean;
   requestId?: string;
   turnId?: string;
+}
+
+export function roomLineText(line: RoomLine, history = false): string {
+  const text = history ? line.assistantText ?? line.text : line.promptText ?? line.text;
+  return line.steered ? "[Sent while an earlier turn was running. It may have reached you then.]\n" + text : text;
 }
 
 export function isRoomContextMessage(m: Pick<Message, "kind" | "text" | "digest" | "roomRequest">): boolean {
@@ -57,12 +63,12 @@ export function createRoomTranscript({ store, teammateReportContext }: RoomTrans
     return messages.filter(m => !narration.has(m.id) && hasRoomContext(m, botId)).flatMap((m): RoomLine[] => {
       if (m.roomRequest?.phase === "result") {
         const text = teammateReportContext(m.roomRequest.id, botId);
-        return text ? [{ id: m.id, role: "user", text, requestId: m.roomRequest.id }] : [];
+        return text ? [{ id: m.id, role: "user", text, counts: false, requestId: m.roomRequest.id }] : [];
       }
       const ownReply = m.role === "bot" && m.kind === "text" && m.turnId && m.from?.botId === botId && !m.peerPost && !m.webhookPost;
       const override = overrides?.get(m.id);
       return [{
-        id: m.id, role: ownReply ? "assistant" : "user", get text() { return render(m); },
+        id: m.id, role: ownReply ? "assistant" : "user", counts: m.kind === "text", get text() { return render(m); },
         turnId: ownReply ? m.turnId : undefined,
         get assistantText() { return ownReply ? transcriptText(m, messagesById, userName) : undefined; },
         get promptText() { return override === undefined ? undefined : render({ ...m, text: override }); },

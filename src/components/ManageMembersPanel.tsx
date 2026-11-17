@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useStore, type Group } from "@/state/store";
 import { BotPickerList } from "./BotPickerList";
-import { nextMemberIds } from "@/lib/room-members";
+import { canJoinRoom, nextMemberIds } from "@/lib/room-members";
 import { t } from "@/lib/i18n";
 
 export function ManageMembersPanel({
@@ -21,8 +21,8 @@ export function ManageMembersPanel({
 
   // Archived bots stay listed while still members, or a room could keep a member you cannot remove.
   const bots = useMemo(
-    () => state.bots.filter((b) => !b.hidden || group.memberIds.includes(b.id)),
-    [state.bots, group.memberIds],
+    () => state.bots.filter((b) => (!b.hidden || group.memberIds.includes(b.id)) && canJoinRoom(b, state.instances)),
+    [state.bots, state.instances, group.memberIds],
   );
 
   useEffect(() => {
@@ -71,7 +71,7 @@ export function ManageMembersPanel({
     group.memberIds,
     picked,
     bots.map((b) => b.id),
-  );
+  ).filter(id => bots.some(bot => bot.id === id));
   const changed = memberIds.length !== group.memberIds.length || memberIds.some((id, i) => id !== group.memberIds[i]);
 
   const save = () => {

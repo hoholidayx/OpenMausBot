@@ -79,7 +79,7 @@ export function createGroupRoutes(deps: GroupRouteDeps): RouteHandler {
         if (!checked.ok) return json(res, 400, { error: checked.error });
         if (typeof body.bulletin !== "string") return json(res, 400, { error: "bulletin must be a string" });
         if (body.bulletin.length > 12_000) return json(res, 400, { error: "bulletin must be at most 12000 characters" });
-        const responder = checkedGroupResponder(body.defaultResponder, group.memberIds);
+        const responder = checkedGroupResponder(body.defaultResponder, publicGroupState(group).memberIds);
         if (!responder) return json(res, 400, { error: "invalid default responder" });
         patch.cwd = checked.cwd ?? undefined;
         patch.defaultResponder = responder;

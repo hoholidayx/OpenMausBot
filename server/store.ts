@@ -283,6 +283,7 @@ export class Store {
   private personName: () => string | undefined;
   /** How a new bot is shared; a Team Cloud sets its own rule. */
   newBotSharing: NewBotSharingRule = sharedUnlessRestricted;
+  roomMembersForImport?: (memberIds: string[]) => string[];
   private listeners = new Set<(change: StoreChange) => void>();
   private registeringInitialSections = true;
   private readonly botsFile = new OwnedFile(BOTS_FILE, { mode: 0o600 }); private readonly groupsFile = new OwnedFile(GROUPS_FILE, { mode: 0o600 });
@@ -817,6 +818,7 @@ export class Store {
       completed?: boolean; id?: string; threadId?: string;
     },
   ): GroupRecord {
+    if (!dm) memberIds = this.roomMembersForImport?.(memberIds) ?? memberIds;
     this.rememberSections([section]);
     const threadId = setup?.threadId ?? newId();
     const createdAt = Date.now();
@@ -825,9 +827,7 @@ export class Store {
       threadId,
       name,
       memberIds,
-      defaultResponder: dm
-        ? { kind: "mentions" }
-        : normalizeGroupDefaultResponder(setup?.defaultResponder, memberIds, false),
+      defaultResponder: normalizeGroupDefaultResponder(setup?.defaultResponder, memberIds, dm),
       bulletin: setup?.bulletin ?? "",
       unread: false,
       createdAt,

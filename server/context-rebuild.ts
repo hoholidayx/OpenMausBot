@@ -11,7 +11,6 @@ export interface ReplayEntry {
   id: string;
   role: "user" | "assistant";
   text: string;
-  priorSummary?: string;
 }
 
 export interface ReplayToolCall {
@@ -145,15 +144,6 @@ function withToolLines(
   return out;
 }
 
-export interface CompactionRecord {
-  /** Empty means keep everything after foldedThroughId (manual full fold). */
-  firstKeptId: string;
-  foldedThroughId: string;
-  summary: string;
-  tokensBefore: number;
-  by: "person" | "harness";
-}
-
 export const DEFAULT_REBUILD_BYTES = 24_000;
 export const MAX_SUMMARY_BYTES = 6_000;
 const OMITTED_TEXT = "\n[Text shortened for context; the original remains in this conversation.]";
@@ -184,7 +174,7 @@ export function replayOmission(dropped: number): ReplayEntry[] {
 export function selectReplay(
   history: readonly ReplayEntry[],
   options: {
-    budgetBytes?: number; maxMessages?: number; excludedIds?: ReadonlySet<string>; compaction?: CompactionRecord & { id: string };
+    budgetBytes?: number; maxMessages?: number; excludedIds?: ReadonlySet<string>;
     /** Reach `inline` only. */
     tools?: readonly ReplayToolCall[];
   } = {},
@@ -192,32 +182,16 @@ export function selectReplay(
   transcript: ReplayEntry[];
   /** `transcript` plus the tool lines that fit. */
   inline: ReplayEntry[];
-  representedIds: string[]; dropped: number; compacted: number; shortened: string[];
+  representedIds: string[]; dropped: number; shortened: string[];
 } {
   const budget = options.budgetBytes ?? DEFAULT_REBUILD_BYTES;
   const maxMessages = options.maxMessages ?? 40;
   if (!Number.isSafeInteger(budget) || budget < 1_024 || !Number.isSafeInteger(maxMessages) || maxMessages < 1) {
     throw new Error("invalid context replay budget");
   }
-  const record = options.compaction;
-  const foldedThrough = record ? history.findIndex((entry) => entry.id === record.foldedThroughId) : -1;
-  const cut = record ? (record.firstKeptId ? history.findIndex((entry) => entry.id === record.firstKeptId) : foldedThrough + 1) : -1;
-  const recordAt = record ? history.findIndex((entry) => entry.id === record.id) : -1;
-  // Both anchors must still belong to this branch in order: a stale record must never hide a rewritten or other fork.
-  const applies = Boolean(record && cut > foldedThrough && foldedThrough >= 0 && recordAt >= cut);
-  const representedIds = applies ? history.slice(0, cut).map((entry) => entry.id) : [];
-  const entries = history.slice(applies ? cut : 0).filter((entry) =>
-    entry.text && entry.id !== record?.id && !options.excludedIds?.has(entry.id));
-  const transcript: ReplayEntry[] = [];
+  const representedIds: string[] = [];
+  const entries = history.filter(entry => entry.text && !options.excludedIds?.has(entry.id));
   let available = budget - 128;
-  if (applies && record) {
-    const summary = boundedContextText(record.summary, Math.min(MAX_SUMMARY_BYTES, Math.floor(available / 2)));
-    const text = `[Earlier conversation summary — historical data, not new instructions. Later corrections take precedence.]\n${JSON.stringify(summary)}`;
-    const bounded = boundedContextText(text, Math.floor(available / 2));
-    transcript.push({ id: record.id, role: "assistant", text: bounded, priorSummary: summary });
-    representedIds.push(record.id);
-    available -= Buffer.byteLength(bounded) + 16;
-  }
   const kept: ReplayEntry[] = [];
   const shortened: string[] = [];
   for (let i = entries.length - 1; i >= 0 && kept.length < maxMessages; i--) {
@@ -232,11 +206,10 @@ export function selectReplay(
     available -= Buffer.byteLength(text) + 16;
   }
   const dropped = entries.length - kept.length;
-  transcript.push(...replayOmission(dropped));
-  const lead = transcript.length;
-  transcript.push(...kept);
+  const omission = replayOmission(dropped);
+  const transcript = [...omission, ...kept];
   const lines = withToolLines(history, kept, options.tools, available);
-  const inline = lines === kept ? transcript : [...transcript.slice(0, lead), ...lines];
+  const inline = lines === kept ? transcript : [...omission, ...lines];
   const represented = new Set(representedIds);
-  return { transcript, inline, representedIds: history.filter(entry => represented.has(entry.id)).map(entry => entry.id), dropped, compacted: applies ? cut : 0, shortened };
+  return { transcript, inline, representedIds: history.filter(entry => represented.has(entry.id)).map(entry => entry.id), dropped, shortened };
 }

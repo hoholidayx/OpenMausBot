@@ -939,6 +939,10 @@ process.stdin.on("data", (chunk) => {
           notify("item/started", { item: prompt });
           notify("item/completed", { item: prompt });
         }
+        if (process.env.FAKE_CODEX_TEXT_COMPACTION === "1" &&
+          (msg.params?.input ?? []).some((part: { text?: string }) => part.text?.includes("CODEX_NATIVE_COMPACTION"))) {
+          notify("item/completed", { item: { type: "contextCompaction", id: "compact-fixture" } });
+        }
         if (mode === "helper-events") {
           for (const scope of [
             { threadId: "helper-thread", turnId: "helper-turn" },

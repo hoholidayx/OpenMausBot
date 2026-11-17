@@ -1,20 +1,9 @@
 import type { ModelCatalog } from "./contracts.ts";
 import { contextWindowFor } from "./context-budget.ts";
-import { sessionIdlePolicy } from "./drivers/session-idle.ts";
-import { serverLine } from "./server-lines.ts";
 
-export const DEFAULT_ROOM_COMPACT_AT = 0.9;
+export type RoomMemberContext = { tokens: number; window: number };
 
-export type RoomMemberContext = { tokens: number; window: number; compactRequested?: true };
-
-export function roomCompactTokens(window: number, settings: { autoCompact?: boolean; roomCompactAt?: number } | undefined): number | null {
-  if (settings?.autoCompact === false) return null;
-  const at = settings?.roomCompactAt;
-  const value = typeof at === "number" && Number.isFinite(at) && at > 0 ? at : DEFAULT_ROOM_COMPACT_AT;
-  return value < 1 ? Math.floor(window * value) : Math.floor(value);
-}
-
-type Measured = RoomMemberContext & { instanceId?: string; at: number };
+type Measured = RoomMemberContext & { at: number };
 
 export type RoomContextClock = {
   idleMs?: number;
@@ -23,34 +12,23 @@ export type RoomContextClock = {
   expired?: (threadId: string) => void;
 };
 
-type RoomReset = { reason: "requested" | "threshold"; percent: number };
-
-export function roomResetNote(name: string, reset: RoomReset, language?: string): string {
-  return serverLine(language, reset.reason === "requested" ? "server.rooms.compactedRequested" : "server.rooms.compactedThreshold", { bot: name, percent: reset.percent });
-}
-
 export class RoomContextTracker {
   private threads = new Map<string, Map<string, Measured>>();
-  private dispatchedOn = new Map<string, Map<string, string>>();
   private readonly clock: RoomContextClock;
   private readonly idleMs: number;
 
   constructor(clock: RoomContextClock = {}) {
     this.clock = clock;
-    this.idleMs = clock.idleMs ?? Math.max(sessionIdlePolicy("CLAUDE").idleMs, sessionIdlePolicy("ACP").idleMs);
+    this.idleMs = clock.idleMs ?? 30 * 60_000;
   }
 
   record(threadId: string, botId: string, reading: { tokens?: number; window?: number } | undefined, model: string | undefined, catalog?: ModelCatalog): void {
     const tokens = reading?.tokens;
     if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens <= 0) return;
     const members = this.threads.get(threadId) ?? new Map<string, Measured>();
-    const previous = this.live(threadId, botId);
-    const instanceId = this.dispatchedOn.get(threadId)?.get(botId);
     const measured: Measured = {
       tokens: Math.trunc(tokens),
       window: contextWindowFor(model, catalog, reading?.window),
-      ...(previous?.compactRequested ? { compactRequested: true as const } : {}),
-      ...(instanceId ? { instanceId } : {}),
       at: this.now(),
     };
     members.set(botId, measured);
@@ -58,61 +36,19 @@ export class RoomContextTracker {
     this.watch(threadId, botId, measured);
   }
 
-  request(threadId: string, botId: string): boolean {
-    const current = this.live(threadId, botId);
-    if (!current) return false;
-    current.compactRequested = true;
-    return true;
-  }
-
   forThread(threadId: string): Record<string, RoomMemberContext> | undefined {
     const members = this.threads.get(threadId);
     if (!members) return undefined;
     for (const botId of members.keys()) this.live(threadId, botId);
     if (!members.size) return undefined;
-    return Object.fromEntries([...members].map(([botId, { tokens, window, compactRequested }]) =>
-      [botId, { tokens, window, ...(compactRequested ? { compactRequested } : {}) }]));
-  }
-
-  dispatch(threadId: string, botId: string, instanceId: string, settings: { autoCompact?: boolean; roomCompactAt?: number } | undefined, hostCompaction = true):
-    { reset: RoomReset | null; displaced: boolean } {
-    const changed = this.dispatched(threadId, botId, instanceId);
-    const reset = hostCompaction ? this.takeReset(threadId, botId, settings) : null;
-    const cleared = !hostCompaction && this.clearReading(threadId, botId);
-    return { reset, displaced: changed || cleared };
-  }
-
-  dispatched(threadId: string, botId: string, instanceId: string): boolean {
-    const engines = this.dispatchedOn.get(threadId) ?? new Map<string, string>();
-    engines.set(botId, instanceId);
-    this.dispatchedOn.set(threadId, engines);
-    const recordedOn = this.threads.get(threadId)?.get(botId)?.instanceId;
-    return recordedOn !== undefined && recordedOn !== instanceId && this.clearReading(threadId, botId);
-  }
-
-  takeReset(threadId: string, botId: string, settings: { autoCompact?: boolean; roomCompactAt?: number } | undefined): RoomReset | null {
-    const current = this.live(threadId, botId);
-    const members = this.threads.get(threadId);
-    if (!members || !current) return null;
-    const percent = Math.round((current.tokens / current.window) * 100);
-    const limit = roomCompactTokens(current.window, settings);
-    const reason = current.compactRequested ? "requested" : limit !== null && current.tokens >= limit ? "threshold" : null;
-    if (!reason) return null;
-    members.delete(botId);
-    if (!members.size) this.threads.delete(threadId);
-    return { reason, percent };
+    return Object.fromEntries([...members].map(([botId, { tokens, window }]) => [botId, { tokens, window }]));
   }
 
   forget(threadId: string): void {
     this.threads.delete(threadId);
-    this.dispatchedOn.delete(threadId);
   }
 
-  clearReadings(botId: string): string[] {
-    return [...this.threads.keys()].filter(threadId => this.clearReading(threadId, botId));
-  }
-
-  private clearReading(threadId: string, botId: string): boolean {
+  clear(threadId: string, botId: string): boolean {
     const members = this.threads.get(threadId);
     if (!members?.delete(botId)) return false;
     if (!members.size) this.threads.delete(threadId);

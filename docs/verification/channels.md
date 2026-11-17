@@ -14,7 +14,8 @@ the channel composer.
 
 ## Driving it
 
-Create two fixture bots with `new-bot`, then:
+Create two fixture bots with `new-bot` and select a loopback API instance
+for both using `set-model`. The [context fixture](context-compaction.md) exercises the same room lifecycle.
 
 ```sh
 pnpm control:omb new-channel --name Review --members BOT_A_ID,BOT_B_ID --url http://127.0.0.1:PORT
@@ -43,8 +44,9 @@ pnpm exec vitest run server/index.test.ts -t 'Chief room|team-goal lead|credenti
 The end-to-end test launches the isolated control fixture, creates disposable
 bots, starts its fake Chief engine and uses that turn's mounted agents MCP
 proxy. It creates a room, renames it, changes members and its bulletin, then
-checks the saved state. A foreign-section member is refused; stopping the
-owning turn revokes the proxy's permission to rename the room. The test retains
+checks the saved state with API members. The native Chief uses the management
+listing in `list_rooms`. Stopping the owning turn revokes the proxy's permission
+to rename the room. The test retains
 its control commands, tool results and final state beside the printed server
 log, without recording the bearer token, and removes its temporary home.
 
@@ -52,5 +54,5 @@ The API regressions exercise spoofed sender/thread claims, slow expired
 requests, current Chief status, peer allow-lists, hidden bots, creation limits,
 busy rooms, pending approvals, goal leads and in-flight credential saves.
 Public channel creation and edits use the same validation as the Chief tools.
-Chiefs cannot move rooms/bots between sections, remove themselves, or change
-working folders. These tools add no separate approval workflow.
+Section moves and working-folder changes stay with the user. An API Chief
+stays a member of the room it manages.

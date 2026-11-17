@@ -83,7 +83,7 @@ try {
         const t = await rpc(method, { ...(cursor ? { threadId: cursor } : { cwd, model: 'gpt-5.6-sol', ephemeral: false }), ...(process.env.PROBE_BEFORE ? {} : { developerInstructions }), approvalPolicy: 'never', sandbox: 'read-only' });
         cursor = t.thread.id;
         if (!process.env.PROBE_BEFORE)
-            await syncCodexInstructions("native-probe", cursor, developerInstructions, index > 0, rpc);
+            await syncCodexInstructions("native-probe", cursor, developerInstructions, "", index > 0, rpc);
         await rpc('turn/start', { threadId: cursor, input: [{ type: 'text', text: (process.env.PROBE_BEFORE ? instructions + '\n\n' : '') + (index === 0 ? 'Remember ALPHA.' : 'Continue ' + index) }] });
         const completed = await event('turn/completed');
         assert.equal(completed.params?.turn?.status, 'completed');

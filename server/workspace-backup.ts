@@ -276,9 +276,11 @@ function databaseCounts(path: string): { threads: number; messages: number } {
   } finally { db.close(); }
 }
 
-function clearRoomSessionReceipts(db: DatabaseSync): void {
-  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'room_sessions'").get()) return;
-  db.exec("PRAGMA secure_delete = ON; DELETE FROM room_sessions");
+function clearDerivedContext(db: DatabaseSync): void {
+  const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?");
+  db.exec("PRAGMA secure_delete = ON");
+  if (exists.get("room_sessions")) db.exec("DELETE FROM room_sessions");
+  if (exists.get("conversation_summaries")) db.exec("DELETE FROM conversation_summaries");
 }
 
 /** The existing maintenance gate owns exclusivity until this worker has exited.
@@ -343,7 +345,7 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
       const snapshotDb = new DatabaseSync(join(snapshot, snapshotName));
       try {
         snapshotDb.exec("PRAGMA journal_mode = DELETE");
-        if (name === "messages.db") clearRoomSessionReceipts(snapshotDb);
+        if (name === "messages.db") clearDerivedContext(snapshotDb);
       } finally { snapshotDb.close(); }
     }
     const teamPrivate = teamPrivateThreads({ starters: join(root, "thread-starters.json"), groups: join(root, "groups.json"), bots: join(root, "bots.json") });
@@ -844,7 +846,7 @@ function prepareRestore(dataDir: string, id: string, manifest: Manifest): string
           pause.run(JSON.stringify(payload), row.id);
         }
       }
-      clearRoomSessionReceipts(db);
+      clearDerivedContext(db);
       db.exec("COMMIT");
     } finally { db.close(); }
   }

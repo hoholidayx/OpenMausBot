@@ -7,7 +7,7 @@ import { fastModelFor } from "./turn-route.ts";
 import type { UsageRow } from "./usage-ledger.ts";
 
 /** "representative": a person's assistant answering a teammate's question for them, which must never get tools. */
-export type SideJob = "compaction" | "skill-review" | "setup-suggestions" | "representative" | "status-reply";
+export type SideJob = "skill-review" | "setup-suggestions" | "representative" | "status-reply";
 
 export type SideJobInstance = Pick<ProviderInstance, "instanceId" | "driverKind" | "generateText" | "generateMemoryText" | "models" | "quickModelsUsable"> & {
   adapter: { capabilities: Pick<ProviderAdapter["capabilities"], "agentsMcp"> };
@@ -45,14 +45,13 @@ export interface SideJobsDeps {
 }
 
 export interface SideJobs {
-  /** Null when nobody can write it and the job keeps its fallback. `at.instance`: the conversation's engine, for the summary. */
-  text(job: SideJob, botId: string, at?: { instance?: SideJobInstance }): SideJobText | null;
+  text(job: SideJob, botId: string): SideJobText | null;
 }
 
 type TextCall = (prompt: string, options?: TextGenerationOptions) => Promise<string>;
 
 /** A turn or a person is waiting on these, so they start at once. */
-const NEVER_QUEUED: ReadonlySet<SideJob> = new Set(["compaction", "representative", "status-reply"]);
+const NEVER_QUEUED: ReadonlySet<SideJob> = new Set(["representative", "status-reply"]);
 
 export function createSideJobs(deps: SideJobsDeps): SideJobs {
   const ownFallback = (bot: SideJobBot, instance: SideJobInstance): SmallModelFallback => ({
@@ -115,16 +114,14 @@ export function createSideJobs(deps: SideJobsDeps): SideJobs {
     }, { signal: options.signal, interactive: job === "setup-suggestions", onWait: waiting }) }
     : found;
 
-  function find(job: SideJob, botId: string, at: { instance?: SideJobInstance }): SideJobText | null {
+  function find(job: SideJob, botId: string): SideJobText | null {
     const bot = deps.bot(botId);
-    const own = at.instance ?? (bot ? deps.instance(bot.modelSelection.instanceId) : null);
+    const own = bot ? deps.instance(bot.modelSelection.instanceId) : null;
     if (!bot || !own || deps.refusal(own)) return null;
     if (job === "skill-review" && own.adapter.capabilities.agentsMcp !== true) return null;
     const call = own.generateText ?? (job === "skill-review" ? own.generateMemoryText : undefined);
     if (!call) return null;
     const generate = call.bind(own);
-    // The summary belongs to a turn that already passed the spend limit and is not booked on its own.
-    if (job === "compaction") return { generateText: generate };
     if (job === "setup-suggestions") {
       const quick = quickModel(bot, own);
       const write = booked(job, bot, own, generate, () => ({ fallback: ownFallback(bot, own), ...quick }));
@@ -133,6 +130,6 @@ export function createSideJobs(deps: SideJobsDeps): SideJobs {
     return { generateText: booked(job, bot, own, generate, () => ({ fallback: ownFallback(bot, own) })) };
   }
   return {
-    text: (job, botId, at = {}) => queued(job, find(job, botId, at)),
+    text: (job, botId) => queued(job, find(job, botId)),
   };
 }

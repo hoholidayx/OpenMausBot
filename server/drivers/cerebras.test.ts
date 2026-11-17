@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ASK_USER_TOOL_DEFINITION } from "../../shared/ask-question.ts";
 import { recordEvents } from "../testing/events.ts";
-import { compactBudget, contextWindowFor, shouldCompact } from "../context-budget.ts";
+import { compactBudget, contextWindowFor } from "../context-budget.ts";
 import { CerebrasDriver } from "./cerebras.ts";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
@@ -16,7 +16,7 @@ describe("Cerebras provider", () => {
     for (const { id } of CerebrasDriver.models.options) {
       const window = contextWindowFor(id, CerebrasDriver.models);
       expect(window).toBeLessThanOrEqual(65536);
-      expect(shouldCompact({ contextTokens: 60000, estimatedBytes: 0, budget: compactBudget(window), window })).toBe(true);
+      expect(compactBudget(window)).toBeLessThan(60_000);
     }
   });
   it("rejects invalid tools flags and non-TLS remote endpoints", () => {

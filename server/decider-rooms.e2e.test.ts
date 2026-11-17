@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -10,13 +10,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
+import { fixtureChatReply, fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 
 // The decision model points at a fake Jev-compatible endpoint (decider.baseUrl), then a fake OpenRouter
 // (decider.openrouterBaseUrl), both on this machine; the Jev key reaches the server only through its env, as the desktop delivers it.
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
-const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
+type Chat = Awaited<ReturnType<typeof startLoopbackChat>>;
 const KEY = "tsk_e2e_secret_value_7f3a9c2e41d8";
 
 type JevRequest = { auth?: string; body: any };
@@ -29,9 +30,8 @@ let home = "";
 let data = "";
 let base = "";
 let output = "";
-let engineDump = "";
-let titleDump = "";
-let fallbackTitleDump = "";
+let quick: Chat;
+let titled: Chat;
 const jevRequests: JevRequest[] = [];
 const openrouterRequests: JevRequest[] = [];
 let script: RouteScript = {};
@@ -91,23 +91,15 @@ beforeAll(async () => {
   mkdirSync(join(staticDir, "assets"), { recursive: true });
   writeFileSync(join(staticDir, "index.html"), "<!doctype html><title>Decider rooms test</title>");
   writeFileSync(join(staticDir, "assets", "smoke.css"), "body{}");
-  engineDump = join(home, "engine-dump.json");
-  titleDump = join(home, "title-dump.json");
-  fallbackTitleDump = join(home, "fallback-title-dump.json");
-  const titleFile = join(home, "title.txt");
-  writeFileSync(titleFile, "Safari footer fix");
+  const answer = (request: Chat["requests"][number]) => fixtureChatReply(request.stream ? "Fixture room reply." : "Safari footer fix");
+  quick = await startLoopbackChat(answer);
+  titled = await startLoopbackChat(answer);
   writeFileSync(join(data, "config.json"), JSON.stringify({
     // a room task's first message is titled by the engine of whoever answers it
     features: { llmThreadTitles: true },
     instances: {
-      quick: {
-        driver: "claudeAgent", displayName: "Quick fixture", config: { cli: FAKE_CLAUDE },
-        environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_DUMP: engineDump, FAKE_CLAUDE_TEXT_DUMP: fallbackTitleDump, FAKE_CLAUDE_TEXT_FILE: titleFile },
-      },
-      titled: {
-        driver: "claudeAgent", displayName: "Titled fixture", config: { cli: FAKE_CLAUDE },
-        environment: { FAKE_CLAUDE_MODE: "happy", FAKE_CLAUDE_TEXT_DUMP: titleDump, FAKE_CLAUDE_TEXT_FILE: titleFile },
-      },
+      quick: quick.instance("Quick fixture"),
+      titled: titled.instance("Titled fixture"),
     },
     decider: { enabled: true, baseUrl: jevUrl, jobs: { roomRouting: true } },
   }));
@@ -143,6 +135,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (child) await waitForExit(child, { signal: "SIGTERM" });
+  await Promise.all([quick?.close(), titled?.close()]);
   await new Promise<void>((resolve) => (jev ? jev.close(() => resolve()) : resolve()));
   await new Promise<void>((resolve) => (openrouter ? openrouter.close(() => resolve()) : resolve()));
   if (home) await removeTempDir(home);
@@ -182,10 +175,11 @@ describe("Auto rooms ask the decision model who answers", { timeout: 90_000 }, (
 
     for (const name of ["Maya", "Theo", "Ravi"]) {
       bots[name] = (await api("POST", "/api/bots", {
-        name, title: `${name} title`, modelSelection: { instanceId: name === "Theo" ? "titled" : "quick", model: "claude-sonnet-5" }, requireAvailableModel: true,
+        name, title: `${name} title`, modelSelection: { instanceId: name === "Theo" ? "titled" : "quick", model: fixtureModel }, requireAvailableModel: true,
       })).body.bot;
     }
     const created = await api("POST", "/api/groups", { name: "Launch", memberIds: [bots.Maya!.id, bots.Theo!.id, bots.Ravi!.id] });
+    expect(created.status, created.text).toBe(201);
     expect(created.body.group.defaultResponder).toEqual({ kind: "auto" });
     const setup = await api("PATCH", `/api/groups/${created.body.group.id}/setup`, { action: "complete", cwd: null, bulletin: "", defaultResponder: { kind: "auto" } });
     expect(setup.status).toBe(200);
@@ -226,8 +220,8 @@ describe("Auto rooms ask the decision model who answers", { timeout: 90_000 }, (
     expect([...new Set(replies.map((reply) => reply.from!.name))]).toEqual(["Theo"]);
     expect(replies[0]!.routedBy).toEqual({ provider: "jev", probability: 0.94 });
     expect(replies.slice(1).every((reply) => reply.routedBy === undefined)).toBe(true);
-    await expect.poll(() => existsSync(titleDump), { timeout: 10_000 }).toBe(true);
-    expect(existsSync(fallbackTitleDump)).toBe(false);
+    await expect.poll(() => titled.requests.some(item => !item.stream && JSON.stringify(item.messages).includes(text)), { timeout: 10_000 }).toBe(true);
+    expect(quick.requests.some(item => !item.stream && JSON.stringify(item.messages).includes(text))).toBe(false);
 
     const request = routeRequests().at(-1)!;
     expect(request.auth).toBe(`Bearer ${KEY}`);
@@ -278,10 +272,8 @@ describe("Auto rooms ask the decision model who answers", { timeout: 90_000 }, (
   });
 
   it("engines never see the key; the decision log holds no text and no key", async () => {
-    expect(existsSync(engineDump)).toBe(true);
-    const dump = readFileSync(engineDump, "utf8");
-    expect(JSON.parse(dump).env).not.toHaveProperty("OMB_JEV_API_KEY");
-    expect(dump).not.toContain(KEY);
+    expect(quick.requests.some(item => item.stream)).toBe(true);
+    expect(JSON.stringify([...quick.requests, ...titled.requests])).not.toContain(KEY);
     const dir = join(data, "decider-log");
     const log = readdirSync(dir).map((name) => readFileSync(join(dir, name), "utf8")).join("");
     const rows = log.trim().split("\n").map((line) => JSON.parse(line));
@@ -458,9 +450,7 @@ describe("Auto rooms ask the decision model who answers", { timeout: 90_000 }, (
     });
 
     it("engines never see the OpenRouter decision key", () => {
-      const dump = readFileSync(engineDump, "utf8");
-      expect(JSON.parse(dump).env).not.toHaveProperty("OMB_OPENROUTER_DECIDER_KEY");
-      expect(dump).not.toContain(OR_KEY);
+      expect(JSON.stringify([...quick.requests, ...titled.requests])).not.toContain(OR_KEY);
     });
   });
 });

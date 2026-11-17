@@ -36,36 +36,6 @@ describe("context replay", () => {
     expect(result.representedIds).toContain("79");
   });
 
-  it("counts the summary and omission notice against the budget", () => {
-    const history = entries(["old", "old reply", "retained", "reply", ""]);
-    const result = selectReplay(history, { budgetBytes: 1_024, compaction: {
-      id: "4", firstKeptId: "2", foldedThroughId: "1", summary: "large 🐭 summary ".repeat(1_000), by: "harness", tokensBefore: 100,
-    } });
-    expect(size(result)).toBeLessThanOrEqual(1_024);
-    expect(result.compacted).toBe(2);
-    expect(new Set(result.representedIds)).toEqual(new Set(["0", "1", "2", "3", "4"]));
-    expect(result.transcript[0]!.text).toContain("historical data");
-  });
-
-  it("ignores records whose anchors no longer belong to the selected branch", () => {
-    const history = entries(["corrected history", "answer", "keep", ""]);
-    const result = selectReplay(history, { compaction: {
-      id: "3", firstKeptId: "2", foldedThroughId: "abandoned-id", summary: "obsolete request", by: "harness", tokensBefore: 100,
-    } });
-    expect(result.compacted).toBe(0);
-    expect(result.transcript.map(entry => entry.text)).toContain("corrected history");
-    expect(JSON.stringify(result.transcript)).not.toContain("obsolete request");
-  });
-
-  it("finds the compaction boundary before excluding the turn's own request", () => {
-    const result = selectReplay(entries(["old", "reply", "current", ""]), {
-      excludedIds: new Set(["2"]), compaction: { id: "3", firstKeptId: "2", foldedThroughId: "1", summary: "old summary", by: "person", tokensBefore: 1 },
-    });
-    expect(result.compacted).toBe(2);
-    expect(result.representedIds).not.toContain("2");
-    expect(result.transcript).toHaveLength(1);
-  });
-
   it("bounds a single oversized history entry, preserving both ends and an honest notice", () => {
     const result = selectReplay(entries([`START ${"🐭".repeat(10_000)} CANCELLED_AT_END`]), { budgetBytes: 1_024 });
     expect(size(result)).toBeLessThanOrEqual(1_024);
@@ -74,15 +44,6 @@ describe("context replay", () => {
     expect(result.transcript[0]!.text).toContain("Text shortened");
     expect(result.transcript[0]!.text).toMatch(/CANCELLED_AT_END$/);
     expect(result.transcript[0]!.text).not.toContain("�");
-  });
-
-  it("a full manual fold retains later messages without a future boundary id", () => {
-    const result = selectReplay(entries(["old", "reply", "", "new question", "new answer"]), {
-      compaction: { id: "2", firstKeptId: "", foldedThroughId: "1", summary: "old summary", by: "person", tokensBefore: 1 },
-    });
-    expect(result.compacted).toBe(2);
-    expect(result.transcript.slice(1).map(entry => entry.text)).toEqual(["new question", "new answer"]);
-    expect(new Set(result.representedIds)).toEqual(new Set(["0", "1", "2", "3", "4"]));
   });
 
   it("bounds UTF-8 text at every possible split", () => {
@@ -548,16 +509,6 @@ describe("tool history in a rebuilt session", () => {
       expect(result.inline).toBe(result.transcript);
     });
 
-    it("leaves out calls a compaction folded away, and calls it cannot place", () => {
-      const history = entries(["old", "old reply", "retained", "reply", ""]);
-      const result = selectReplay(history, {
-        tools: [line("0", "folded"), line("2", "kept"), line("gone", "unplaced")],
-        compaction: { id: "4", firstKeptId: "2", foldedThroughId: "1", summary: "old summary", by: "harness", tokensBefore: 100 },
-      });
-      expect(result.compacted).toBe(2);
-      expect(result.inline[0]!.text).toContain("old summary");
-      expect(result.inline.slice(1).map(entry => entry.text)).toEqual(["retained", line("2", "kept").text, "reply"]);
-    });
   });
 });
 

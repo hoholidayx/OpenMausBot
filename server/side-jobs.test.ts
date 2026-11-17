@@ -6,7 +6,7 @@ import { createSideJobs, type SideJob, type SideJobInstance, type SideJobsDeps }
 type Booked = { row: Parameters<SideJobsDeps["book"]>[0]; tokensReported: boolean; notificationThreadId: string };
 
 const models = { default: "x-large", options: [{ id: "x-large", label: "X large" }, { id: "x-mini", label: "X mini" }] };
-const allJobs: SideJob[] = ["compaction", "skill-review", "setup-suggestions", "representative", "status-reply"];
+const allJobs: SideJob[] = ["skill-review", "setup-suggestions", "representative", "status-reply"];
 
 function engine(instanceId: string, driverKind: string, textCall?: "generateText" | "generateMemoryText",
   quickModelsUsable?: SideJobInstance["quickModelsUsable"]) {
@@ -77,20 +77,12 @@ describe("which engine writes a side job", () => {
     expect(claude.calls).toEqual([]);
   });
 
-  it("uses the active conversation's instance for a summary", async () => {
-    const { jobs, claude, api } = setup();
-    const write = jobs.text("compaction", "api", { instance: claude.instance });
-    await expect(write?.generateText("summary")).resolves.toBe("claude wrote this");
-    expect(api.calls).toEqual([]);
-  });
-
   it("checks engine policy and the skill review's tool capability", () => {
     const { jobs, state, claude } = setup();
     state.refused.add("api");
     for (const job of allJobs) expect(jobs.text(job, "api")).toBeNull();
     claude.instance.adapter.capabilities.agentsMcp = false;
     expect(jobs.text("skill-review", "claude")).toBeNull();
-    expect(jobs.text("compaction", "claude")).toBeTruthy();
   });
 });
 
@@ -136,11 +128,10 @@ describe("side job cancellation and accounting", () => {
     expect(state.logs).toEqual([expect.stringContaining("small model x-mini refused on codex")]);
   });
 
-  it("books regular side jobs to their own engine and skips a separate row for compaction", async () => {
+  it("books side jobs to their own engine", async () => {
     const { jobs, state } = setup();
     await jobs.text("setup-suggestions", "api")!.generateText("choices");
     await jobs.text("skill-review", "codex")!.generateText("review");
-    await jobs.text("compaction", "claude")!.generateText("summary");
     expect(state.booked).toEqual([
       { row: expect.objectContaining({ botId: "api", instanceId: "api", model: "x-mini", threadId: expect.stringMatching(/^setup-suggestions-/),
         trigger: { kind: "bot", botId: "api" } }), tokensReported: true, notificationThreadId: "main-api" },

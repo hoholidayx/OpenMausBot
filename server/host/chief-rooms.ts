@@ -7,6 +7,8 @@ import type { BotRecord, GroupRecord, Store } from "../store.ts";
 
 export interface ChiefRoomsDeps {
   store: Pick<Store, "groups" | "appendMessage">;
+  eligible?(bot: BotRecord): boolean;
+  members?(room: GroupRecord): string[];
   /** Changes the room as the person would, with the same refusals; throws when it may not change now. */
   updateRoom(groupId: string, patch: { memberIds: string[]; defaultResponder: GroupDefaultResponder }): GroupRecord;
   published(group: GroupRecord): void;
@@ -18,11 +20,11 @@ const ledBy = (room: Pick<GroupRecord, "defaultResponder">, botId: string): bool
 };
 
 /** The department's Chief, when this room is a department's room and that Chief is not in it. */
-export function chiefAbsentFrom(room: Pick<GroupRecord, "dm" | "section" | "memberIds">, bots: readonly BotRecord[]): { botId: string; name: string } | undefined {
+export function chiefAbsentFrom(room: Pick<GroupRecord, "dm" | "section" | "memberIds">, bots: readonly BotRecord[], eligible = (_bot: BotRecord) => true): { botId: string; name: string } | undefined {
   if (room.dm) return undefined;
   const scope = chiefScope({ section: room.section });
   const chief = bots.find((bot) => bot.chiefOfStaff && !bot.hidden && chiefScope(bot) === scope);
-  return chief && !room.memberIds.includes(chief.id) ? { botId: chief.id, name: chief.name } : undefined;
+  return chief && eligible(chief) && !room.memberIds.includes(chief.id) ? { botId: chief.id, name: chief.name } : undefined;
 }
 
 export function createChiefRooms(deps: ChiefRoomsDeps) {
@@ -31,7 +33,7 @@ export function createChiefRooms(deps: ChiefRoomsDeps) {
   function retarget(room: GroupRecord, from: BotRecord, to: BotRecord): GroupRecord | null {
     const lead: GroupDefaultResponder = room.defaultResponder.kind === "auto" ? { kind: "auto", fallbackBotId: to.id } : { kind: "member", botId: to.id };
     try {
-      const updated = deps.updateRoom(room.id, { memberIds: [...new Set([...room.memberIds, to.id])], defaultResponder: lead });
+      const updated = deps.updateRoom(room.id, { memberIds: [...new Set([...(deps.members?.(room) ?? room.memberIds), to.id])], defaultResponder: lead });
       store.appendMessage(room.threadId, { role: "bot", kind: "activity",
         tool: { name: `notice: ${serverLine(conversationLanguage(room.threadId), "server.rooms.chiefRetargeted", { chief: to.name, former: from.name })}`, ok: true } });
       return updated;
@@ -45,7 +47,7 @@ export function createChiefRooms(deps: ChiefRoomsDeps) {
     /** `changed`: the bots setChiefOfStaff changed. The new Chief takes over the rooms the old one led, and every room's
      * "no Chief here" line is read again. */
     moved(changed: readonly BotRecord[]): void {
-      const to = changed.find((bot) => bot.chiefOfStaff);
+      const to = changed.find((bot) => bot.chiefOfStaff && (deps.eligible?.(bot) ?? true));
       const formers = changed.filter((bot) => !bot.chiefOfStaff);
       if (!changed.length) return;
       for (const room of store.groups) {

@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
 import { waitForExit } from "./testing/cleanup.ts";
+import { fixtureModel, startLoopbackChat } from "./testing/loopback-chat.ts";
 
 type Bot = { id: string; threadId: string; name: string };
 type Room = { id: string; name: string; memberIds: string[]; section?: string; bulletin: string; working?: boolean };
@@ -16,6 +17,7 @@ const CHIEF_ONLY_TOOLS = ["create_bot", "list_team_setup", "propose_team_setup",
 
 it("creates and manages an own-section room through the mounted Chief MCP proxy", async () => {
   const fixture = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_MODE: "hang" });
+  const provider = await startLoopbackChat();
   const evidence: unknown[] = [{ fixture: fixture.info }];
   const proxies: ChildProcess[] = [];
   const control = async (args: string[]) => {
@@ -82,6 +84,10 @@ it("creates and manages an own-section room through the mounted Chief MCP proxy"
     expect(CHIEF_ONLY_TOOLS.filter((name) => peerTools.includes(name))).toEqual([]);
     evidence.push({ peerTools });
     await control(["interrupt", "--bot", peer.id]);
+    await provider.connect(fixture.info.url);
+    for (const bot of [peer, second, foreign]) {
+      await control(["set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", fixtureModel]);
+    }
 
     const mounted = await mount(chief, "Set up a small room for the team.");
     expect(mounted.env.OMB_CHIEF_OF_STAFF).toBe("1");
@@ -96,18 +102,18 @@ it("creates and manages an own-section room through the mounted Chief MCP proxy"
     const rooms = async () => (await api<{ groups: Room[] }>("GET", "/api/bots?messages=0")).groups;
     await tool("create_room", { name: "Review room", member_bot_ids: [peer.id], bulletin: "Review only the assigned change." });
     const room = (await rooms()).find((candidate) => candidate.name === "Review room")!;
-    expect(room).toMatchObject({ section: "Room verification", memberIds: [chief.id, peer.id], working: false });
+    expect(room).toMatchObject({ section: "Room verification", memberIds: [peer.id], working: false });
     expect(await tool("list_rooms", {})).toContain(room.id);
     await tool("manage_room", { room_id: room.id, action: "rename", name: "Verified room" });
     await tool("manage_room", { room_id: room.id, action: "add_members", member_bot_ids: [second.id] });
     await tool("manage_room", { room_id: room.id, action: "remove_members", member_bot_ids: [peer.id] });
     await tool("manage_room", { room_id: room.id, action: "set_bulletin", bulletin: "Verified short brief ✓" });
     const saved = (await rooms()).find((candidate) => candidate.id === room.id);
-    expect(saved).toMatchObject({ name: "Verified room", memberIds: [chief.id, second.id], bulletin: "Verified short brief ✓", section: "Room verification" });
+    expect(saved).toMatchObject({ name: "Verified room", memberIds: [second.id], bulletin: "Verified short brief ✓", section: "Room verification" });
     evidence.push({ saved });
     await tool("create_room", { name: "Mixed room", member_bot_ids: [foreign.id] });
     expect((await rooms()).find((candidate) => candidate.name === "Mixed room"))
-      .toMatchObject({ section: "Room verification", memberIds: [chief.id, foreign.id] });
+      .toMatchObject({ section: "Room verification", memberIds: [foreign.id] });
     await control(["messages", "--channel", room.id, "--limit", "10"]);
     await control(["interrupt", "--bot", chief.id]);
     await tool("manage_room", { room_id: room.id, action: "rename", name: "Expired turn" }, true);
@@ -115,6 +121,7 @@ it("creates and manages an own-section room through the mounted Chief MCP proxy"
   } finally {
     for (const proxy of proxies) await waitForExit(proxy, { signal: "SIGTERM" });
     await fixture.close();
+    await provider.close();
     const evidencePath = `${fixture.info.logPath}.chief-rooms.json`;
     writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));
     expect(existsSync(fixture.info.dataDir)).toBe(false);

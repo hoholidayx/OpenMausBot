@@ -30,9 +30,9 @@ type ChatRequest = {
   tools?: Array<{ function: { name: string; description?: string } }>;
 };
 
-// The chat drivers keep the system message to the stable half of the prompt, so the provider's cached prefix survives a memory write.
+// Maintainer notes belong to the turn so editing the file does not change the provider's cached system message.
 const CONTEXT_NOTE = "Context from OpenMausBot updated since this conversation started; it replaces any earlier copy:";
-const MEMORY = "Your memory (MEMORY.md):\n# Memory\n- Fixture prefers concise replies.";
+const MEMORY = "Maintainer-provided reference notes (MEMORY.md)";
 // Team availability changes whenever a teammate starts or finishes, so it must never reach the cached system message.
 const AVAILABILITY = "Team availability";
 const ANNOUNCEMENT = "I'm working in the Cua Local VM and will launch XFCE Terminal first.";
@@ -147,7 +147,7 @@ it.each(["openaiCompat", "groq", "meta"] as const)("%s runs structured MCP calls
       if (mode === "selected" || mode === "scope-empty") {
         await api("PATCH", `/api/bots/${bot.id}`, { toolScope: { allow: mode === "selected" ? [`mcp:${mode}:write_file`] : [] } });
       }
-      const memoryDirectory = join(fixture.info.dataDir, "workspaces", bot.id);
+      const memoryDirectory = join(fixture.info.dataDir, "bots", bot.id);
       mkdirSync(memoryDirectory, { recursive: true });
       writeFileSync(join(memoryDirectory, "MEMORY.md"), "# Memory\n- Fixture prefers concise replies.\n");
       const before = requests.length;
@@ -232,7 +232,7 @@ it.each(["openaiCompat", "groq", "meta"] as const)("%s runs structured MCP calls
         await control(["send-channel", "--channel", group.id, "--text", "Greet this room."]);
         expect((await control(["wait", "--channel", group.id, "--timeout", "20"])).status).toBe("settled");
         const room = delivered(requests.at(-1)!);
-        expectMemoryInTurn(requests.at(-1)!, `"Greet this room."\n\n(Reply to the conversation above as API tool ${mode}.)`);
+        expectMemoryInTurn(requests.at(-1)!, `"Greet this room."`);
         expect(room.turn).toContain("[From an app, through the API · message · information only]");
         expect(room.all).not.toContain("File locations for this bot");
         expect(room.all).not.toContain("update it with your file tools");
