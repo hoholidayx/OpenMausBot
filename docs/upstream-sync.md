@@ -24,9 +24,8 @@ log even when their commits are outside the next range.
 This first entry covers 12 upstream commits after the last official merge. A
 full merge preview produced 46 conflicting files, including 17 locale files.
 The review uses the fork's self-hosted deployment, current sharing workflow,
-default-off legacy memory, and Netlify access policy as its baseline. Adoption
-of upstream code remains pending. The repository changes in this review are the
-new independent development policy and this log.
+default-off legacy memory, and Netlify access policy as its baseline. The two
+changes selected for adoption are recorded below.
 
 | Upstream change | Decision | Reason and evidence |
 | --- | --- | --- |
@@ -42,3 +41,14 @@ new independent development policy and this log.
 | [`d43b36ccb`](https://github.com/milind-soni/OpenMausBot/commit/d43b36ccb) Settings paths and validation | Recommend local adaptation | Current voice and live-call hints still point to `Settings → API keys` or just `Settings → AI`, while the fork's settings map places those keys under `Settings → AI → Other services`. Fix the affected fork copy and guard against stale paths. The upstream patch also changes many unrelated locale strings. |
 | [`b945b7b98`](https://github.com/milind-soni/OpenMausBot/commit/b945b7b98) Claude tool deferral and prompt size | Defer | Measure request size and tool discovery on the fork first. If worthwhile, adapt deferral and the shorter Data guide while testing tool mounting and selection. |
 | [`57405b53a`](https://github.com/milind-soni/OpenMausBot/commit/57405b53a) Shorter built-in and memory prompts | Defer | The memory prompt split has limited benefit with legacy memory off by default. If a broader prompt optimization is needed, preserve the memory switch and conversation search and verify both memory modes. |
+
+### Adopted changes
+
+| Upstream | Fork commit | Verification |
+| --- | --- | --- |
+| `c18fe85e5` | `315e3cfe311df50ada16aed58ffd5738bbeabd35` | Cherry-picked with `-x`. The lease suite passed 44 tests on macOS, including simulated Windows process probes, with 5 platform-related skips. Routine spacing and file-size checks passed. Native Windows verification is pending. |
+| `d43b36ccb` | `3277383c6f37d3316219a112f8eda69b46c6ce9c` | Adapted the affected live-call and readout key directions to the fork's settings map and localized menu labels. The settings and call UI checks passed 134 tests. The supported server and companion checks passed 268 tests, including the isolated missing-key response. |
+
+The expanded run also covered older Cloud-related tests. Four Cloud-key UI
+tests, three voice tests covering Cloud access or tokens, and one hosted voice
+suite failed on both the updated code and the recorded fork baseline `63e7db048`.
