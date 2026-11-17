@@ -8,24 +8,29 @@ UI changes follow [`DESIGN.md`](DESIGN.md).
 
 ## Upstream synchronization
 
-For all code changes and architecture decisions, prefer loosely coupled,
-minimally invasive designs so the project can continue incorporating changes
-from the official upstream repository. Prefer existing extension points and
-keep project-specific behavior in separate modules or adapters where practical.
+Develop this fork independently. Base code and architecture decisions on its
+own requirements, data, and operating environment. Use official upstream as a
+reference for useful fixes, optimizations, and features.
 
-When an invasive change or instrumentation is necessary, keep it localized.
-Add a concise comment at the affected site explaining why it is needed and any
-assumptions that matter when syncing with upstream.
+Fetch upstream for review and adopt only selected changes by cherry-pick or
+local adaptation. Keep upstream branch merges out of this fork. Review a
+candidate's dependencies and validate it against this fork. Use
+`git cherry-pick -x` for direct picks and record the upstream commit SHA in local
+adaptations.
 
-When merging an official upstream branch into this fork, review conflicts
-against the merge base. Prefer preserving the fork's intentional changes and
-incorporate compatible upstream changes where possible. Resolve conflicts at
-the affected change so unrelated upstream work comes through.
+When a useful upstream change has substantial conflicts, first check the local
+branch. Verify that the bug or bottleneck exists, or confirm the feature is needed
+here. If the change is warranted, use the upstream implementation as a
+reference and adapt it to the fork's architecture and intended behavior.
 
-If a conflict could have a major impact or the correct resolution is unclear,
-pause the merge. Report the conflicting files, what each side changes, the
-likely impact, and the available resolutions. Wait for the maintainer's
-decision before resolving those conflicts or committing and pushing the merge.
+If adoption would materially change fork behavior or a safe adaptation is
+unclear after the local review, pause and summarize the findings and tradeoffs
+for the maintainer's decision.
+
+Append each review to the [upstream synchronization log](docs/upstream-sync.md).
+Use the last reviewed upstream SHA in that log as the starting point for the
+next review. Record decisions for the reviewed range, including deferred
+candidates and the evidence that would justify revisiting them.
 
 ## Local change checks
 
@@ -49,8 +54,7 @@ Write a comment only for what the code cannot say:
   Electron or protocol behaviour), with its version when it has one;
 - the doc comment of a public contract: the wire types in `shared/`, the
   driver interface, the preload bridge, `config.json` fields people edit;
-- the rationale and upstream assumptions for a necessary invasive change or
-  instrumentation, as described above;
+- the rationale for a necessary invasive change or instrumentation;
 - a link to an upstream issue;
 - a security invariant or a known open risk.
 
