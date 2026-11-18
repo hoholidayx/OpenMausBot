@@ -27,7 +27,8 @@ import type { TeamSetupRequest, TeamSetupResult } from "../shared/team-setup.ts"
 import type { GroupGoalRunCardData } from "../shared/group-goal-run.ts";
 import { isMentionBoundary, isMentionNameContinuation } from "../shared/mention-boundary.ts"; import { resolveMentions } from "../shared/room-mentions.ts";
 import type { HandedState } from "./delta-context.ts";
-import type { AgentPart, PartPair, RoomPart } from "./package-parts.ts";
+import type { BotRecord } from "./bot-record.ts";
+import type { PartPair, RoomPart } from "./package-parts.ts";
 import type {
   BotActivity, GroupDefaultResponder, GroupTask as GroupTaskRecord,
   TaskClosedBy, TaskOpenedBy, TaskUsage, WireBot, WireGroup,
@@ -152,27 +153,7 @@ export function titleFromLlm(raw: string): string | null {
   return line.length >= 1 && line.length <= 48 ? line : null;
 }
 
-export interface BotRecord extends Omit<WireBot, "avatarUrl" | "tasks"> {
-  promptOverrides?: import("../shared/bot-prompts.ts").BotPromptOverrides;
-  tasks?: TaskRecord[];
-  avatarUrl?: string;
-  resumeCursors: Record<string, unknown>;
-  mainThreadChoice?: string;
-  /** Elevation journal: Full/Custom runs as Ask until Electron confirms the prepared reply; a marker surviving a restart is revoked on load. */
-  approvalGrant?: {
-    requestId: string;
-    mode: "full" | "custom";
-    phase: "prepared" | "confirmed" | "activated" | "committed";
-    threadId?: string;
-    threadOnly?: true;
-    refreshPermissions?: true;
-    allThreads?: true;
-  };
-  lastProfileRequestId?: string;
-  lastTeamSetupReceipt?: { requestId: string; result: TeamSetupResult };
-  packageBase?: Partial<Record<AgentPart, PartPair>>;
-  assignedSkills?: string[];
-}
+export type { BotRecord } from "./bot-record.ts";
 
 export type BotWirePrivateKeys = "promptOverrides" | "resumeCursors" | "mainThreadChoice" | "tasks" | "avatarUrl" | "approvalGrant" | "lastProfileRequestId" | "lastTeamSetupReceipt" | "packageBase" | "assignedSkills";
 export type BotWireProjection = Pick<BotRecord, Exclude<keyof BotRecord, BotWirePrivateKeys>>;
