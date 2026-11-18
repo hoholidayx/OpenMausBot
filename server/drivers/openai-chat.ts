@@ -55,6 +55,7 @@ export interface OpenAIChatMessage {
 interface Usage {
   input: number;
   output: number;
+  cachedInput?: number;
 }
 
 export interface Completion {
@@ -146,10 +147,21 @@ interface RuntimeOptions<Config> {
   localModel?: boolean;
 }
 
-const usageFrom = (usage: CompletionJson["usage"]): Usage | null =>
-  usage
-    ? { input: usage.prompt_tokens ?? 0, output: usage.completion_tokens ?? 0 }
-    : null;
+function usageFrom(usage: CompletionJson["usage"]): Usage | null {
+  if (!usage) return null;
+  const cachedInput = usage.prompt_tokens_details?.cached_tokens;
+  return {
+    input: usage.prompt_tokens ?? 0,
+    output: usage.completion_tokens ?? 0,
+    ...(typeof cachedInput === "number" && Number.isFinite(cachedInput) && cachedInput >= 0 ? { cachedInput } : {}),
+  };
+}
+
+function addUsage(total: Usage, round: Usage): void {
+  total.input += round.input;
+  total.output += round.output;
+  if (round.cachedInput !== undefined) total.cachedInput = (total.cachedInput ?? 0) + round.cachedInput;
+}
 
 const completionUsage = (json: CompletionJson) => json.usage ?? json.x_groq?.usage;
 
@@ -712,8 +724,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
             lastContext = completion.usage?.input ? { tokens: completion.usage.input + completion.usage.output, window: contextWindow } : undefined;
           }
           if (completion.usage) {
-            usage.input += completion.usage.input;
-            usage.output += completion.usage.output;
+            addUsage(usage, completion.usage);
             hasUsage = true;
           }
           if (hasUsage || lastFootprint) {
