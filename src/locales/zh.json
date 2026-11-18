@@ -9852,5 +9852,20 @@
   "devices.computers.pairTitle": "配对另一台电脑",
   "remote.tailscale.needsApproval": "这台电脑正在等待你的 Tailscale 网络批准。请在 Tailscale 管理控制台中批准它，然后重试。",
   "serverError.chat.requiredContextTooLarge": "当前请求及其必需的上下文超出容量。请缩短消息或移除附件。",
-  "serverError.room.apiBotRequired": "添加一个 API bot 后继续群聊。"
+  "serverError.room.apiBotRequired": "添加一个 API bot 后继续群聊。",
+  "botPrompts.title": "提示词",
+  "botPrompts.soul": "长期指令（SOUL）",
+  "botPrompts.persona": "人格",
+  "botPrompts.reply-style": "单聊回复风格",
+  "botPrompts.reply-habits": "回复习惯",
+  "botPrompts.room-style": "群聊回复风格",
+  "botPrompts.section": "提示词段落",
+  "botPrompts.editable": "可为此 bot 编辑",
+  "botPrompts.preview": "当前单聊预览",
+  "botPrompts.tokens": "约 {tokens} 个 token",
+  "botPrompts.default": "默认",
+  "botPrompts.custom": "已自定义",
+  "botPrompts.reload": "重新读取已保存的内容",
+  "botPrompts.restore": "恢复默认值",
+  "botPrompts.previewHint": "预览基于当前 bot 设置。每轮对话还会加入当轮的上下文。token 数为估算值。"
 }

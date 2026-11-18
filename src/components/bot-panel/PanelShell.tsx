@@ -17,12 +17,13 @@ import { linkTarget, usePanelLink } from "./panel-link";
 import { PanelHero } from "./PanelHero";
 import { PageHeader, roundButtonCls } from "./rows";
 
-export function BotPanel({ bot, derived, linkedSection, onClose, onOpenTools }: {
+export function BotPanel({ bot, derived, linkedSection, onClose, onOpenTools, onOpenPrompts }: {
   bot: Bot;
   derived: ReturnType<typeof useBotSettingsDerived>;
   linkedSection: BotSettingsSection | null;
   onClose: () => void;
   onOpenTools: () => void;
+  onOpenPrompts?: () => void;
 }) {
   const { dragProps } = useCaptionChrome();
   const link = usePanelLink();
@@ -130,7 +131,7 @@ export function BotPanel({ bot, derived, linkedSection, onClose, onOpenTools }: 
             <div
               className="sticky top-0 z-[1] -mx-4 mt-[15px] flex justify-center bg-app px-4 pb-2.5 pt-1 after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-3 after:bg-linear-to-b after:from-app after:to-transparent"
             >
-              <div className="flex min-w-0 gap-0.5 rounded-full bg-ink/[0.05] p-[3px]">
+              <div className="flex min-w-0 flex-wrap justify-center gap-0.5 rounded-full bg-ink/[0.05] p-[3px]">
               <div role="tablist" aria-label={t("botSettings.simple.tabs")} className="flex min-w-0 gap-0.5">
               {PANEL_TABS.map((id) => (
                 <button
@@ -150,6 +151,10 @@ export function BotPanel({ bot, derived, linkedSection, onClose, onOpenTools }: 
                 </button>
               ))}
               </div>
+              {onOpenPrompts && <button type="button" aria-haspopup="dialog" data-panel-tab="prompts" onClick={onOpenPrompts}
+                className="h-7 shrink-0 rounded-full px-2 text-[13px] text-ink-secondary hover:text-ink touch:h-11">
+                {t("botPrompts.title")}
+              </button>}
               <button type="button" aria-haspopup="dialog" data-panel-tab="tools" onClick={onOpenTools}
                 className="h-7 shrink-0 rounded-full px-2 text-[13px] leading-[18px] text-ink-secondary transition-colors hover:text-ink motion-reduce:transition-none touch:h-11">
                 {t("botAccess.toolGroups.title")}

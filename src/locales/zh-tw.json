@@ -9956,5 +9956,20 @@
   "remote.tailscale.needsApproval": "這台電腦正在等待你的 Tailscale 網路核准。請在 Tailscale 管理主控台中核准它，然後再試一次。",
   "serverError.chat.providerManagedContext": "此引擎會自動壓縮上下文，暫不支援手動壓縮。",
   "serverError.chat.requiredContextTooLarge": "目前的請求及其必要上下文超出容量。請縮短訊息或移除附件。",
-  "serverError.room.apiBotRequired": "加入一個 API bot 後繼續群聊。"
+  "serverError.room.apiBotRequired": "加入一個 API bot 後繼續群聊。",
+  "botPrompts.title": "提示詞",
+  "botPrompts.soul": "長期指令（SOUL）",
+  "botPrompts.persona": "人格",
+  "botPrompts.reply-style": "單聊回覆風格",
+  "botPrompts.reply-habits": "回覆習慣",
+  "botPrompts.room-style": "群聊回覆風格",
+  "botPrompts.section": "提示詞段落",
+  "botPrompts.editable": "可為此 bot 編輯",
+  "botPrompts.preview": "目前單聊預覽",
+  "botPrompts.tokens": "約 {tokens} 個 token",
+  "botPrompts.default": "預設",
+  "botPrompts.custom": "已自訂",
+  "botPrompts.reload": "重新讀取已儲存的內容",
+  "botPrompts.restore": "還原預設值",
+  "botPrompts.previewHint": "預覽依據目前的 bot 設定。每輪對話還會加入當輪的上下文。token 數為估算值。"
 }

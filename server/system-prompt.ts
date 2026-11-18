@@ -1,4 +1,5 @@
 // One builder for every turn's system prompt, so what a bot receives and the "what the model sees" preview are the same bytes.
+import { BOT_PROMPT_FIELDS, type BotPromptOverrides, type BotPromptSetting } from "../shared/bot-prompts.ts";
 import { soulSystemPrompt } from "./bot-folder.ts";
 import { lentComputersLine, theirComputer } from "./lent-computers.ts";
 import { agentsToolBridged } from "./drivers/agents-bridge.ts";
@@ -77,10 +78,45 @@ export function replyStylePrompt(style: ReplyStyle | undefined): string {
 
 const MAUSBOT_PERSONA = "You are also this person's MausBot, their helper for everything in OpenMausBot. You know the app: answer \"how do I…\" questions with the plain steps in the app. Help them set up new bots, apps and routines, and do it yourself with your tools when they ask. Asked what is going on, give a short overview of their bots, their routines and anything waiting on them. Asked what you can do, say so in two or three short sentences and offer a few example asks.";
 
-export function botPersona(bot: { name: string; title?: string; description?: string; defaultBot?: object }): string {
+type PromptProfile = {
+  name: string; title?: string; description?: string; defaultBot?: object;
+  soul?: string; replyStyle?: ReplyStyle; promptOverrides?: BotPromptOverrides;
+};
+
+function defaultPersona(bot: PromptProfile): string {
   return [`You are ${bot.name}, a personal bot in OpenMausBot.`, bot.title && `Role: ${bot.title}.`, bot.description && `About: ${bot.description}`, bot.defaultBot && MAUSBOT_PERSONA]
     .filter(Boolean)
     .join(" ");
+}
+
+const ROOM_REPLY_STYLE = "Reply as yourself, briefly and conversationally.";
+
+export function botPersona(bot: PromptProfile): string {
+  return bot.promptOverrides?.persona ?? defaultPersona(bot);
+}
+
+export function roomProfileLines(bot: PromptProfile) {
+  const persona = bot.promptOverrides?.persona;
+  return persona === undefined ? [bot.title && `Role: ${bot.title}.`, bot.description && `About: ${bot.description}`] : [persona];
+}
+
+export function roomReplyStyle(bot: PromptProfile) {
+  return bot.promptOverrides?.["room-style"] ?? ROOM_REPLY_STYLE;
+}
+
+export function botPromptSettings(bot: PromptProfile): BotPromptSetting[] {
+  const defaults = {
+    soul: "", persona: defaultPersona(bot), "reply-style": replyStylePrompt(bot.replyStyle).trim(),
+    "reply-habits": REPLY_HABITS_PROMPT.trim(), "room-style": ROOM_REPLY_STYLE,
+  };
+  return BOT_PROMPT_FIELDS.map((id) => ({
+    id, defaultText: defaults[id], override: id === "soul" ? bot.soul || null : bot.promptOverrides?.[id] ?? null,
+  }));
+}
+
+function overriddenParagraph(text: string | undefined, fallback: string): string {
+  if (text === undefined) return fallback;
+  return text.trim() ? `\n\n${text.trim()}\n` : "";
 }
 
 export function buildSystemPrompt(
@@ -88,7 +124,7 @@ export function buildSystemPrompt(
   soul: string,
   parts: PromptPart[],
   agents?: { env?: Record<string, string | undefined> },
-  opts?: { replyStyle?: ReplyStyle; rules?: string },
+  opts?: { replyStyle?: ReplyStyle; rules?: string; overrides?: BotPromptOverrides; room?: boolean },
 ): { text: string; sections: PromptSection[]; stable: string; volatile: string; roster: string } {
   const ordered: PromptPart[] = [
     { id: "persona", label: "Identity", text: persona },
@@ -96,9 +132,9 @@ export function buildSystemPrompt(
     { id: "soul", label: "Standing instructions (SOUL.md)", text: soulSystemPrompt(soul) },
     // Right after the soul: on a direct turn, ahead of every section that names a tool.
     { id: "tool-bridge", label: "Tool search", text: agentsToolBridged(agents) ? AGENTS_TOOL_BRIDGE_PROMPT : "" },
-    { id: "reply-style", label: "Reply style", text: replyStylePrompt(opts?.replyStyle) },
+    { id: "reply-style", label: "Reply style", text: opts?.room ? "" : overriddenParagraph(opts?.overrides?.["reply-style"], replyStylePrompt(opts?.replyStyle)) },
     ...parts,
-    { id: "reply-habits", label: "How to reply", text: REPLY_HABITS_PROMPT },
+    { id: "reply-habits", label: "How to reply", text: overriddenParagraph(opts?.overrides?.["reply-habits"], REPLY_HABITS_PROMPT) },
   ];
   const sections = ordered
     .filter((part) => part.text.length > 0)

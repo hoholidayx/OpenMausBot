@@ -14,8 +14,10 @@ export function OverviewSection({
   prompt,
   promptError,
   onOpen,
+  onOpenPrompts,
 }: {
   overview: BotOverview | null;
+  onOpenPrompts?: () => void;
   refreshError?: boolean;
   prompt: PromptPreviewData | null;
   promptError?: boolean;
@@ -88,6 +90,7 @@ export function OverviewSection({
         </ul>
       </div>
 
+      {onOpenPrompts && <button type="button" aria-haspopup="dialog" className="ui-button ui-button-sm ui-button-pill self-start" onClick={onOpenPrompts}>{t("botPrompts.title")}</button>}
       <PromptPreview
         data={prompt}
         error={promptError}

@@ -15,6 +15,7 @@ import { SoulSection } from "./bot-settings/SoulSection";
 import { SkillsSection } from "./bot-settings/SkillsSection";
 import { RoutinesSection } from "./bot-settings/RoutinesSection";
 import { AccessSection } from "./bot-settings/AccessSection";
+import { BotPromptsDialog } from "./bot-settings/BotPromptsDialog";
 import { BotToolsDialog } from "./bot-settings/BotToolsDialog";
 import { ModelSection } from "./bot-settings/ModelSection";
 import { PermissionsSection } from "./bot-settings/PermissionsSection";
@@ -46,6 +47,8 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const { dragProps } = useCaptionChrome();
   const [query, setQuery] = useState("");
   const [toolsBotId, setToolsBotId] = useState<string | null>(null);
+  const [promptsBotId, setPromptsBotId] = useState<string | null>(null);
+  const openPrompts = () => setPromptsBotId(bot.id);
   const openTools = () => setToolsBotId(bot.id);
   const collapsed = !state.botSettingsExpandAccordion;
   const q = query.trim().toLowerCase();
@@ -65,7 +68,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
 
   const { overview, overviewError, prompt, promptError } = useBotOverview(bot, {
     overview: section === "overview" && !simpleView,
-    prompt: section === "overview" && !simpleView,
+    prompt: section === "overview" && !simpleView && promptsBotId !== bot.id,
   });
   const history = useBotHistory(bot, section === "history" && !simpleView);
 
@@ -111,6 +114,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
             refreshError={overview !== null && overviewError}
             prompt={prompt}
             promptError={promptError}
+            onOpenPrompts={openPrompts}
             onOpen={(target) => dispatch({ type: "toggleSettings", open: true, section: target })}
           />
         );
@@ -124,7 +128,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
           />
         );
       case "soul":
-        return <SoulSection bot={bot} patch={derived.patch} />;
+        return <SoulSection bot={bot} patch={derived.patch} onOpenPrompts={openPrompts} />;
       case "slack":
         return slackUrl ? <SlackSection managementUrl={slackUrl} /> : null;
       case "skills":
@@ -178,6 +182,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
             derived={derived}
             linkedSection={linkedSection}
             onOpenTools={openTools}
+            onOpenPrompts={openPrompts}
             onClose={() => dispatch({ type: "toggleSettings", open: false })}
           />
         ) : <>
@@ -269,6 +274,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
         </div>
         </>}
       </aside>
+      {promptsBotId === bot.id && <BotPromptsDialog key={bot.id} bot={bot} onClose={() => setPromptsBotId(null)} />}
       {toolsBotId === bot.id && <BotToolsDialog key={bot.id} bot={bot} engineKind={derived.engine?.driverKind}
         patch={derived.patch} onClose={() => setToolsBotId(null)} />}
       <HistoryRollbackDialog history={history} returnFocusRef={dialogRef} />

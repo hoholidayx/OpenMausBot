@@ -72,6 +72,21 @@ This browser fixture verifies renderer interaction and persistence, not
 packaged Electron privileges, actual operating-system access, or the
 provider-specific execution of elevated approval modes.
 
+## Per-bot prompts
+
+In the isolated settings fixture, select Atlas. Open **Prompts** next to Tools in Simple mode, or in **Overview** or **Soul** in Advanced mode.
+
+1. Select **Reply habits**, replace the text and save. Open **How to reply** under **Direct chat preview** and check the saved text and token estimate.
+2. Close with Escape, reopen, and verify the edit. Switch to Juniper and verify its reply habits still use the default.
+3. In Atlas, select **Restore default**, inspect the text, and save. Reopen to check that the field follows the default. For **Standing instructions (SOUL)** the built-in default is empty.
+4. At phone width, use the section selector to open the assembled SOUL preview. The text and save controls must remain reachable at both widths.
+
+The automated fixture checks the system messages received by a loopback API model in direct and room conversations, per-bot isolation, a stale save, and restoration on a subsequent turn.
+
+```sh
+pnpm exec vitest run server/bot-prompts.e2e.test.ts
+```
+
 ## Creation drafts and defaults
 
 The same isolated fixture also exposes **New bot** and **New bot defaults →

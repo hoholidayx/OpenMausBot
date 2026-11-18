@@ -10621,5 +10621,20 @@
   "server.routines.turnedBackOn": "Turned back on: {names}. An earlier version switched it off after its cloud desktop failed to start.",
   "server.routines.turnedBackOnMany": "Turned back on: {names}. An earlier version switched them off after their cloud desktops failed to start.",
   "serverError.chat.requiredContextTooLarge": "The current request and its required context are too large. Shorten the message or remove an attachment.",
-  "serverError.room.apiBotRequired": "Add an API bot to continue in this room."
+  "serverError.room.apiBotRequired": "Add an API bot to continue in this room.",
+  "botPrompts.title": "Prompts",
+  "botPrompts.soul": "Standing instructions (SOUL)",
+  "botPrompts.persona": "Persona",
+  "botPrompts.reply-style": "Direct reply style",
+  "botPrompts.reply-habits": "Reply habits",
+  "botPrompts.room-style": "Room reply style",
+  "botPrompts.section": "Prompt section",
+  "botPrompts.editable": "Editable for this bot",
+  "botPrompts.preview": "Direct chat preview",
+  "botPrompts.tokens": "≈ {tokens} tokens",
+  "botPrompts.default": "Default",
+  "botPrompts.custom": "Customized",
+  "botPrompts.reload": "Reload saved text",
+  "botPrompts.restore": "Restore default",
+  "botPrompts.previewHint": "Preview from current bot settings. A turn can add its own context. Token counts are estimates."
 }
