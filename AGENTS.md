@@ -26,6 +26,9 @@ branch. Verify that the bug or bottleneck exists, or confirm the feature is need
 here. If the change is warranted, use the upstream implementation as a
 reference and adapt it to the fork's architecture and intended behavior.
 
+Include UI improvements in each upstream review. Assess the affected workflow,
+accessibility, and fit with [`DESIGN.md`](DESIGN.md) on the fork's Web UI.
+
 If adoption would materially change fork behavior or a safe adaptation is
 unclear after the local review, pause and summarize the findings and tradeoffs
 for the maintainer's decision.
