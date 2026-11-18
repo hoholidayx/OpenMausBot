@@ -7,17 +7,24 @@ import { launchVerificationServer, runControlOmb, verificationServerArgs, verifi
 import type { WireGroup, WireMessage } from "../shared/wire.ts";
 import { waitForExit } from "./testing/cleanup.ts";
 import { fixtureChatText as textOf, fixtureModel, startLoopbackChat, type ChatFixtureRequest } from "./testing/loopback-chat.ts";
+import { openSse, type SseRecorder } from "./testing/sse.ts";
 
 const capabilityKey = "test-context-compaction";
 
 async function setup() {
   let requests: ChatFixtureRequest[] = [];
   let nextTool: { marker: string; match: string; args: object } | undefined;
+  let holdSummary: ((signal: AbortSignal) => Promise<void>) | undefined;
   const summaries = () => requests.filter(request => !request.stream && textOf(request).includes("Update the summary"));
-  const upstream = await startLoopbackChat(request => {
+  const upstream = await startLoopbackChat(async (request, signal) => {
     const text = textOf(request);
     const summary = !request.stream && text.includes("Update the summary");
     const content = summary ? `Result ${summaries().length}` : "Fixture reply";
+    if (summary && holdSummary) {
+      const wait = holdSummary;
+      holdSummary = undefined;
+      await wait(signal);
+    }
     const tool = nextTool && text.includes(nextTool.marker)
       ? request.tools?.find(tool => tool.function.name.endsWith(nextTool!.match)) : undefined;
     const tool_calls = tool ? [{
@@ -27,7 +34,9 @@ async function setup() {
     if (tool_calls) nextTool = undefined;
     const choice = tool_calls ? { tool_calls } : { content };
     const finish_reason = tool_calls ? "tool_calls" : "stop";
-    const usage = request.messages.at(-1)?.content?.includes("ACTUAL_USAGE") ? { prompt_tokens: 14_900, completion_tokens: 100 } : undefined;
+    const current = request.messages.at(-1)?.content;
+    const inputTokens = current?.includes("IDLE_USAGE") ? 120_000 : current?.includes("ACTUAL_USAGE") ? 14_900 : undefined;
+    const usage = inputTokens === undefined ? undefined : { prompt_tokens: inputTokens, completion_tokens: 100 };
     return { choice, finish_reason, usage };
   });
   requests = upstream.requests;
@@ -90,6 +99,16 @@ async function setup() {
     try { return db.prepare("SELECT thread_id, bot_id, summary, scope FROM conversation_summaries ORDER BY thread_id, bot_id").all(); }
     finally { db.close(); }
   };
+  function holdNextSummary() {
+    let release!: () => void;
+    const result = new Promise<void>(done => { release = done; });
+    const pending: { signal?: AbortSignal; release(): void } = { release };
+    holdSummary = (signal) => {
+      pending.signal = signal;
+      return result;
+    };
+    return pending;
+  }
   const close = async () => {
     try {
       if (restarted) await waitForExit(restarted, { signal: "SIGTERM" });
@@ -103,13 +122,96 @@ async function setup() {
       context: { compactAt: 110_000, keepMessages: 2, idleCompact: false },
     });
     await api("POST", "/api/instances/openaiCompat/refresh-models", {});
-    return { api, bot, capability, close, control, dataDir, group, messages, requests, restart, rows, summaries, url, wait,
+    return { api, bot, capability, close, control, dataDir, group, holdNextSummary, messages, requests, restart, rows, summaries, url, wait,
       tool: (value: NonNullable<typeof nextTool>) => { nextTool = value; } };
   } catch (error) {
     await close();
     throw error;
   }
 }
+
+it.each(["direct", "room"])("acknowledges a %s send during an idle fold and cancels a second fold on Stop", async (kind) => {
+  const f = await setup();
+  let releaseSummary: (() => void) | undefined;
+  let events: SseRecorder | undefined;
+  try {
+    const bot = await f.bot("Speaker");
+    const room = kind === "room" ? (await f.api<{ group: WireGroup }>("POST", "/api/groups", {
+      name: "Short deadline room", memberIds: [bot.id], setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
+    })).group : undefined;
+    if (room) {
+      await f.api("PATCH", `/api/groups/${room.id}/setup`, { action: "skip" });
+      await f.api("PATCH", `/api/groups/${room.id}/tasks/${room.threadId}`, { turnTimeoutMinutes: 1 });
+    }
+    const threadId = room?.threadId ?? bot.threadId;
+    const path = room ? `/api/groups/${room.id}` : `/api/bots/${bot.id}`;
+    const flags = [...(room ? ["--channel", room.id] : ["--bot", bot.id]), "--task", threadId];
+    const send = async (text: string) => {
+      const { message } = await f.api<{ message: WireMessage }>("POST", `${path}/messages`, { threadId, text }, 202);
+      expect(message).toMatchObject({ text, role: "user" });
+      return message.id;
+    };
+    const streams = () => f.requests.filter(request => request.stream);
+    const markers = async () => (await f.messages(threadId)).filter(message => message.hostCompaction);
+
+    await send("OLD_HISTORY");
+    await f.wait(flags);
+    await f.api("PATCH", "/api/config", { context: { compactAt: 110_000, keepMessages: 2, idleCompact: true } });
+    const held = f.holdNextSummary();
+    releaseSummary = held.release;
+    await send("IDLE_USAGE");
+    await f.wait(flags);
+    await expect.poll(() => held.signal, { timeout: 20_000 }).toBeDefined();
+
+    const before = streams().length;
+    events = await openSse(f.url + "/api/events", { origin: f.url });
+    const received = await send("WAIT_FOR_SUMMARY");
+    await events.until(frame => frame.kind === "runtime" && frame.event.type === "turn.started" && frame.event.threadId === threadId);
+    expect(await f.messages(threadId)).toContainEqual(expect.objectContaining({ id: received, text: "WAIT_FOR_SUMMARY" }));
+    expect(streams()).toHaveLength(before);
+    expect(f.summaries()).toHaveLength(1);
+    expect(textOf(f.summaries()[0]!)).toContain("OLD_HISTORY");
+    expect(textOf(f.summaries()[0]!)).not.toContain("WAIT_FOR_SUMMARY");
+    expect(f.rows()).toEqual([]);
+    if (!room) {
+      const steered = await f.api("POST", `${path}/messages`, { threadId, text: "FOLLOWUP_DURING_SUMMARY" }, 202);
+      expect(steered).toMatchObject({ steered: true });
+    }
+    held.release();
+    await f.wait(flags);
+    expect(streams()).toHaveLength(before + 1);
+    expect(textOf(streams().at(-1)!)).toContain("Result 1");
+    const packet = streams().at(-1)!.messages;
+    if (room) expect(packet.at(-1)?.content).toContain("WAIT_FOR_SUMMARY");
+    else {
+      expect(packet.at(-2)?.content).toContain("WAIT_FOR_SUMMARY");
+      expect(packet.at(-1)?.content).toContain("FOLLOWUP_DURING_SUMMARY");
+      expect(textOf(streams().at(-1)!).match(/FOLLOWUP_DURING_SUMMARY/g)).toHaveLength(1);
+    }
+    expect(f.summaries()).toHaveLength(1);
+    expect(await markers()).toHaveLength(1);
+    const saved = f.rows();
+    expect(saved).toEqual([expect.objectContaining({ thread_id: threadId, bot_id: bot.id, summary: "Result 1" })]);
+
+    await f.api("PATCH", "/api/config", { context: { compactAt: 1, keepMessages: 2, idleCompact: false } });
+    const stopped = f.holdNextSummary();
+    releaseSummary = stopped.release;
+    await send("STOP_DURING_SUMMARY");
+    await expect.poll(() => stopped.signal, { timeout: 10_000 }).toBeDefined();
+    await f.api("POST", `${path}/interrupt`, { threadId }, 200);
+    await expect.poll(() => stopped.signal?.aborted).toBe(true);
+    stopped.release();
+    await f.wait(flags);
+    expect(streams()).toHaveLength(before + 1);
+    expect(f.summaries()).toHaveLength(2);
+    expect(f.rows()).toEqual(saved);
+    expect(await markers()).toHaveLength(1);
+  } finally {
+    events?.close();
+    releaseSummary?.();
+    await f.close();
+  }
+}, 120_000);
 
 it("uses one recursive compactor for a direct API bot and separate room members while keeping original messages searchable", async () => {
   const f = await setup();
@@ -142,11 +244,20 @@ it("uses one recursive compactor for a direct API bot and separate room members 
     await sendDirect("THIRD_DIRECT confirm the port.");
     expect(textOf(f.requests.findLast(request => request.stream)!)).toContain("Result 1");
     expect(textOf(f.requests.findLast(request => request.stream)!)).toContain("CORRECTION_BETA");
-    expect(await f.api("POST", directCompact, { threadId: alpha.threadId })).toMatchObject({ compacted: true });
+    const held = f.holdNextSummary();
+    const saving = f.api("POST", directCompact, { threadId: alpha.threadId });
+    try {
+      await expect.poll(() => held.signal, { timeout: 10_000 }).toBeDefined();
+      await sendDirect("FOURTH_DIRECT proceed.");
+      expect(textOf(f.requests.findLast(request => request.stream)!)).toContain("Result 1");
+      expect(held.signal?.aborted).toBe(false);
+    } finally {
+      held.release();
+      expect(await saving).toMatchObject({ compacted: true });
+    }
     expect(textOf(f.summaries()[1]!)).toContain('"previousSummary":"Result 1"');
     expect(textOf(f.summaries()[1]!)).toContain("CORRECTION_BETA");
     expect(textOf(f.summaries()[1]!)).not.toContain("ORIGINAL_ALPHA");
-    await sendDirect("FOURTH_DIRECT proceed.");
     expect(await f.api("POST", directCompact, { threadId: alpha.threadId })).toMatchObject({ compacted: true });
     expect(textOf(f.summaries()[2]!)).toContain('"previousSummary":"Result 2"');
 

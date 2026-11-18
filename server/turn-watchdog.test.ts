@@ -79,6 +79,39 @@ describe("TurnWatchdog", () => {
     expect(stalls).toHaveLength(0);
   });
 
+  it("pauses the current turn's stall clock during compaction and restarts it on release", () => {
+    const { dog, stalls, tick } = rig({ stallMs: 60_000 });
+    dog.watch("t1", "bot1");
+    dog.watch("other", "bot2");
+    tick(30_000);
+    const resume = dog.pauseForCompaction("t1")!;
+    tick(180_000);
+    dog.sweep();
+    expect(stalls.map(turn => turn.threadId)).toEqual(["other"]);
+    expect(dog.answering("bot1")).toBe(true);
+    expect(dog.waiting("t1")).toBe(false);
+
+    resume();
+    tick(59_999);
+    dog.sweep();
+    expect(dog.watching("t1")).toBe(true);
+    tick(1);
+    dog.sweep();
+    expect(stalls.map(turn => turn.threadId)).toEqual(["other", "t1"]);
+  });
+
+  it("a compaction release cannot reset a replacement turn on the same thread", () => {
+    const { dog, stalls, tick } = rig();
+    dog.watch("t1", "bot1");
+    const resume = dog.pauseForCompaction("t1")!;
+    dog.watch("t1", "bot1");
+    tick(STALL - 1);
+    resume();
+    tick(1);
+    dog.sweep();
+    expect(stalls).toHaveLength(1);
+  });
+
   it("never stalls a turn waiting on a human while its engine may still run it, however long they take", () => {
     const engines: Array<[string, Pick<ProviderAdapter, "enginePid"> | undefined]> = [
       ["no engine known", undefined],

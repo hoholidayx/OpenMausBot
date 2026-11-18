@@ -85,6 +85,24 @@ describe("room turn timeout", () => {
     deadline.stop();
   });
 
+  it("gives a one-minute room a fresh progress window after waiting for compaction", async () => {
+    vi.useFakeTimers();
+    const onTimeout = vi.fn();
+    const deadline = new RoomTurnDeadline(1, onTimeout);
+    deadline.start();
+    await vi.advanceTimersByTimeAsync(30_000);
+    const resume = deadline.pauseForCompaction();
+    deadline.observe(cardResolved);
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(onTimeout).not.toHaveBeenCalled();
+
+    resume();
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(onTimeout).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onTimeout).toHaveBeenCalledOnce();
+  });
+
   it("stops a turn whose progress arrives after the limit, before the timer ran", () => {
     vi.useFakeTimers();
     const onTimeout = vi.fn();

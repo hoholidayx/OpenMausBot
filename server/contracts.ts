@@ -554,6 +554,8 @@ export interface TextGenerationOptions {
   model?: string;
   /** How long the caller will wait; drivers with their own process timer use it instead of their default. */
   timeoutMs?: number;
+  /** Minimum idle time before an API text request times out. The caller's signal can end it sooner. */
+  minIdleTimeoutMs?: number;
   /** For a bot's own engine whose driver picks a small model of its own. */
   fallback?: SmallModelFallback;
 }

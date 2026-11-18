@@ -88,6 +88,17 @@ interface NativeLog {
   incoming(completion: Completion): unknown;
 }
 
+interface CompletionRequest {
+  stream: boolean;
+  idleTimeoutMs: number;
+  signal?: AbortSignal;
+  onDelta?: (delta: string, kind: "assistant_text" | "reasoning_text") => void;
+  tools?: ChatToolDefinition[];
+  onUsage?: TextGenerationOptions["onUsage"];
+  variant?: string;
+  threadId?: string;
+}
+
 const LIVENESS_MISSES = 3;
 
 interface RuntimeOptions<Config> {
@@ -217,11 +228,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     route: ModelRoute,
     messages: OpenAIChatMessage[],
     model: string,
-    stream: boolean,
-    signal?: AbortSignal,
-    onDelta?: (delta: string, kind: "assistant_text" | "reasoning_text") => void,
-    tools: ChatToolDefinition[] = [],
-    onUsage?: TextGenerationOptions["onUsage"], variant?: string, threadId?: string,
+    { stream, idleTimeoutMs, signal, onDelta, tools = [], onUsage, variant, threadId }: CompletionRequest,
   ): Promise<Completion> => {
     const timeoutController = new AbortController();
     let idleTimer: NodeJS.Timeout | null = null;
@@ -229,7 +236,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         timeoutController.abort(new DOMException("Streaming idle timeout elapsed", "AbortError"));
-      }, options.timeoutMs);
+      }, idleTimeoutMs);
     };
 
     resetIdleTimer();
@@ -248,7 +255,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
           ...(route === "chat-reasoning-off" ? (options.reasoningOffBody?.(served) ?? { reasoning_effort: "none" }) : {}),
           ...(tools.length ? { tools } : {}),
         });
-      const send = options.timeoutMs > FETCH_LIMIT_MS ? fetchPastLimit : fetch;
+      const send = idleTimeoutMs > FETCH_LIMIT_MS ? fetchPastLimit : fetch;
       const response = await send(`${options.apiUrl}/${route === "responses" ? "responses" : "chat/completions"}`, {
         method: "POST",
         ...(messages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === "image_url")) ? { redirect: "error" as const } : {}),
@@ -417,22 +424,18 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     }
   };
 
-  const complete = async (
-    messages: OpenAIChatMessage[],
-    model: string,
-    stream: boolean,
-    signal?: AbortSignal,
-    onDelta?: (delta: string, kind: "assistant_text" | "reasoning_text") => void,
-    tools: ChatToolDefinition[] = [],
-    onUsage?: TextGenerationOptions["onUsage"], variant?: string, threadId?: string,
-  ): Promise<Completion> => {
+  const complete = async (messages: OpenAIChatMessage[], model: string, request: CompletionRequest): Promise<Completion> => {
+    const { tools, onDelta, signal } = request;
     for (;;) {
       let replied = false;
       try {
-        return await completeOn(routes.routeFor(model, tools.length > 0), messages, model, stream, signal, onDelta && ((text, kind) => {
-          replied = true;
-          onDelta(text, kind);
-        }), tools, onUsage, variant, threadId);
+        return await completeOn(routes.routeFor(model, Boolean(tools?.length)), messages, model, {
+          ...request,
+          onDelta: onDelta && ((text, kind) => {
+            replied = true;
+            onDelta(text, kind);
+          }),
+        });
       } catch (error) {
         if (!(error instanceof ModelRouteRefused) || replied || signal?.aborted) throw error;
         if (!routes.advance(model, error.refusal)) throw new ChatProtocolError(noRouteLeft(error.message));
@@ -621,12 +624,16 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
               if (visible) emit({ ...base(turn.threadId, turnId), type: "content.delta", streamKind, delta: visible });
             };
             try {
-              completion = await complete(messages, model, true, abort.signal, (text, streamKind) => {
-                streamed = true;
-                if (streamKind === "assistant_text") answerStreamed = true;
-                const shown = holdback && streamKind === "assistant_text" ? holdback.feed(text) : text;
-                if (shown) delta(shown, streamKind);
-              }, tools.definitions, undefined, turn.variant, turn.threadId);
+              completion = await complete(messages, model, {
+                stream: true, idleTimeoutMs: options.timeoutMs, signal: abort.signal,
+                tools: tools.definitions, variant: turn.variant, threadId: turn.threadId,
+                onDelta: (text, streamKind) => {
+                  streamed = true;
+                  if (streamKind === "assistant_text") answerStreamed = true;
+                  const shown = holdback && streamKind === "assistant_text" ? holdback.feed(text) : text;
+                  if (shown) delta(shown, streamKind);
+                },
+              });
               // A reply cut off at the token limit may be a call cut short; running half of one is worse than saying so.
               const written = holdback && !completion.toolCalls.length && completion.finishReason !== "length" ? textToolCalls(completion.text, tools.definitions) : null;
               unreadable = written?.kind === "unreadable" && !askedAgain;
@@ -971,9 +978,12 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         return () => listeners.delete(listener);
       },
     },
-    generateText: async (prompt, { signal, onUsage, model: named } = {}) => {
+    generateText: async (prompt, { signal, onUsage, model: named, minIdleTimeoutMs } = {}) => {
       const model = named ?? options.generateModel?.() ?? options.models().default;
-      const { text, reasoning, toolCalls } = await complete([{ role: "user", content: prompt }], model, false, signal, undefined, [], onUsage);
+      const idleTimeoutMs = Math.max(options.timeoutMs, minIdleTimeoutMs ?? 0);
+      const { text, reasoning, toolCalls } = await complete([{ role: "user", content: prompt }], model, {
+        stream: false, signal, onUsage, idleTimeoutMs,
+      });
       if (toolCalls.length) throw new ChatProtocolError("provider returned tool calls to a text-only helper");
       return text.trim() ? text : reasoning;
     },

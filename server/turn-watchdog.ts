@@ -121,6 +121,7 @@ export interface TurnWatchdogOptions {
 export class TurnWatchdog {
   private turns = new Map<string, WatchedTurn>();
   private unheldSince = new Map<string, number>();
+  private compactionWaits = new WeakSet<WatchedTurn>();
   /** Each turn's last read of its shell command's CPU time: the command it was read for (by start) and whether a read is out. */
   private cpu = new WeakMap<WatchedTurn, { since: number; ms: number | null; reading: boolean }>();
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -160,6 +161,15 @@ export class TurnWatchdog {
     const at = this.now();
     this.turns.set(threadId, { threadId, botId, startedAt: at, lastEventAt: at, waitingOnHuman: false, waitingOnComputer: false,
       runningTools: new Map() });
+  }
+
+  pauseForCompaction(threadId: string): (() => void) | undefined {
+    const turn = this.turns.get(threadId);
+    if (!turn) return;
+    this.compactionWaits.add(turn);
+    return () => {
+      if (this.compactionWaits.delete(turn) && this.turns.get(threadId) === turn) turn.lastEventAt = this.now();
+    };
   }
 
   observe(event: RuntimeEvent): void {
@@ -243,6 +253,7 @@ export class TurnWatchdog {
 
   /** null: the turn may wait on, parked while its engine is not known to be gone. */
   private silenceLimit(turn: WatchedTurn): { ms: number; reason: StallReason } | null {
+    if (this.compactionWaits.has(turn)) return null;
     if (parked(turn)) return this.opts.engineGone?.(turn) ? { ms: this.opts.parkedStallMs, reason: "silent" } : null;
     // The engine's process is gone: nothing can finish this turn, so it waits for the driver's own word, not for a tool's.
     if (this.opts.engineExited?.(turn)) return { ms: this.opts.engineExitStallMs, reason: "engine-exited" };

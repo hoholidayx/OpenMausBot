@@ -12,7 +12,7 @@ import { basename, join } from "node:path";
 import { authorizeExternalRuntime, externalRuntimeIsActive, type ExternalRuntimeGrant } from "./external-runtime.ts";
 import { z } from "zod";
 import { selectReplay, replayToolCalls, DEFAULT_REBUILD_BYTES, type ReplayEntry } from "./context-rebuild.ts";
-import { createConversationCompactor, type CompactionTarget } from "./conversation-compactor.ts";
+import { COMPACTION_TIMEOUT_MS, createConversationCompactor, type CompactionTarget } from "./conversation-compactor.ts";
 import { conversationSummaries } from "./conversation-summary-store.ts";
 import { RoomContextTracker } from "./room-context.ts";
 import { createRoomTranscript, GROUP_CONTEXT_MESSAGES, roomLineText } from "./host/room-transcript.ts";
@@ -6475,6 +6475,15 @@ function peerReplayText(m: Message, name: string, text: string): string {
 }
 const { lineLabels, personPrompt, routineRunNote } = createLineLabels({ sharedChat: (threadId) => sharedMembership() && !store.groupByThread(threadId) && audienceMember(teamHost.audienceOf(threadId)) === null, userName: userNameFor, teamRole: (key) => (teamOwners.people?.list() ?? []).find((one) => personKey({ id: "", email: one.email }) === key)?.role, routineName: (threadId) => { const run = routines?.runForThread(threadId); return routines?.listRoutines().find((one) => one.id === run?.routineId)?.name; } });
 
+function pauseCompactionStall(threadId: string, roomDeadline?: RoomTurnDeadline): () => void {
+  const resumeWatchdog = watchdog.pauseForCompaction(threadId);
+  const resumeRoom = roomDeadline?.pauseForCompaction();
+  return () => {
+    resumeWatchdog?.();
+    resumeRoom?.();
+  };
+}
+
 const conversationContext = createConversationCompactor({
   settings: () => cfg.context,
   store: conversationSummaries,
@@ -6484,7 +6493,7 @@ const conversationContext = createConversationCompactor({
     if (!bot || instance !== target.instance || !instance.generateText || policyModelRefusal(instance)) throw new Error("The conversation's AI is unavailable.");
     usageCapGate.assertTurn(bot.id, trigger !== "idle", threadLanguage(target.threadId));
     const usageThreadId = `compaction-${randomUUID()}`;
-    return instance.generateText(prompt, { model, signal, timeoutMs: 20_000, onUsage: (usage) => {
+    return instance.generateText(prompt, { model, signal, minIdleTimeoutMs: COMPACTION_TIMEOUT_MS, onUsage: (usage) => {
       bookTurnUsage({
         botId: bot.id, botName: bot.name, threadId: usageThreadId, instanceId: instance.instanceId,
         driverKind: instance.driverKind, model: usage.model, input: usage.input ?? 0, output: usage.output ?? 0,
@@ -6529,12 +6538,12 @@ function compactionTarget(botId: string, threadId: string, instance: ProviderIns
   };
 }
 
-function directCompactionTarget(bot: BotRecord, threadId: string, instance: ProviderInstance, exclude: ReadonlySet<string>) {
+function directCompactionTarget(bot: BotRecord, threadId: string, instance: ProviderInstance, replayIds?: ReadonlySet<string>) {
   return compactionTarget(bot.id, threadId, instance, (pending) => {
     const messages = sinceFreshStart(store.activePath(threadId));
     const byId = new Map(messages.map(message => [message.id, message]));
     const unresolved = new Set(coordinator.active().filter(node => !ENDED.has(node.status)).map(node => node.id));
-    return directContext(bot, threadId, messages).filter(entry => entry.text && (!pending || !exclude.has(entry.id)))
+    return directContext(bot, threadId, messages).filter(entry => entry.text && (!pending || !replayIds || replayIds.has(entry.id)))
       .map(entry => {
         const message = byId.get(entry.id);
         return { ...entry, counts: message?.kind === "text",
@@ -6580,7 +6589,7 @@ function compactContext(bot: BotRecord, threadId: string, room?: GroupRecord): P
   const refusal = policyModelRefusal(instance);
   if (refusal) throw requestConflict(refusal);
   usageCapGate.assertTurn(bot.id, true, threadLanguage(threadId));
-  const target = room ? roomCompactionTarget(bot.id, threadId, instance) : directCompactionTarget(bot, threadId, instance, new Set());
+  const target = room ? roomCompactionTarget(bot.id, threadId, instance) : directCompactionTarget(bot, threadId, instance);
   if (!target.idle()) throw requestConflict("Wait for the conversation's pending work to finish before compacting.");
   return conversationContext.manual(target, selection.model || instance.models.default);
 }
@@ -7937,7 +7946,9 @@ async function beginTurn(
         sessionReset: dispatchContext.sessionReset,
         ...(dispatchContext.recoveryText !== undefined ? { recoveryText: withTurnClock(clock, (posted?.text ?? "") + attachmentsForBox(dispatchContext.recoveryText, cwd) + shareNote.text) } : {}),
         transcript,
-        ...(hostCompaction ? { hostContext: conversationContext.attach(directCompactionTarget(bot, threadId, instance, skipTranscript)) } : {}),
+        ...(hostCompaction ? { hostContext: conversationContext.attach(directCompactionTarget(bot, threadId, instance, new Set(replayable.map(entry => entry.id))), {
+          pauseStall: () => pauseCompactionStall(threadId),
+        }) } : {}),
         system: prompt.text,
         systemStable: prompt.stable,
         systemVolatile: prompt.volatile, systemRoster: prompt.roster,
@@ -9730,7 +9741,9 @@ async function runClaimedGroupMemberTurn(
       acceptInput = () => { if (current()) clearHeldReplay(group.id, readyBot.id, heldIds); };
       return instance.adapter.sendTurn({
         text: turnText([]),
-        hostContext: conversationContext.attach(roomCompactionTarget(readyBot.id, threadId, instance, currentLines[0]?.id, required), turnText),
+        hostContext: conversationContext.attach(roomCompactionTarget(readyBot.id, threadId, instance, currentLines[0]?.id, required), {
+          turnText, pauseStall: () => pauseCompactionStall(threadId, deadline),
+        }),
         threadId,
         botId: readyBot.id,
         images: turnImages,

@@ -57,6 +57,37 @@ describe("createOpenAIChatRuntime one-shot usage", () => {
   };
   const choices = [{ message: { content: "helper result" }, finish_reason: "stop" }];
 
+  it("lets a one-shot summary wait beyond the provider idle limit when requested", async () => {
+    const instance = await fixture({ choices });
+    const signals: AbortSignal[] = [];
+    vi.mocked(fetch).mockImplementation((_url, init) => new Promise<Response>((resolve, reject) => {
+      const signal = init!.signal!;
+      signals.push(signal);
+      const timer = setTimeout(() => resolve(Response.json({ choices })), 150_000);
+      signal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      }, { once: true });
+    }));
+    vi.useFakeTimers();
+    try {
+      const results = Promise.allSettled([
+        instance.generateText!("summarize", { minIdleTimeoutMs: 180_000 }),
+        instance.generateText!("quick helper"),
+      ]);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(signals.map(signal => signal.aborted)).toEqual([false, true]);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await results).toEqual([
+        { status: "fulfilled", value: "helper result" },
+        { status: "rejected", reason: expect.objectContaining({ name: "AbortError" }) },
+      ]);
+    } finally {
+      vi.useRealTimers();
+      await instance.dispose();
+    }
+  });
+
   it("reports the actual helper model and known provider usage once, preserving the text result", async () => {
     const instance = await fixture({
       model: "grok-3-mini-actual", choices,

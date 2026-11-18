@@ -3,6 +3,7 @@ import { createConversationCompactor, type CompactionTarget, type ConversationEn
 import type { ConversationSummary } from "./conversation-summary-store.ts";
 import type { ChatReplay } from "./contracts.ts";
 import type { ReplayEntry } from "./context-rebuild.ts";
+import { backgroundTextSlots } from "./job-slots.ts";
 
 const line = (id: string, text = id, role: ReplayEntry["role"] = "user"): ConversationEntry => ({ id, text, role });
 const turnText = () => "current request";
@@ -36,27 +37,179 @@ function fixture() {
   return { compactor, target, history, settings, write, committed, summary: () => summary };
 }
 
-afterEach(() => vi.useRealTimers());
+function useCompactionClock() {
+  vi.useFakeTimers();
+  return vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+    const expiry = new AbortController();
+    setTimeout(() => expiry.abort(new DOMException("Compaction timed out", "TimeoutError")), ms);
+    return expiry.signal;
+  });
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 it("joins one in-flight idle fold at preflight and excludes pending input from its committed prefix", async () => {
-  vi.useFakeTimers();
+  const timeout = useCompactionClock();
   const f = fixture();
   const gate = deferredSummary();
+  const resume = vi.fn();
+  const pauseStall = vi.fn(() => resume);
   f.write.mockReturnValueOnce(gate.promise);
-  const hook = f.compactor.attach(f.target, turnText);
-  f.history.push(line("pending", "WAITING_INPUT"));
+  const hook = f.compactor.attach(f.target, { turnText, pauseStall });
   hook.completed("model", { tokens: 100, base: "fixed" }, { tokens: 300 });
   await vi.advanceTimersByTimeAsync(10_000);
   expect(f.write).toHaveBeenCalledTimes(1);
+  expect(pauseStall).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(22_000);
+  f.history.push(line("pending", "WAITING_INPUT"));
   const sending = hook.prepare("model", footprint, new AbortController().signal);
+  expect(pauseStall).toHaveBeenCalledOnce();
+  expect(resume).not.toHaveBeenCalled();
   gate.resolve("ordered summary");
   const next = await sending;
+  expect(timeout.mock.calls).toEqual([[180_000]]);
+  expect(resume).toHaveBeenCalledOnce();
   expect(f.write).toHaveBeenCalledTimes(1);
   expect(f.write.mock.calls[0]![2]).not.toContain("WAITING_INPUT");
   expect(f.committed).toHaveBeenCalledTimes(1);
   expect(JSON.stringify(next)).toContain("ordered summary");
   expect(JSON.stringify(next)).not.toContain("WAITING_INPUT");
   expect(next.text).toBe("current request");
+});
+
+it("shares the idle deadline across slot wait, recursive batches and preflight", async () => {
+  const timeout = useCompactionClock();
+  const f = fixture();
+  expect(await f.compactor.manual(f.target, "model")).toBe(true);
+  const previous = f.summary();
+  timeout.mockClear();
+  f.write.mockClear();
+  f.committed.mockClear();
+  f.history.push(line("long", "very old ".repeat(1_000)), { ...line("required", "KEEP_THIS"), required: true }, line("recent"));
+  const slot = deferredSummary();
+  const occupying = Array.from({ length: backgroundTextSlots.limit }, () => backgroundTextSlots.run(() => slot.promise));
+  const first = deferredSummary(), late = deferredSummary();
+  const resume = vi.fn();
+  const hook = f.compactor.attach(f.target, { turnText, pauseStall: () => resume });
+  f.write.mockReturnValueOnce(first.promise).mockReturnValueOnce(late.promise);
+  try {
+    hook.completed("model", { tokens: 100, base: "fixed" }, { tokens: 300 });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(backgroundTextSlots.waiting).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    const sending = hook.prepare("model", footprint, new AbortController().signal);
+    expect(f.write).not.toHaveBeenCalled();
+    slot.resolve("");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(f.write).toHaveBeenCalledOnce();
+    first.resolve("uncommitted first batch");
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(f.write).toHaveBeenCalledTimes(2);
+    const [, , secondPrompt, signal] = f.write.mock.calls[1]!;
+    expect(secondPrompt).toContain('"previousSummary":"uncommitted first batch"');
+    expect(signal).toBe(f.write.mock.calls[0]![3]);
+    expect(signal.aborted).toBe(false);
+    expect(resume).not.toHaveBeenCalled();
+    expect(f.summary()).toBe(previous);
+
+    await vi.advanceTimersByTimeAsync(1);
+    const replay = await sending;
+    expect(signal.reason).toMatchObject({ name: "TimeoutError" });
+    expect(timeout.mock.calls).toEqual([[180_000]]);
+    expect(resume).toHaveBeenCalledOnce();
+    expect(replay.text).toBe("current request");
+    expect(replay.transcript.some(entry => entry.text.includes("first summary"))).toBe(true);
+    expect(replay.transcript.some(entry => entry.text.includes("uncommitted first batch"))).toBe(false);
+    expect(replay.transcript).toContainEqual({ role: "user", text: "KEEP_THIS", required: true });
+    expect(Buffer.byteLength(JSON.stringify(replay.transcript))).toBeLessThanOrEqual(f.settings.rebuildBytes);
+
+    late.resolve("late second batch");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.summary()).toBe(previous);
+    expect(f.committed).not.toHaveBeenCalled();
+  } finally {
+    slot.resolve("");
+    f.compactor.forget();
+    await Promise.all(occupying);
+  }
+});
+
+it.each(["turn", "job"])("cancels preflight when Stop aborts the %s", async (stopped) => {
+  const f = fixture();
+  f.settings.compactAt = 1;
+  const gate = deferredSummary();
+  const resume = vi.fn();
+  const controller = new AbortController();
+  f.write.mockReturnValueOnce(gate.promise);
+  const hook = f.compactor.attach(f.target, { turnText, pauseStall: () => resume });
+  const sending = hook.prepare("model", footprint, controller.signal);
+  const cancelled = expect(sending).rejects.toMatchObject({ name: "AbortError" });
+  await Promise.resolve();
+  expect(f.write).toHaveBeenCalledOnce();
+  if (stopped === "turn") controller.abort();
+  else f.compactor.forget(f.target.threadId);
+  await cancelled;
+  expect(resume).toHaveBeenCalledOnce();
+  expect(f.write.mock.calls[0]![3].aborted).toBe(true);
+  gate.resolve("late summary");
+  await Promise.resolve();
+  expect(f.summary()).toBeUndefined();
+  expect(f.committed).not.toHaveBeenCalled();
+});
+
+it.each([true, false])("keeps a manual fold running alongside a small send (autoCompact=%s)", async autoCompact => {
+  const f = fixture();
+  f.settings.autoCompact = autoCompact;
+  f.settings.compactAt = 8_000;
+  const gate = deferredSummary();
+  f.write.mockReturnValueOnce(gate.promise);
+  const manual = f.compactor.manual(f.target, "model");
+  const hook = f.compactor.attach(f.target);
+  const signal = new AbortController().signal;
+  const sent = await hook.prepare("model", footprint, signal);
+  expect(sent.transcript[0]?.text).toBe("one");
+  expect(f.write.mock.calls[0]![3].aborted).toBe(false);
+  gate.resolve("requested summary");
+  expect(await manual).toBe(true);
+  hook.completed("model", footprint(sent), { tokens: 9_500 });
+  f.settings.autoCompact = true;
+  f.history.push(line("new"), line("reply"));
+  const next = await f.compactor.attach(f.target).prepare("model", footprint, signal);
+  expect(next.transcript[0]?.text).toContain("requested summary");
+  expect(f.write).toHaveBeenCalledOnce();
+});
+
+it.each(["scope", "prefix"])("checks the %s before sending another summary batch", async change => {
+  const f = fixture();
+  f.history[0] = line("huge", "old text ".repeat(2_000));
+  const gate = deferredSummary();
+  f.write.mockReturnValueOnce(gate.promise);
+  const manual = f.compactor.manual(f.target, "model");
+  await Promise.resolve();
+  expect(f.write).toHaveBeenCalledOnce();
+  if (change === "scope") vi.mocked(f.target.valid).mockReturnValue(false);
+  else f.history[0] = line("replacement");
+  gate.resolve("first batch");
+  expect(await manual).toBe(false);
+  expect(f.write).toHaveBeenCalledOnce();
+  expect(f.committed).not.toHaveBeenCalled();
+});
+
+it("replays recent originals when the saved summary alone exceeds the fallback budget", async () => {
+  const f = fixture();
+  f.write.mockResolvedValueOnce("long summary ".repeat(200));
+  expect(await f.compactor.manual(f.target, "model")).toBe(true);
+  const previous = f.summary();
+  f.history.push(line("large", "older ".repeat(600)), line("recent", "RECENT_CORRECTION"));
+  f.write.mockRejectedValueOnce(new Error("provider unavailable"));
+  const next = await f.compactor.attach(f.target).prepare("model", footprint, new AbortController().signal);
+  expect(next.transcript.at(-1)?.text).toBe("RECENT_CORRECTION");
+  expect(next.transcript[0]?.text).toContain("5 earlier messages omitted");
+  expect(Buffer.byteLength(JSON.stringify(next.transcript))).toBeLessThanOrEqual(f.settings.rebuildBytes);
+  expect(f.summary()).toBe(previous);
 });
 
 it("discards late results after a rewind, a permission change, or Stop", async () => {
@@ -82,14 +235,14 @@ it("retains an eligible summary, clips oversized optional history on UTF-8 bound
   f.history[0] = { ...f.history[0]!, required: true };
   f.history.push(line("large", "START ".concat("中文🐭".repeat(1_500), " LAST")));
   f.write.mockRejectedValueOnce(new Error("provider unavailable"));
-  const kept = await f.compactor.attach(f.target, turnText).prepare("model", footprint, new AbortController().signal);
+  const kept = await f.compactor.attach(f.target, { turnText }).prepare("model", footprint, new AbortController().signal);
   expect(kept.transcript.some(entry => entry.text.includes("first summary"))).toBe(true);
   expect(kept.transcript).toContainEqual({ role: "user", text: "one", required: true });
   expect(kept.transcript.at(-1)?.text).toMatch(/^START .*Text shortened[\s\S]* LAST$/s);
   expect(kept.transcript.at(-1)?.text).not.toContain("�");
   expect(Buffer.byteLength(JSON.stringify(kept.transcript))).toBeLessThanOrEqual(f.settings.rebuildBytes);
   expect(f.committed).toHaveBeenCalledTimes(1);
-  const hugeRequired = f.compactor.attach(f.target, () => "🐭".repeat(10_000));
+  const hugeRequired = f.compactor.attach(f.target, { turnText: () => "🐭".repeat(10_000) });
   await expect(hugeRequired.prepare("model", footprint, new AbortController().signal)).rejects.toThrow("required context exceeds window");
 });
 
@@ -109,11 +262,13 @@ it("uses reported occupancy when keeping history and discards the calibration wh
   f.settings.compactAt = 8_000;
   f.settings.idleCompact = false;
   f.history[0] = line("one", "x".repeat(9_000));
-  const hook = f.compactor.attach(f.target, turnText);
+  const pauseStall = vi.fn();
+  const hook = f.compactor.attach(f.target, { turnText, pauseStall });
   const signal = new AbortController().signal;
   hook.completed("model", { base: "fixed", tokens: 9_200 }, { tokens: 1_900 });
   expect((await hook.prepare("model", footprint, signal)).transcript[0]?.text).toHaveLength(9_000);
   expect(f.write).not.toHaveBeenCalled();
+  expect(pauseStall).not.toHaveBeenCalled();
 
   hook.completed("model", { base: "fixed", tokens: 9_200 }, { tokens: 9_500 });
   f.write.mockRejectedValueOnce(new Error("provider unavailable"));

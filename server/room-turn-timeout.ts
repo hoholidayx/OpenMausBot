@@ -59,6 +59,7 @@ export class RoomTurnDeadline {
   private heldAt = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private openWaits = 0;
+  private compacting = false;
   private runningTools = new Set<string>();
   private stopped = false;
   private fired = false;
@@ -93,6 +94,17 @@ export class RoomTurnDeadline {
       return;
     }
     this.progressAt = Date.now();
+  }
+
+  pauseForCompaction(): () => void {
+    this.compacting = true;
+    this.hold();
+    return () => {
+      if (!this.compacting) return;
+      this.compacting = false;
+      this.progress();
+      this.arm();
+    };
   }
 
   setWaiting(waiting: boolean): void {
@@ -145,7 +157,7 @@ export class RoomTurnDeadline {
   }
 
   private arm(): void {
-    if (this.stopped || this.fired || this.openWaits > 0) return;
+    if (this.stopped || this.fired || this.openWaits > 0 || this.compacting) return;
     const leftMs = this.quietLimitMs() - this.idleMs();
     if (leftMs <= 0) {
       this.expired();
