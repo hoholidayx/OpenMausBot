@@ -40,6 +40,7 @@ import { toolSchemaProfileFor } from "../tool-schema-profile.ts";
 import { classifyContinuable, writeTurnHandoff } from "../turn-continuation.ts";
 import { KEY_REJECTED_REASON, keyRejected, noteKeyAccepted, noteKeyRejected, rejectsKey } from "../key-rejections.ts";
 import { FETCH_LIMIT_MS, fetchPastLimit, prepareChatModel } from "./openai-chat-fetch.ts";
+import { addUsage, chatUsageFrom, usageCount, type OpenAIChatTokenUsage, type OpenAIUsage } from "./openai-usage.ts";
 import { announcesAction } from "./chat-announcement.ts";
 
 export interface OpenAIChatMessage {
@@ -52,16 +53,10 @@ export interface OpenAIChatMessage {
   reasoning_details?: Record<string, unknown>[];
 }
 
-interface Usage {
-  input: number;
-  output: number;
-  cachedInput?: number;
-}
-
 export interface Completion {
   text: string;
   reasoning: string;
-  usage: Usage | null;
+  usage: OpenAIUsage | null;
   toolCalls: ChatToolCall[];
   finishReason: string | null;
   protocolReasoning: string;
@@ -78,7 +73,7 @@ interface CompletionJson extends ProviderBody {
     delta?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown; reasoning_details?: unknown; tool_calls?: unknown; function_call?: unknown };
     finish_reason?: string | null;
   }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number }; cost?: number };
+  usage?: OpenAIChatTokenUsage;
   /** Groq reports streaming usage in its final x_groq envelope. */
   x_groq?: { usage?: CompletionJson["usage"] };
 }
@@ -145,22 +140,6 @@ interface RuntimeOptions<Config> {
   /** A model on this machine or network: read a tool call it wrote as text, stop it repeating itself, and send it back
    * to fix a failed call instead of ending the turn on it. */
   localModel?: boolean;
-}
-
-function usageFrom(usage: CompletionJson["usage"]): Usage | null {
-  if (!usage) return null;
-  const cachedInput = usage.prompt_tokens_details?.cached_tokens;
-  return {
-    input: usage.prompt_tokens ?? 0,
-    output: usage.completion_tokens ?? 0,
-    ...(typeof cachedInput === "number" && Number.isFinite(cachedInput) && cachedInput >= 0 ? { cachedInput } : {}),
-  };
-}
-
-function addUsage(total: Usage, round: Usage): void {
-  total.input += round.input;
-  total.output += round.output;
-  if (round.cachedInput !== undefined) total.cachedInput = (total.cachedInput ?? 0) + round.cachedInput;
 }
 
 const completionUsage = (json: CompletionJson) => json.usage ?? json.x_groq?.usage;
@@ -303,13 +282,12 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         const tokenUsage = completionUsage(json);
         if (onUsage) {
           activeSignal.throwIfAborted();
-          const count = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
           onUsage({
             model: typeof json.model === "string" && json.model.trim() ? json.model : model,
-            input: count(tokenUsage?.prompt_tokens),
-            output: count(tokenUsage?.completion_tokens),
-            cachedInput: count(tokenUsage?.prompt_tokens_details?.cached_tokens),
-            costUsd: count(tokenUsage?.cost),
+            input: usageCount(tokenUsage?.prompt_tokens),
+            output: usageCount(tokenUsage?.completion_tokens),
+            cachedInput: usageCount(tokenUsage?.prompt_tokens_details?.cached_tokens),
+            costUsd: usageCount(tokenUsage?.cost),
           });
         }
         const bodyError = completionError(json, "completion error");
@@ -331,7 +309,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
           reasoning: options.reasoning && typeof reasoning === "string"
             ? reasoning
             : "",
-          usage: usageFrom(tokenUsage),
+          usage: chatUsageFrom(tokenUsage),
           toolCalls: calls.finish(finishReason, false),
           finishReason,
           protocolReasoning: typeof reasoning === "string" ? reasoning : "",
@@ -345,7 +323,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       let text = "";
       let reasoning = "";
       let protocolReasoning = "";
-      let usage: Usage | null = null;
+      let usage: OpenAIUsage | null = null;
       let finishReason: string | null = null;
       let malformedFrame = false;
       let sawChoice = false;
@@ -390,7 +368,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
           onDelta?.(contentDelta, "assistant_text");
         }
         const tokenUsage = completionUsage(chunk);
-        if (tokenUsage) usage = usageFrom(tokenUsage);
+        if (tokenUsage) usage = chatUsageFrom(tokenUsage);
         return false;
       };
       try {
@@ -560,7 +538,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
 
     void (async () => {
       let tools: ChatToolSession | undefined;
-      const usage: Usage = { input: 0, output: 0 };
+      const usage: OpenAIUsage = { input: 0, output: 0 };
       let hasUsage = false;
       let ok = false;
       let stopReason: string | null = null;

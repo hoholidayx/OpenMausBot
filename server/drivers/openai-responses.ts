@@ -5,6 +5,7 @@ import type { Completion, OpenAIChatMessage } from "./openai-chat.ts";
 import type { ChatContentPart } from "./chat-images.ts";
 import type { ChatToolDefinition } from "./chat-mcp-tools.ts";
 import { ChatProtocolError, ChatToolCalls, object } from "./openai-chat-protocol.ts";
+import { usageCount } from "./openai-usage.ts";
 
 export type ResponseItem = Record<string, unknown>;
 
@@ -193,9 +194,9 @@ export async function readResponsesStream(body: ReadableStream<Uint8Array> | nul
       for (const [position, item] of response.output.entries()) if (object(item)) finishItem(item as ResponseItem, position);
     }
     const used = object(response?.usage);
-    const cachedInput = object(used?.input_tokens_details)?.cached_tokens;
+    const cachedInput = usageCount(object(used?.input_tokens_details)?.cached_tokens);
     if (used) usage = { input: Number(used.input_tokens) || 0, output: Number(used.output_tokens) || 0,
-      ...(typeof cachedInput === "number" && Number.isFinite(cachedInput) && cachedInput >= 0 ? { cachedInput } : {}) };
+      ...(cachedInput === undefined ? {} : { cachedInput }) };
   };
   const failure = (error: Record<string, unknown> | undefined) => {
     const code = typeof error?.code === "string" ? error.code : "";
