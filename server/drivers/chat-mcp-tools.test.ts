@@ -610,12 +610,12 @@ describe("Chat MCP session", () => {
     const session = await f.mount();
     const result = await session.execute("audit_write", { value: "test" }, f.controller.signal);
     expect(result.ok).toBe(false);
-    expect(Buffer.byteLength(result.text)).toBeLessThan(52_000);
+    expect(Buffer.byteLength(result.text)).toBeLessThan(8_500);
     expect(result.text).toContain("truncated");
     expect(result.text).not.toContain("�");
   });
 
-  describe("a result over 50KB with a working folder", () => {
+  describe("a result over 8 KiB with a working folder", () => {
     const big = "line of a big kDrive file as base64 text ".repeat(5000);
     const bigFixture = () => fixture(`if (message.method === "tools/call") { reply(message,{content:[{type:"text",text:${JSON.stringify(big)}}]}); continue; }`);
     const workFolder = () => { const dir = mkdtempSync(join(tmpdir(), "omb-chat-mcp-work-")); dirs.push(dir); return dir; };
@@ -632,8 +632,9 @@ describe("Chat MCP session", () => {
       expect(result.ok).toBe(true);
       expect(result.text.startsWith(big.slice(0, 1000))).toBe(true);
       expect(result.text).toContain(`The full result is saved in ${file}]`);
-      expect(result.text).toContain(`${Math.ceil(Buffer.byteLength(big) / 1024)}KB`);
-      expect(Buffer.byteLength(result.text)).toBeLessThan(52_000);
+      expect(result.text).toContain(`${Math.ceil(Buffer.byteLength(big) / 1024)} KiB`);
+      expect(result.resultFile).toBe(file);
+      expect(Buffer.byteLength(result.text)).toBeLessThan(8_500);
     });
 
     // Only computer-use servers may send a frame this big (32 MiB).
@@ -643,7 +644,7 @@ describe("Chat MCP session", () => {
       const result = await (await f.mount(true, false, undefined, folder)).execute("audit_write", { value: "test" }, f.controller.signal);
       expect(existsSync(join(folder, SAVED_RESULTS_FOLDER)) ? readdirSync(join(folder, SAVED_RESULTS_FOLDER)) : []).toEqual([]);
       expect(result.text).toContain("truncated");
-      expect(Buffer.byteLength(result.text)).toBeLessThan(52_000);
+      expect(Buffer.byteLength(result.text)).toBeLessThan(8_500);
     });
 
     it("stays inside the folder whatever the server is called", async () => {
@@ -662,7 +663,7 @@ describe("Chat MCP session", () => {
       symlinkSync(elsewhere, join(folder, SAVED_RESULTS_FOLDER));
       const result = await (await f.mount(false, false, undefined, folder)).execute("audit_write", { value: "test" }, f.controller.signal);
       expect(readdirSync(elsewhere)).toEqual([]);
-      expect(result.text).toContain("[MCP result truncated at 50KB; request less output.]");
+      expect(result.text).toContain("[MCP result truncated at 8 KiB; request less output.]");
     });
 
     it("masks key-shaped values before the file is written", async () => {
@@ -722,7 +723,7 @@ describe("Chat MCP session", () => {
       expect(readdirSync(results)).not.toContain(later[0]);
     });
 
-    it("leaves a result under 50KB as it is, with no file", async () => {
+    it("leaves a result under 8 KiB as it is, with no file", async () => {
       const f = fixture(`if (message.method === "tools/call") { reply(message,{content:[{type:"text",text:"small"}]}); continue; }`);
       const folder = workFolder();
       mkdirSync(join(folder, "keep"));

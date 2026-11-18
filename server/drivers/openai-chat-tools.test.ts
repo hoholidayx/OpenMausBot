@@ -712,6 +712,44 @@ describe("OpenAI-compatible computer images", () => {
     expect(f.recorder.events).toContainEqual(expect.objectContaining({ type: "turn.retrying", reason: "request_too_large" }));
   });
 
+  it("shrinks repeated large tool results in an oversized continuation and keeps their files and call IDs", async () => {
+    const limit = 14_000;
+    const large = "line from the fixture log\n".repeat(1_000);
+    const f = await fixture((body, response, round) => {
+      if (Buffer.byteLength(JSON.stringify(body)) > limit) {
+        response.writeHead(413);
+        response.end();
+      } else if (round <= 2) {
+        const call = toolCall("audit_write", JSON.stringify({ name: `step-${round}`, value: "done" }), `call-${round}`);
+        sse(response, [chunk({ tool_calls: [call] }, "tool_calls")]);
+      } else answer(response);
+    });
+    writeFileSync(join(f.directory, "mcp.mjs"), MCP_SCRIPT.replace(
+      'text: "Stored " + args.name + "=" + args.value',
+      `text: ${JSON.stringify(large)}`,
+    ));
+    await f.start({ approvalMode: "full", cwd: f.directory });
+    expect(await f.completed()).toMatchObject({ ok: true });
+    expect(f.effects()).toHaveLength(2);
+    expect(f.requests).toHaveLength(4);
+    const refused = f.requests[2]!, retried = f.requests[3]!;
+    expect(Buffer.byteLength(JSON.stringify(refused))).toBeGreaterThan(limit);
+    expect(Buffer.byteLength(JSON.stringify(retried))).toBeLessThanOrEqual(limit);
+    const outputs = (request: ChatRequest) => request.messages.filter(message => message.role === "tool").map(message => ({
+      id: message.tool_call_id, ...JSON.parse(String(message.content)) as { ok: boolean; result: string; resultFile: string },
+    }));
+    const before = outputs(refused), after = outputs(retried);
+    expect(after.map(output => [output.id, output.ok, output.resultFile])).toEqual(before.map(output => [output.id, output.ok, output.resultFile]));
+    expect(after.map(output => output.id)).toEqual(["call-1", "call-2"]);
+    expect(retried.messages.filter(message => message.tool_calls).flatMap(message => message.tool_calls!.map(call => call.id)))
+      .toEqual(after.map(output => output.id));
+    expect(after[0]!.result).toContain("tool output shortened");
+    for (const { result, resultFile } of before) {
+      expect(Buffer.byteLength(result)).toBeLessThan(8_500);
+      expect(readFileSync(resultFile, "utf8")).toBe(large);
+    }
+  });
+
   it("keeps every tool response ahead of screenshots in a multiple-call batch", async () => {
     const f = await fixture((_body, response, round) => {
       if (round === 1) sse(response, [chunk({ tool_calls: [

@@ -7937,9 +7937,7 @@ async function beginTurn(
         sessionReset: dispatchContext.sessionReset,
         ...(dispatchContext.recoveryText !== undefined ? { recoveryText: withTurnClock(clock, (posted?.text ?? "") + attachmentsForBox(dispatchContext.recoveryText, cwd) + shareNote.text) } : {}),
         transcript,
-        ...(hostCompaction ? { hostContext: conversationContext.attach(
-          directCompactionTarget(bot, threadId, instance, skipTranscript), entries => ({ transcript: entries.map(({ role, text }) => ({ role, text })) }),
-        ) } : {}),
+        ...(hostCompaction ? { hostContext: conversationContext.attach(directCompactionTarget(bot, threadId, instance, skipTranscript)) } : {}),
         system: prompt.text,
         systemStable: prompt.stable,
         systemVolatile: prompt.volatile, systemRoster: prompt.roster,
@@ -9724,16 +9722,15 @@ async function runClaimedGroupMemberTurn(
       if (!current()) throw requestConflict("The room or bot settings changed before this turn started.");
       const body = currentLines.map(line => roomLineText(line)).join("\n");
       const reports = new Set(lines.flatMap(line => line.requestId && required.has(line.id) ? [line.requestId] : []));
-      const render = (entries: readonly ReplayEntry[]) => {
+      const turnText = (entries: readonly ReplayEntry[]) => {
         const context = [...entries.map(entry => entry.text), body].join("\n");
         const notes = roomNotes(context, reports) + roomShareNote.text + devsReports.note(threadId, Boolean(integrations.agents));
-        const text = withTurnClock(clock, roomPick + attachmentsForBox(notes + (body ? "\n\n" + body : ""), cwd));
-        return { text, transcript: entries.map(({ role, text }) => ({ role, text })) };
+        return withTurnClock(clock, roomPick + attachmentsForBox(notes + (body ? "\n\n" + body : ""), cwd));
       };
       acceptInput = () => { if (current()) clearHeldReplay(group.id, readyBot.id, heldIds); };
       return instance.adapter.sendTurn({
-        text: render([]).text,
-        hostContext: conversationContext.attach(roomCompactionTarget(readyBot.id, threadId, instance, currentLines[0]?.id, required), render),
+        text: turnText([]),
+        hostContext: conversationContext.attach(roomCompactionTarget(readyBot.id, threadId, instance, currentLines[0]?.id, required), turnText),
         threadId,
         botId: readyBot.id,
         images: turnImages,

@@ -443,7 +443,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
 
   const seesImages = (turn: SendTurnInput) =>
     options.imageInput?.(turn.model || options.models().default) ?? true;
-  const messagesFor = (turn: SendTurnInput, remember = true): OpenAIChatMessage[] => {
+  const messagesFor = (turn: SendTurnInput, remember = true, required?: Set<OpenAIChatMessage>): OpenAIChatMessage[] => {
     const halves = promptHalves(turn);
     const transcript = turn.transcript ?? [];
     const key = JSON.stringify([turn.threadId, turn.botId]);
@@ -465,10 +465,11 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     const system = halves.stable ?? turn.system;
     return [
       ...(system ? [{ role: "system" as const, content: system }] : []),
-      ...transcript.map((message, index) => ({
-        role: message.role,
-        content: replay.content.get(index) ?? message.text,
-      })),
+      ...transcript.map((message, index) => {
+        const entry = { role: message.role, content: replay.content.get(index) ?? message.text };
+        if (message.required) required?.add(entry);
+        return entry;
+      }),
       { role: "user", content },
     ];
   };
@@ -480,7 +481,8 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
 
     const turnId = newId();
     const abort = new AbortController();
-    let messages = turn.hostContext ? [] : messagesFor(turn);
+    const required = new Set<OpenAIChatMessage>();
+    let messages = turn.hostContext ? [] : messagesFor(turn, true, required);
     let request = messages.at(-1)!;
     const retainImages = chatImageBudget();
     for (const message of messages) retainImages(message.content);
@@ -581,7 +583,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
             contextFootprint(messagesFor({ ...turn, text: replay.text ?? turn.text, transcript: replay.transcript }, false), tools!.definitions);
           const replay = await turn.hostContext.prepare(model, measured, abort.signal);
           abort.signal.throwIfAborted();
-          messages = messagesFor({ ...turn, text: replay.text ?? turn.text, transcript: replay.transcript });
+          messages = messagesFor({ ...turn, text: replay.text ?? turn.text, transcript: replay.transcript }, true, required);
           request = messages.at(-1)!;
           for (const message of messages) retainImages(message.content);
         }
@@ -660,7 +662,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
               }
               // A provider refuses an oversized request before running anything, so one smaller copy may go again.
               if (error instanceof RequestTooLargeError && !abort.signal.aborted) {
-                const resend = resized ? null : smallerResend(messages, request, error.bytes);
+                const resend = resized ? null : smallerResend(messages, request, error.bytes, required);
                 native("out", { refused: "request_too_large", bytes: error.bytes, ...(resend ? { before: resend.before, after: resend.after } : {}) });
                 console.warn(`${options.driverKind}: ${model} refused a ${error.bytes}-byte request as too large; ${resend ? `resending smaller (${sizeChange(resend.before, resend.after)})` : "not resending"}`);
                 if (!resend) throw new ChatProtocolError(requestTooLargeMessage(options.models().options.find((option) => option.id === model)?.label ?? model));
@@ -850,7 +852,10 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
             const output = preview({ ok: result.ok, result: text });
             emit({ ...base(turn.threadId, turnId), type: "item.completed", itemType: "tool", itemId: call.id, ok: result.ok, output });
             if (!result.ok) { toolFailed = true; failedCalls.push(title); }
-            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: result.ok, result: repeatNote ? `${text}\n\n${repeatNote}` : text }) });
+            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({
+              ok: result.ok, result: repeatNote ? `${text}\n\n${repeatNote}` : text,
+              ...(result.resultFile ? { resultFile: safeText(result.resultFile) } : {}),
+            }) });
             screenshotParts.push(...chatToolImages(call.id, result.images));
             abort.signal.throwIfAborted();
             if (fatal) throw fatal;

@@ -64,11 +64,12 @@ function shortenedToolOutput(message: OpenAIChatMessage): OpenAIChatMessage {
   return { ...message, content: typeof envelope?.result === "string" ? JSON.stringify({ ...envelope, result: shorten(envelope.result) }) : shorten(content) };
 }
 
-/** Aims at half of `refusedBytes`; null when nothing but the system prompt and `request` could shrink. */
+/** Aims at half of `refusedBytes` with the system prompt, `request`, and required messages intact. */
 export function smallerResend(
   messages: readonly OpenAIChatMessage[],
   request: OpenAIChatMessage,
   refusedBytes: number,
+  required?: ReadonlySet<OpenAIChatMessage>,
 ): { messages: OpenAIChatMessage[]; before: RequestSize; after: RequestSize } | null {
   const requestAt = messages.indexOf(request);
   if (requestAt < 0) throw new Error("the turn's request is not among the messages to resend");
@@ -84,7 +85,7 @@ export function smallerResend(
     sizes[index] = size;
     out[index] = next;
   };
-  const shrinkable = messages.flatMap((message, index) => index === requestAt || message.role === "system" ? [] : [index]);
+  const shrinkable = messages.flatMap((message, index) => index === requestAt || message.role === "system" || required?.has(message) ? [] : [index]);
   const steps = [
     ...shrinkable.filter((index) => imagesIn(messages[index]!)).map((index) => () => replace(index, withoutImages(out[index]!))),
     ...shrinkable.filter((index) => index > requestAt && messages[index]!.role === "tool" && sizes[index]! > LONG_TOOL_OUTPUT_BYTES)

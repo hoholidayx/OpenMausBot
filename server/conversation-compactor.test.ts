@@ -5,10 +5,7 @@ import type { ChatReplay } from "./contracts.ts";
 import type { ReplayEntry } from "./context-rebuild.ts";
 
 const line = (id: string, text = id, role: ReplayEntry["role"] = "user"): ConversationEntry => ({ id, text, role });
-const render = (entries: readonly ReplayEntry[]): ChatReplay => ({
-  text: "current request",
-  transcript: entries.map(({ role, text }) => ({ role, text })),
-});
+const turnText = () => "current request";
 const footprint = ({ text, transcript }: ChatReplay) => ({ base: "fixed", tokens: Buffer.byteLength(JSON.stringify([text, transcript])) });
 
 function deferredSummary() {
@@ -46,7 +43,7 @@ it("joins one in-flight idle fold at preflight and excludes pending input from i
   const f = fixture();
   const gate = deferredSummary();
   f.write.mockReturnValueOnce(gate.promise);
-  const hook = f.compactor.attach(f.target, render);
+  const hook = f.compactor.attach(f.target, turnText);
   f.history.push(line("pending", "WAITING_INPUT"));
   hook.completed("model", { tokens: 100, base: "fixed" }, { tokens: 300 });
   await vi.advanceTimersByTimeAsync(10_000);
@@ -85,14 +82,14 @@ it("retains an eligible summary, clips oversized optional history on UTF-8 bound
   f.history[0] = { ...f.history[0]!, required: true };
   f.history.push(line("large", "START ".concat("中文🐭".repeat(1_500), " LAST")));
   f.write.mockRejectedValueOnce(new Error("provider unavailable"));
-  const kept = await f.compactor.attach(f.target, render).prepare("model", footprint, new AbortController().signal);
+  const kept = await f.compactor.attach(f.target, turnText).prepare("model", footprint, new AbortController().signal);
   expect(kept.transcript.some(entry => entry.text.includes("first summary"))).toBe(true);
-  expect(kept.transcript.find(entry => entry.text === "one")).toBeDefined();
+  expect(kept.transcript).toContainEqual({ role: "user", text: "one", required: true });
   expect(kept.transcript.at(-1)?.text).toMatch(/^START .*Text shortened[\s\S]* LAST$/s);
   expect(kept.transcript.at(-1)?.text).not.toContain("�");
   expect(Buffer.byteLength(JSON.stringify(kept.transcript))).toBeLessThanOrEqual(f.settings.rebuildBytes);
   expect(f.committed).toHaveBeenCalledTimes(1);
-  const hugeRequired = f.compactor.attach(f.target, entries => ({ ...render(entries), text: "🐭".repeat(10_000) }));
+  const hugeRequired = f.compactor.attach(f.target, () => "🐭".repeat(10_000));
   await expect(hugeRequired.prepare("model", footprint, new AbortController().signal)).rejects.toThrow("required context exceeds window");
 });
 
@@ -112,7 +109,7 @@ it("uses reported occupancy when keeping history and discards the calibration wh
   f.settings.compactAt = 8_000;
   f.settings.idleCompact = false;
   f.history[0] = line("one", "x".repeat(9_000));
-  const hook = f.compactor.attach(f.target, render);
+  const hook = f.compactor.attach(f.target, turnText);
   const signal = new AbortController().signal;
   hook.completed("model", { base: "fixed", tokens: 9_200 }, { tokens: 1_900 });
   expect((await hook.prepare("model", footprint, signal)).transcript[0]?.text).toHaveLength(9_000);

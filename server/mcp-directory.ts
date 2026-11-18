@@ -354,7 +354,7 @@ function excluded(): DirectoryResult {
 
 const HOW_TO_SEARCH = `Find tool names with ${SEARCH_TOOL}({ "query": "what you want to do" }), then run one with ${CALL_TOOL}({ "name": "...", "arguments": {...} }).`;
 
-/** Chat engines and Pi keep 50 KiB of one tool result, so a bigger schema is compacted, not cut. */
+/** Fit the schema inside the 50 KiB tool-directory result budget. */
 export const DESCRIBE_BYTES = 40_000;
 const encoder = new TextEncoder();
 const byteLength = (text: string) => encoder.encode(text).length;

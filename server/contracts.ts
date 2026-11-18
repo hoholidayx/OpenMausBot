@@ -123,7 +123,7 @@ export type RequestOutcome = "allowed-once" | "rejected" | "answered" | "unavail
 // Sessions start implicitly on the first turn; resumeCursor carries the provider-native continuation (e.g. a Claude session id).
 export interface ChatReplay {
   text?: string;
-  transcript: Array<{ role: "user" | "assistant"; text: string }>;
+  transcript: Array<{ role: "user" | "assistant"; text: string; required?: true }>;
 }
 
 export interface ChatContextFootprint {
@@ -171,7 +171,7 @@ export interface SendTurnInput {
   /** The turn with the conversation replayed inline, sent once on a fresh session when the provider refuses resumeCursor before reading the prompt. */
   recoveryText?: string;
   /** Prior turns for transcript-replay providers (API-backed drivers). */
-  transcript?: Array<{ role: "user" | "assistant"; text: string }>;
+  transcript?: ChatReplay["transcript"];
   hostContext?: HostChatContext;
   /** Bot persona (name/title/description) as a system prompt. */
   system?: string;

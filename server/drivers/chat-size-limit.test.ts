@@ -209,6 +209,28 @@ describe("an OpenAI-compatible provider that refuses large requests", () => {
     expect(logged[0]).not.toMatch(/earlier \d|Summarize|Fixture system/);
   });
 
+  it("retains a required collaboration result and the latest input in an oversized retry", async () => {
+    const limit = 20_000;
+    const f = await provider(above(limit, SIZE_REFUSALS[1]!));
+    const result = { role: "user" as const, text: "Tester: payment regression failed. Do not release.", required: true as const };
+    const done = await f.run({
+      system: "Fixture system prompt.",
+      text: "Decide whether to release.",
+      hostContext: {
+        prepare: async () => ({ transcript: [result, ...transcript(8, 4_000)] }),
+        completed: () => {},
+      },
+    });
+    expect(done).toMatchObject({ ok: true });
+    expect(f.requests).toHaveLength(2);
+    const [refused, resent] = f.requests;
+    expect(refused!.bytes).toBeGreaterThan(limit);
+    expect(resent!.bytes).toBeLessThanOrEqual(limit);
+    expect(resent!.messages[1]).toEqual({ role: "user", content: result.text });
+    expect(resent!.messages.at(-1)).toEqual(refused!.messages.at(-1));
+    expect(resent!.messages).not.toContainEqual(refused!.messages[2]);
+  });
+
   it.each(SIZE_REFUSALS)("$name fails with one plain message when the smaller resend is still too large", async (refusal) => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const f = await provider(above(10_000, refusal));

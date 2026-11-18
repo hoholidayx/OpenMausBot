@@ -5,6 +5,7 @@ import { lstat, mkdir, readdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ValidateFunction } from "ajv";
 import { stripControlPlaneEnv } from "../config.ts";
+import { prefixBytes } from "../context-rebuild.ts";
 import type { SendTurnInput } from "../contracts.ts";
 import { cloudRole } from "../bot-box/detect.ts";
 import { redactSecretsInText } from "../redact.ts";
@@ -37,7 +38,7 @@ export interface ChatToolDefinition {
   type: "function";
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
-export interface ChatToolResult { text: string; ok: boolean; images?: ChatImagePart[] }
+export interface ChatToolResult { text: string; ok: boolean; images?: ChatImagePart[]; resultFile?: string }
 /** How a call is shown and granted. A grant names the exact tool on the server as launched; the
  * person's own computer never gets a session-wide one. */
 export interface ChatToolCallView { title: string; input: Record<string, unknown>; ask: boolean; grant?: string }
@@ -98,7 +99,8 @@ export interface ChatToolMountOptions {
 }
 const DEFAULT_CALL_MS = 10 * 60_000;
 const FRAME_BYTES = 2 * 1024 * 1024;
-const OUTPUT_BYTES = 50 * 1024;
+const TOOL_PREVIEW_BYTES = 8 * 1024;
+const DIRECTORY_OUTPUT_BYTES = 50 * 1024;
 /** ask_user, which the runtime lists after the MCP tools. */
 const RUNTIME_TOOLS = 1;
 /** Past the limit a server is searched, not listed, so this only bounds what one server may offer. */
@@ -363,15 +365,9 @@ export function chatToolNotices(session: Pick<ChatToolSession, "skipped" | "trim
   ];
 }
 
-function preview(bytes: Buffer): string {
-  let end = OUTPUT_BYTES;
-  while ((bytes[end] & 0xc0) === 0x80) end -= 1;
-  return bytes.subarray(0, end).toString();
-}
-
-function boundedText(value: string, bytes = Buffer.from(value)): string {
-  if (bytes.length <= OUTPUT_BYTES) return value;
-  return `${preview(bytes)}\n[MCP result truncated at 50KB; request less output.]`;
+function boundedText(value: string, limit: number): string {
+  if (Buffer.byteLength(value) <= limit) return value;
+  return `${prefixBytes(value, limit)}\n[MCP result truncated at ${limit / 1024} KiB; request less output.]`;
 }
 
 /** Folder, inside the bot's working folder, that keeps tool results too big to show the model whole. */
@@ -391,25 +387,27 @@ async function pruneSavedResults(dir: string, keep: string): Promise<void> {
 
 /** A result over the limit is kept whole (secrets masked by `scrub`) in `folder`/mcp-results and the model reads its start and the file's path.
  * Without a folder, when the file cannot be written, or when it is over the attach limit, it is cut as before. */
-async function savedOrBounded(value: string, tool: string, folder: string | undefined, scrub: (text: string) => string): Promise<string> {
-  const bytes = Buffer.from(value);
-  if (bytes.length <= OUTPUT_BYTES || !folder) return boundedText(value, bytes);
+async function savedOrBounded(value: string, tool: string, folder: string | undefined, scrub: (text: string) => string): Promise<Pick<ChatToolResult, "text" | "resultFile">> {
+  const bytes = Buffer.byteLength(value);
+  if (bytes <= TOOL_PREVIEW_BYTES) return { text: value };
+  const kept = scrub(value);
+  if (!folder || Buffer.byteLength(kept) > MESSAGE_FILE_MAX_BYTES) return { text: boundedText(kept, TOOL_PREVIEW_BYTES) };
   try {
     const dir = join(folder, SAVED_RESULTS_FOLDER);
     await mkdir(dir, { recursive: true, mode: 0o700 });
     // Security: never follow a link the folder's contents put here to write outside the working folder.
     if (!(await lstat(dir)).isDirectory()) throw new Error("not a folder");
     const name = `result-${tool}-${Date.now()}-${randomBytes(3).toString("hex")}.txt`, file = join(dir, name);
-    // Key-shaped values are masked before the result reaches disk, as for every other kept tool result.
-    const kept = scrub(value);
-    // A file over the attach limit could not be attached, so it is cut as before.
-    if (Buffer.byteLength(kept) > MESSAGE_FILE_MAX_BYTES) return boundedText(value, bytes);
     await writeFile(file, kept, { flag: "wx", mode: 0o600 });
     await pruneSavedResults(dir, name).catch(() => {});
-    const kb = Math.ceil(bytes.length / 1024), masked = kept === value ? "" : " (secret-looking values in it are masked)";
-    return `${preview(bytes)}\n[MCP result is ${kb}KB; only the first 50KB is shown above. The full result is saved in ${file}${masked}]`;
+    const size = Math.ceil(bytes / 1024);
+    const masked = kept === value ? "" : " (secret-looking values in it are masked)";
+    return {
+      text: `${prefixBytes(kept, TOOL_PREVIEW_BYTES)}\n[MCP result is ${size} KiB. The full result is saved in ${file}${masked}]`,
+      resultFile: file,
+    };
   } catch {
-    return boundedText(value, bytes);
+    return { text: boundedText(kept, TOOL_PREVIEW_BYTES) };
   }
 }
 
@@ -507,7 +505,7 @@ export function directServers(servers: ReadonlyArray<{ name: string; tools: numb
 }
 
 /** Under `schemaProfile` the model reads each tool's schema fitted to its provider; calls are still checked against the full one.
- * A tool result over 50KB is saved whole in `resultFolder`, the bot's working folder, after `scrub` masks secrets (see savedOrBounded).
+ * A tool result over the preview limit can be saved whole in `resultFolder`, the bot's working folder, after `scrub` masks secrets.
  * `toolLimit` is the most tools the provider takes in one request, ask_user included; null when it takes any number. */
 export async function mountChatTools(integrations: SendTurnInput["integrations"], signal: AbortSignal, computerUse = false, toolScope?: ToolScope, callTimeoutMs: number = DEFAULT_CALL_MS,
   schemaProfile?: ToolSchemaProfile, resultFolder?: string, scrub: (text: string) => string = redactSecretsInText, toolLimit: number | null = CHAT_TOOL_LIMIT,
@@ -810,7 +808,8 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
       if (unsupported) parts.unshift(`[${unsupported} unsupported MCP content item(s) omitted. The operation may have taken effect, but its full result cannot be represented; inspect its state before retrying.]`);
       const body = parts.join("\n") || (images.length ? "Screenshot captured." : "(empty result)");
       const hint = tool.builtInBrowser ? loopbackNavigationHint(tool.name, args, body) : "";
-      return { text: await savedOrBounded(body, chatToolName(tool.server, tool.name), resultFolder, scrub) + hint, ok: result.isError !== true && unsupported === 0,
+      const output = await savedOrBounded(body, chatToolName(tool.server, tool.name), resultFolder, scrub);
+      return { ...output, text: output.text + hint, ok: result.isError !== true && unsupported === 0,
         ...(images.length ? { images } : {}) };
     } catch (error) {
       const reason = error instanceof Error ? error.message : "MCP transport failed; execution outcome may be uncertain";
@@ -826,7 +825,7 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
       return { ok: false, text: `${reason} That was the MCP server "${tool.server}". It is stopped for the rest of this turn; your other tools still work.` };
     }
   };
-  const answer = (result: DirectoryResult): ChatToolResult => ({ text: boundedText(result.content.map((part) => part.text).join("\n")), ok: result.isError !== true });
+  const answer = (result: DirectoryResult): ChatToolResult => ({ text: boundedText(result.content.map((part) => part.text).join("\n"), DIRECTORY_OUTPUT_BYTES), ok: result.isError !== true });
   /** Waits for this computer's start, then lists its tools in the stand-in's place, keeping the runtime's own tools. */
   const awaitHostComputer = async (callSignal: AbortSignal): Promise<ChatToolResult> => {
     const waiting = standIn!;

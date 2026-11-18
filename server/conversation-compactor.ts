@@ -83,7 +83,7 @@ function historyAfter(entries: ConversationEntry[], through: number, summary: st
 }
 
 function fitReplay(
-  entries: ConversationEntry[], render: (entries: readonly ReplayEntry[]) => ChatReplay,
+  entries: ConversationEntry[], render: (entries: readonly ConversationEntry[]) => ChatReplay,
   measure: Measure, hard: number, contextTooLarge: () => Error, rebuildBytes?: number,
 ): ChatReplay {
   function fits(replay: ChatReplay): boolean {
@@ -208,8 +208,12 @@ export function createConversationCompactor(deps: {
     return done;
   }
 
-  function attach(target: CompactionTarget, render: (entries: readonly ReplayEntry[]) => ChatReplay): HostChatContext {
+  function attach(target: CompactionTarget, turnText?: (entries: readonly ReplayEntry[]) => string): HostChatContext {
     const key = keyOf(target);
+    const render = (entries: readonly ConversationEntry[]): ChatReplay => ({
+      ...(turnText ? { text: turnText(entries) } : {}),
+      transcript: entries.map(({ id, role, text, required }) => id && required ? { role, text, required: true } : { role, text }),
+    });
     return {
       async prepare(model, measure, signal) {
         signal.throwIfAborted();
