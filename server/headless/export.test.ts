@@ -35,6 +35,29 @@ const messages: Record<string, unknown[]> = {
   [PRIYA]: [{ id: "p1", role: "bot", kind: "text", text: "Pricing was hidden.\n\n![step 1](priya-1.png)" }],
 };
 
+type FileRequest = { path: string; entry?: string; listFolder?: boolean };
+
+function answerReport(
+  res: ServerResponse, body: FileRequest, send: (status: number, body: unknown, headers?: Record<string, string>) => void,
+): boolean {
+  if (body.path === "plain/report") {
+    res.writeHead(200, { "content-type": "text/plain", "content-disposition": 'attachment; filename="report"' });
+    res.end("A standalone report");
+    return true;
+  }
+  const report = REPORTS[body.path];
+  if (!report) return false;
+  const text = body.entry ? report[body.entry] : undefined;
+  if (text !== undefined) {
+    res.writeHead(200, { "content-type": "text/plain", "content-length": String(Buffer.byteLength(text)) });
+    res.end(text);
+    return true;
+  }
+  if (!body.listFolder) return false;
+  send(200, { name: "report", entries: Object.entries(report).map(([name, text]) => ({ name, bytes: Buffer.byteLength(text) })), truncated: false }, { "x-openmausbot-folder": "1" });
+  return true;
+}
+
 function answer(req: IncomingMessage, res: ServerResponse, raw: string) {
   const url = new URL(req.url ?? "/", "http://localhost");
   const send = (status: number, body: unknown, headers: Record<string, string> = {}) => {
@@ -59,20 +82,8 @@ function answer(req: IncomingMessage, res: ServerResponse, raw: string) {
   }
   const file = /^\/api\/threads\/([\w-]+)\/messages\/([\w-]+)\/file$/.exec(url.pathname);
   if (file && req.method === "POST") {
-    const body = JSON.parse(raw) as { path: string; entry?: string; listFolder?: boolean };
-    if (body.path === "plain/report") {
-      res.writeHead(200, { "content-type": "text/plain", "content-disposition": 'attachment; filename="report"' });
-      return res.end("A standalone report");
-    }
-    const report = REPORTS[body.path];
-    if (report && body.entry && report[body.entry] !== undefined) {
-      const text = report[body.entry]!;
-      res.writeHead(200, { "content-type": "text/plain", "content-length": String(Buffer.byteLength(text)) });
-      return res.end(text);
-    }
-    if (report && body.listFolder) {
-      return send(200, { name: "report", entries: Object.entries(report).map(([name, text]) => ({ name, bytes: Buffer.byteLength(text) })), truncated: false }, { "x-openmausbot-folder": "1" });
-    }
+    const body = JSON.parse(raw) as FileRequest;
+    if (answerReport(res, body, send)) return;
     if (body.path === "old.md") {
       res.writeHead(200, { "content-type": "text/markdown", "content-length": "3" });
       return res.end("old");
