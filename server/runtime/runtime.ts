@@ -4,6 +4,7 @@ import { redactSecretsInText } from "../../shared/redact.ts";
 
 import { hostFaultOf, retryCannotFix } from "../host-fault.ts";
 import { composeEnvelope } from "./envelope.ts";
+import { clipHandoffResult } from "../output-truncation.ts";
 import { assignmentLevel } from "./level.ts";
 import type { RuntimeStore } from "./store.ts";
 import { answersSender, asking, awaited, childrenSince, settledSince, clip, continuations, CUT_TWICE, duration, isTerminal, loopStop, nextGuard, outwardDetail, ownsConversation, ownThread, path, restartNote, wakeOwner } from "./tree.ts";
@@ -49,7 +50,9 @@ export interface BeginRequest {
 }
 
 const BRIEF_MAX = 12_000;
-const RESULT_MAX = 12_000;
+function assignmentResult(n: Assignment, text: string): string {
+  return clipHandoffResult(text, { stage: "assignment-result", threadId: n.assignee.destination.threadId, assignmentId: n.id });
+}
 const STOPPED_WITH_REQUEST = "Stopped with the request it was for";
 const DETAIL_MAX = 400;
 /** progress() runs once per runtime event; lastActivityAt catches up at this cadence, not per event. */
@@ -200,7 +203,7 @@ export class Runtime {
     if (n.status !== "running") return false;
     const reply = !n.parentId && n.executions > 1 ? this.runner.committedRelay?.(n) : undefined;
     if (reply === undefined) return true;
-    n.result = clip(reply, RESULT_MAX);
+    n.result = assignmentResult(n, reply);
     this.settle(n, "completed", "done", undefined, true);
     return false;
   }
@@ -546,7 +549,7 @@ export class Runtime {
     const root = n.parentId ? this.store.get(n.rootId) : n;
     if (result.kind === "continue") {
       // The count comes from events because dispatch deletes n.continuation.
-      n.result = clip(result.text, RESULT_MAX);
+      n.result = assignmentResult(n, result.text);
       n.guard = nextGuard(n.guard, result.evidence);
       const stop = loopStop(n.guard, result.text);
       if (stop) {
@@ -578,7 +581,7 @@ export class Runtime {
       }
       return;
     }
-    n.result = n.partner && result.kind === "completed" ? result.text : clip(result.text, RESULT_MAX);
+    n.result = n.partner && result.kind === "completed" ? result.text : assignmentResult(n, result.text);
     if (result.kind === "completed" && result.statusOnly) n.statusOnly = true;
     const kids = awaited(this.store.children(n.id));
     const unseen = live !== undefined && kids.some(c => isTerminal(c) && !live.carried.has(c.id));
@@ -761,9 +764,10 @@ export class Runtime {
     const now = this.clock.now();
     n.status = status; n.outcome = outcome; n.finishedAt = now; n.lastActivityAt = now;
     if (detail !== undefined) n.outcomeDetail = clip(detail, DETAIL_MAX); else delete n.outcomeDetail;
-    if (status !== "completed" && detail !== undefined && n.result === "") n.result = clip(detail, RESULT_MAX);
-    if (outcome === "refused" && detail !== undefined) { n.result = clip(detail, RESULT_MAX); delete n.evidence; }
-    if (outcome === "budget" && detail !== undefined && detail !== STOPPED_WITH_REQUEST) n.result = clip(detail, RESULT_MAX);
+    if (detail !== undefined && (status !== "completed" && n.result === "" || outcome === "refused" || outcome === "budget" && detail !== STOPPED_WITH_REQUEST)) {
+      n.result = assignmentResult(n, detail);
+    }
+    if (outcome === "refused" && detail !== undefined) delete n.evidence;
     delete n.question; delete n.decide; delete n.answer; delete n.answeredBy; delete n.restart; delete n.carrying;
     const kind: EventKind = status === "cancelled" ? "cancelled" : outcome === "refused" ? "refused" : "settled";
     const root = n.parentId ? this.store.get(n.rootId) : n;

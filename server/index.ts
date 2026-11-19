@@ -7,6 +7,7 @@ import { existsSync, realpathSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { clipHandoffResult } from "./output-truncation.ts";
 import { ToolResults, TOOL_RESULT_MAX_CHARS } from "./tool-results.ts";
 import { basename, join } from "node:path";
 import { authorizeExternalRuntime, externalRuntimeIsActive, type ExternalRuntimeGrant } from "./external-runtime.ts";
@@ -4970,10 +4971,10 @@ const watchdog = new TurnWatchdog({
 });
 function handoffResultText(event: Extract<RuntimeEvent, { type: "turn.completed" }>): string {
   const reply = event.ok ? store.messagesFor(event.threadId).findLast(row => row.role === "bot" && row.kind === "text" && row.turnId === event.turnId)?.text : undefined;
-  const partner = coordinator.runningIn(event.threadId).some(node => node.partner);
-  if (partner && event.ok) return reply ?? "";
+  const running = coordinator.runningIn(event.threadId);
+  if (event.ok && running.some(node => node.partner)) return reply ?? "";
   const text = event.ok ? reply || event.stopReason || "The bot finished without a text reply" : stoppedTurnText(event.threadId, event.turnId, undefined, event.stopReason);
-  return text.slice(0, 12_000);
+  return clipHandoffResult(text, { stage: "turn-outcome", threadId: event.threadId, turnId: event.turnId, assignmentId: running[0]?.id });
 }
 
 watchdog.start(); const idleThreads = createIdleThreads({ store, claims: directTurnDispatchClaims, generations: directTurnGenerationByThread, drain: drainQueuedSends, engineTurn: (threadId) => runningTurnEngines.has(threadId) || liveTurns.running(threadId) !== undefined || settlingTurns.has(threadId), settle: (botId, threadId) => { watchdog.settle(threadId); settleDirectFollowup(directTurnGenerationByThread.get(threadId)); stopScreenPoller(botId, threadId); directTurnBots.delete(threadId); }, releaseComputer: (botId, threadId) => { releaseTurnResources(turnResourceOwners.get(threadId)); releaseLocalVmThread(threadId); vpsThreadEnded(botId, threadId); } }); const peerLimitResend = createPeerLimitResend<NonNullable<Parameters<typeof startTurn>[2]>, DirectTurnOutcome>({ store, registry, takeover: () => limitTakeover, turnStops, hostedModels: null, providerConfigs, quotaSwitchEnabled: () => quotaSwitchEnabled(), policyModelRefusal, checkedTaskModelSwitch, assertWithinBudget: () => {}, handedOff: (id) => coordinator.node(id)?.parentId !== undefined, guest: (threadId) => guestDrivenTurns.has(threadId) || cloudGuestDriven(threadId), generation: (threadId) => directTurnGenerationByThread.get(threadId), blocked: (botId, threadId) => botHolds.held(botId) || threadBusy(botId, threadId) || hasQueuedSteeredMessages(botId, threadId) || Boolean(directRequestOwners.get(threadId)?.stopped), settle: settleDirectCoordination, release: (generation) => directCoordinationSettlers.delete(generation), failedLine: (threadId, detail) => serverLine(threadLanguage(threadId), "server.peerResend.failed", { detail }), startTurn }); // bot-to-bot turns whose AI met its usage limit before anything ran go once to the backup AI

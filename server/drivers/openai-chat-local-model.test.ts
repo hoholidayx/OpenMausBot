@@ -5,7 +5,7 @@ import { createServer, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ProviderInstance, SendTurnInput } from "../contracts.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
@@ -143,10 +143,32 @@ describe("a tool call a local model wrote as text", () => {
   });
 
   it("does not run a call cut off at the token limit", async () => {
-    const f = await fixture((_body, response) => sse(response, [chunk({ content: TAGGED }), chunk({}, "length")]));
+    using warn = vi.spyOn(console, "warn");
+    const f = await fixture((_body, response) => sse(response, [chunk({ content: TAGGED }), chunk({}, "length"),
+      { choices: [], usage: { completion_tokens: 19 } }]));
     await f.start();
     expect(await f.completed()).toMatchObject({ ok: false });
     expect(f.effects()).toEqual([]);
+    const traces = warn.mock.calls.filter(([event]) => event === "output_truncation");
+    expect(traces).toHaveLength(1);
+    expect(JSON.parse(String(traces[0][1]))).toMatchObject({ reason: "length", replyChars: TAGGED.length, outputTokens: 19 });
+  });
+
+  it("traces a JSON reply cut short even when its token count is invalid", async () => {
+    using warn = vi.spyOn(console, "warn");
+    const f = await fixture((_body, response) => {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ choices: [{ message: { content: "Private partial reply" }, finish_reason: "length" }],
+        usage: { completion_tokens: -1 } }));
+    });
+    await f.start();
+    expect(await f.completed()).toMatchObject({ ok: false });
+    const traces = warn.mock.calls.filter(([event]) => event === "output_truncation");
+    expect(traces).toHaveLength(1);
+    const record = JSON.parse(String(traces[0][1]));
+    expect(record).toMatchObject({ stage: "provider", reason: "length", threadId: f.threadId, replyChars: 21 });
+    expect(record).not.toHaveProperty("outputTokens");
+    expect(traces[0][1]).not.toContain("Private partial reply");
   });
 
   it("reads nothing from reasoning", async () => {

@@ -49,3 +49,15 @@ pnpm exec vitest run server/work-partner.e2e.test.ts
 ## 本机部署
 
 通过项目管理脚本重启本机 Web 服务，启动命令退出后再次检查进程和监听端口。主服务的 `8799/api/health` 和 webhook 的 `8800/health` 均返回 HTTP 200。实际首页引用的两份 JavaScript 和一份 CSS 与本次生产构建的 SHA-256 一致。浏览器和模型的写入验证均在独立数据目录进行。
+
+## 排查输出截断
+
+本机 Web 部署可按事件名查看记录，再按 `threadId`、`turnId` 或 `assignmentId` 关联同一次请求。
+
+```sh
+rg 'output_truncation' ~/.openmausbot-service/web.log
+```
+
+- `stage=provider` 表示 OpenAI 兼容聊天回合收到了上游的输出上限信号。Chat Completions 记录 `length`，Responses 记录 `max_output_tokens`。日志包含模型、回合 ID、该回合内的请求轮次和已收到的正文长度。上游提供输出 token 用量时一并记录。
+- `stage=turn-outcome` 表示服务裁剪了本轮向协作运行时传递的副本。`stage=assignment-result` 表示裁剪发生在委派结果入库时。两者都记录裁剪前后的 UTF-16 长度。原聊天气泡可以保留更长的正文。
+- 这些事件只在收到输出上限信号或实际发生本地裁剪时产生。排查历史请求须核对当时运行的服务版本。日志字段不包含答复正文、推理或工具参数。

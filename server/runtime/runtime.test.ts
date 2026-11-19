@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { addHeldSecretScrubber, HELD_SECRET_MASK } from "../../shared/redact.ts";
 
 import { checkInvariants } from "./invariants.ts";
@@ -310,6 +310,18 @@ describe("Runtime: one tree, one lane", () => {
     expect(w.store.get(lead.id)).toMatchObject({ status: "completed", executions: 2 });
     expect(w.store.get(lead.id)?.answer).toBeUndefined();
     invariants(w);
+  });
+
+  it("logs the size and assignment of a result clipped in runtime storage", async () => {
+    using warn = vi.spyOn(console, "warn");
+    const w = world(() => ({ kind: "completed", text: "x".repeat(12_001) }));
+    const root = w.runtime.begin(beginReq());
+    const lead = ok(w.runtime.enqueue(toBot("lead", root.id)));
+    w.runtime.tick(); await flush();
+    expect(w.store.get(lead.id)?.result).toHaveLength(12_000);
+    expect(warn).toHaveBeenCalledWith("output_truncation", JSON.stringify({
+      stage: "assignment-result", threadId: "lead-work", assignmentId: lead.id, originalChars: 12_001, retainedChars: 12_000,
+    }));
   });
 
   it("masks a held secret, even one with spaces, before an over-long answer is clipped", async () => {

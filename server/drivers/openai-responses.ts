@@ -1,6 +1,7 @@
 // OpenAI's Responses API, for the models that refuse function tools over Chat Completions. The turn keeps its
 // Chat-shaped messages; this file translates them on the way out and reads the event stream on the way in.
 // https://developers.openai.com/api/docs/guides/migrate-to-responses
+import { traceProviderFinish, type ProviderOutputLimit } from "../output-truncation.ts";
 import type { Completion, OpenAIChatMessage } from "./openai-chat.ts";
 import type { ChatContentPart } from "./chat-images.ts";
 import type { ChatToolDefinition } from "./chat-mcp-tools.ts";
@@ -149,6 +150,7 @@ function partsText(parts: unknown, ...fields: string[]): string {
  * the same way. */
 export async function readResponsesStream(body: ReadableStream<Uint8Array> | null, handlers: {
   reasoning: boolean;
+  onOutputLimit?: ProviderOutputLimit;
   onBytes(): void;
   onDelta(delta: string, kind: "assistant_text" | "reasoning_text"): void;
   fail(status: number, body: string): Error;
@@ -197,6 +199,7 @@ export async function readResponsesStream(body: ReadableStream<Uint8Array> | nul
     const cachedInput = usageCount(object(used?.input_tokens_details)?.cached_tokens);
     if (used) usage = { input: Number(used.input_tokens) || 0, output: Number(used.output_tokens) || 0,
       ...(cachedInput === undefined ? {} : { cachedInput }) };
+    return used;
   };
   const failure = (error: Record<string, unknown> | undefined) => {
     const code = typeof error?.code === "string" ? error.code : "";
@@ -226,8 +229,9 @@ export async function readResponsesStream(body: ReadableStream<Uint8Array> | nul
         return true;
       case "response.incomplete": {
         const response = object(event.response);
-        finish(response);
+        const reportedUsage = finish(response);
         const reason = object(response?.incomplete_details)?.reason;
+        traceProviderFinish(handlers.onOutputLimit, reason, text, reportedUsage);
         finishReason = reason === "max_output_tokens" ? "length" : typeof reason === "string" ? reason : "incomplete";
         return true;
       }

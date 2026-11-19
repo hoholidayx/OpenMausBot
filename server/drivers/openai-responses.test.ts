@@ -456,12 +456,17 @@ describe("what Responses can answer", () => {
   });
 
   it("does not finish a turn on an incomplete response", async () => {
+    using warn = vi.spyOn(console, "warn");
     const f = await fixture(onResponses((response) => {
       events(response, [textDelta("Half"), { type: "response.incomplete", response: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output: [], usage } }]);
     }));
     const { end, events: seen } = await f.turn();
     expect(end).toMatchObject({ ok: false });
     expect(failureOf(seen)).toContain("provider did not finish the response (length)");
+    const traces = warn.mock.calls.filter(([event]) => event === "output_truncation");
+    expect(traces).toHaveLength(1);
+    expect(JSON.parse(String(traces[0][1]))).toMatchObject({ stage: "provider", turnId: end.turnId, threadId: end.threadId,
+      reason: "max_output_tokens", replyChars: 4, outputTokens: 12 });
   });
 
   it("refuses a tool call cut off by an incomplete response without running it", async () => {

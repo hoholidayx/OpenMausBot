@@ -41,6 +41,7 @@ import { classifyContinuable, writeTurnHandoff } from "../turn-continuation.ts";
 import { KEY_REJECTED_REASON, keyRejected, noteKeyAccepted, noteKeyRejected, rejectsKey } from "../key-rejections.ts";
 import { FETCH_LIMIT_MS, fetchPastLimit, prepareChatModel } from "./openai-chat-fetch.ts";
 import { addUsage, chatUsageFrom, usageCount, type OpenAIChatTokenUsage, type OpenAIUsage } from "./openai-usage.ts";
+import { traceProviderFinish, type ProviderOutputLimit } from "../output-truncation.ts";
 import { announcesAction } from "./chat-announcement.ts";
 
 export interface OpenAIChatMessage {
@@ -85,6 +86,7 @@ interface NativeLog {
 }
 
 interface CompletionRequest {
+  onOutputLimit?: ProviderOutputLimit;
   stream: boolean;
   idleTimeoutMs: number;
   signal?: AbortSignal;
@@ -219,7 +221,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     route: ModelRoute,
     messages: OpenAIChatMessage[],
     model: string,
-    { stream, idleTimeoutMs, signal, onDelta, tools = [], onUsage, variant, threadId }: CompletionRequest,
+    { stream, idleTimeoutMs, signal, onDelta, tools = [], onUsage, onOutputLimit, variant, threadId }: CompletionRequest,
   ): Promise<Completion> => {
     const timeoutController = new AbortController();
     let idleTimer: NodeJS.Timeout | null = null;
@@ -272,7 +274,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       if (!response.ok) throw failure(response.status, await response.text().catch(() => ""));
       noteKeyAccepted(options.apiUrl, options.apiKey);
       if (route === "responses") {
-        const reply = await readResponsesStream(response.body, { reasoning: Boolean(options.reasoning), onBytes: resetIdleTimer, onDelta: (text, kind) => onDelta?.(text, kind), fail: failure });
+        const reply = await readResponsesStream(response.body, { reasoning: Boolean(options.reasoning), onBytes: resetIdleTimer, onDelta: (text, kind) => onDelta?.(text, kind), fail: failure, onOutputLimit });
         activeSignal.throwIfAborted();
         return reply;
       }
@@ -304,8 +306,10 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         const reasoning = message.reasoning_content ?? message.reasoning;
         const finishReason = json.choices?.[0]?.finish_reason ?? null;
         activeSignal.throwIfAborted();
+        const text = options.contentText ? options.contentText(message?.content) : typeof message?.content === "string" ? message.content : "";
+        traceProviderFinish(onOutputLimit, finishReason, text, tokenUsage);
         return {
-          text: options.contentText ? options.contentText(message?.content) : typeof message?.content === "string" ? message.content : "",
+          text,
           reasoning: options.reasoning && typeof reasoning === "string"
             ? reasoning
             : "",
@@ -323,7 +327,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       let text = "";
       let reasoning = "";
       let protocolReasoning = "";
-      let usage: OpenAIUsage | null = null;
+      let reportedUsage: OpenAIChatTokenUsage | undefined;
       let finishReason: string | null = null;
       let malformedFrame = false;
       let sawChoice = false;
@@ -368,7 +372,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
           onDelta?.(contentDelta, "assistant_text");
         }
         const tokenUsage = completionUsage(chunk);
-        if (tokenUsage) usage = chatUsageFrom(tokenUsage);
+        if (tokenUsage) reportedUsage = tokenUsage;
         return false;
       };
       try {
@@ -404,7 +408,8 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       }
       activeSignal.throwIfAborted();
       if (!sawChoice) throw new ChatProtocolError("provider returned no streaming completion choice");
-      return { text, reasoning, usage, toolCalls: calls.finish(finishReason, malformedFrame), finishReason, protocolReasoning, protocolReasoningDetails: details.blocks };
+      traceProviderFinish(onOutputLimit, finishReason, text, reportedUsage);
+      return { text, reasoning, usage: chatUsageFrom(reportedUsage), toolCalls: calls.finish(finishReason, malformedFrame), finishReason, protocolReasoning, protocolReasoningDetails: details.blocks };
     } catch (error) {
       if (timeoutController.signal.reason instanceof RuntimeNoticeError) throw timeoutController.signal.reason;
       throw error;
@@ -617,6 +622,10 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
               completion = await complete(messages, model, {
                 stream: true, idleTimeoutMs: options.timeoutMs, signal: abort.signal,
                 tools: tools.definitions, variant: turn.variant, threadId: turn.threadId,
+                onOutputLimit: (reason, replyChars, outputTokens) => console.warn("output_truncation", JSON.stringify({
+                  stage: "provider", reason, driver: options.driverKind, instanceId: input.instanceId, model: safeText(model),
+                  threadId: turn.threadId, turnId, round: round + 1, replyChars, outputTokens,
+                })),
                 onDelta: (text, streamKind) => {
                   streamed = true;
                   if (streamKind === "assistant_text") answerStreamed = true;

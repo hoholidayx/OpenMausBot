@@ -1,12 +1,26 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { verificationServerArgs, verificationServerEnvironment } from "../scripts/control-omb.ts";
 import { openRuntimeStore, type RuntimeStore } from "./runtime/store.ts";
 import { expect, it } from "vitest";
 import { fixture } from "./testing/direct-coordination-fixture.ts";
+
+it("traces an ordinary delegated result clipped on its way back to the requester", () => fixture(async f => {
+  const reply = "Private fixture material.".repeat(600);
+  f.plan[f.lead.id] = { reply };
+  await f.start();
+  await f.wait();
+  const child = f.nodes().find((node: any) => node.botId === f.lead.id);
+  expect(child.result).toBe(reply.slice(0, 12_000));
+  const trace = readFileSync(f.session.info.logPath, "utf8").split("\n").find(line => line.includes("output_truncation") && line.includes(child.id));
+  expect(trace).toBeDefined();
+  expect(JSON.parse(trace!.slice(trace!.indexOf("{")))).toMatchObject({ stage: "turn-outcome", assignmentId: child.id,
+    threadId: child.threadId, turnId: expect.any(String), originalChars: reply.length, retainedChars: 12_000 });
+  expect(trace).not.toContain("Private fixture material");
+}), 45000);
 
 it.each(["direct", "relay", "question", "retry", "empty relay"])("delivers bound partner work through %s", mode => fixture(async f => {
   const path = `/api/bots/${f.chief.id}/work-partner`;
