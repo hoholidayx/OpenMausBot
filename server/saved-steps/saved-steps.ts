@@ -95,7 +95,6 @@ export function createSavedSteps(deps: SavedStepsDeps): SavedSteps {
     const replayed = reply.turnId === undefined ? undefined : dispatch.replayed(threadId, reply.turnId);
     if (replayed !== undefined) {
       recipes.touch(botId, replayed);
-      if (request.quickModel !== undefined) deps.patchMessage(threadId, request.id, { quickModel: undefined });
       deps.patchMessage(threadId, reply.id, { savedSteps: { recipeId: replayed, replayed: true } });
       return;
     }

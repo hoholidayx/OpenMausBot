@@ -678,17 +678,17 @@ describe("the Bot settings page", () => {
     expect(patch).toHaveBeenCalledExactlyOnceWith({ soul: description, description: first });
   });
 
-  it("holds Instructions, Before it acts, Backup AIs, Call mode, Reply style, Notifications, Apps, Job and Hide, with every title on one edge", () => {
+  it("holds Instructions, Before it acts, Backup AIs, Call mode, Notifications, Apps, Job and Hide, with every title on one edge", () => {
     const rendered = settingsPage(makeBot({ defaultBot: {} }));
-    const order = ['data-panel-edit="soul"', 'data-panel-row="approval"', 'data-panel-row="backups"', 'data-panel-row="call-mode"', 'data-panel-row="reply-style"',
+    const order = ['data-panel-edit="soul"', 'data-panel-row="approval"', 'data-panel-row="backups"', 'data-panel-row="call-mode"',
       'data-panel-row="notifications"', 'data-panel-page="apps"', 'data-panel-row="job"', 'data-panel-row="default-bot-hide"']
       .map((marker) => rendered.html.indexOf(marker));
     expect(order.every((index) => index > -1)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(switches(rendered.html)).toBe(2);
     expect(rendered.html).toContain('aria-label="Let apps talk to this bot"');
-    expect(rendered.html.match(/pl-\[38px\]/g)).toHaveLength(5);
-    for (const gone of ['data-panel-row="always-allow"', 'data-panel-row="slack"', 'data-panel-page="visibility"']) expect(rendered.html, gone).not.toContain(gone);
+    expect(rendered.html.match(/pl-\[38px\]/g)).toHaveLength(4);
+    for (const gone of ['data-panel-row="reply-style"', 'data-panel-row="always-allow"', 'data-panel-row="slack"', 'data-panel-page="visibility"']) expect(rendered.html, gone).not.toContain(gone);
   });
 
   it("lists what the bot may do without asking under Before it acts, each with a button that takes it off", () => {
@@ -700,15 +700,6 @@ describe("the Bot settings page", () => {
     expect(html).toContain(">Bash(git status)<");
     click(find(rendered, "data-panel-action", "always-allow:Bash(git status)"));
     expect(patch).toHaveBeenLastCalledWith({ alwaysAllow: ["mcp__linear__list_issues"] });
-  });
-
-  it("chooses the reply style from two pills, the hint in each one's tooltip", () => {
-    const style = segment(settingsPage(makeBot()), "data-reply-style");
-    expect(style.options.map((option) => [option.value, option.label])).toEqual([["default", "Default"], ["conversational", "Conversational"]]);
-    expect(style.value).toBe("default");
-    style.onChange("conversational");
-    expect(patch).toHaveBeenLastCalledWith({ replyStyle: "conversational" });
-    expect(segment(settingsPage(makeBot({ replyStyle: "conversational" })), "data-reply-style").value).toBe("conversational");
   });
 
   it("turns this bot's notifications off and on, asking the system for permission only when turning them on", async () => {

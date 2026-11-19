@@ -58,9 +58,9 @@ export function createModelSystemPrefixes(file: string) {
       values = next;
       return value;
     },
-    apply(prompt: Prompt, connection: Connection | null, model: string, options: { quickModel?: string; overrides?: BotRecord["modelPrefixOverrides"] } = {}): Prompt {
-      if (options.quickModel || !connection || !supportsModelSystemPrefix(connection.driverKind)) return prompt;
-      const prefix = options.overrides?.[modelPrefixKey(connection.instanceId, model)] ?? get(connection.instanceId, model);
+    apply(prompt: Prompt, connection: Connection | null, model: string, overrides?: BotRecord["modelPrefixOverrides"]): Prompt {
+      if (!connection || !supportsModelSystemPrefix(connection.driverKind)) return prompt;
+      const prefix = overrides?.[modelPrefixKey(connection.instanceId, model)] ?? get(connection.instanceId, model);
       if (!prefix) return prompt;
       const text = prefix + "\n\n";
       const section = { id: "model-system-prefix", label: "Model system prefix", text, bytes: Buffer.byteLength(text) };

@@ -414,8 +414,9 @@ export class Store {
       delete b.managedSections;
       botsMigrated = true;
     }
-    for (const b of this.bots as Array<BotRecord & { peers?: unknown; approvePeerComms?: unknown; helperModel?: unknown }>) {
+    for (const b of this.bots as Array<BotRecord & { peers?: unknown; approvePeerComms?: unknown; helperModel?: unknown; replyStyle?: unknown }>) {
       delete b.helperModel;
+      delete b.replyStyle;
       if ("peers" in b || "approvePeerComms" in b) botsMigrated = true;
       delete b.peers;
       delete b.approvePeerComms;

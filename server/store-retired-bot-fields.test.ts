@@ -12,17 +12,20 @@ import { Store, type BotRecord } from "./store.ts";
 
 const selection = (): ModelSelection => ({ instanceId: "claude", model: "claude-sonnet-5" });
 
-it("discards a bot's retired helper setting in memory without writing a migration", () => {
+it("discards a bot's retired helper and reply style settings in memory without writing a migration", () => {
   rmSync(DATA_DIR, { recursive: true, force: true });
   const bot = new Store(selection).createBot({ name: "Reviewer" });
   new Store(selection);
   const file = join(DATA_DIR, "bots.json");
-  const saved: Array<BotRecord & { helperModel?: unknown }> = JSON.parse(readFileSync(file, "utf8"));
+  const saved: Array<BotRecord & { helperModel?: unknown; replyStyle?: string }> = JSON.parse(readFileSync(file, "utf8"));
   saved.find((entry) => entry.id === bot.id)!.helperModel = { ignored: true };
+  saved.find((entry) => entry.id === bot.id)!.replyStyle = "conversational";
   const text = JSON.stringify(saved);
   writeFileSync(file, text);
 
-  expect(new Store(selection).bot(bot.id)).not.toHaveProperty("helperModel");
+  const loaded = new Store(selection).bot(bot.id);
+  expect(loaded).not.toHaveProperty("helperModel");
+  expect(loaded).not.toHaveProperty("replyStyle");
   expect(readFileSync(file, "utf8")).toBe(text);
 });
 

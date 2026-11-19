@@ -1343,7 +1343,6 @@
   "trace.group.web": "{count} वेब पेज खोले",
   "trace.group.app": "{app} इस्तेमाल किया · {count} कार्रवाइयाँ",
   "trace.group.other": "{tool} · {count} बार",
-  "botSettings.replyStyle.conversationalHint": "छोटे, सीधे जवाब, कुछ छोटे संदेशों में भेजे जाते हैं, अक्सर एक छोटे फ़ॉलो-अप सवाल के साथ। सरल संदेशों का जवाब उसी AI का सबसे तेज़ मॉडल देता है",
   "botSettings.simple.loginsOff": "{name} का ब्राउज़र बंद है। साइटों में साइन इन करने के लिए इसे स्क्रीन पैनल में चालू करें।",
   "engines.selectBinary": "पहचानी गई बाइनरी चुनें…",
   "engines.manualPath": "पथ खुद लिखें…",

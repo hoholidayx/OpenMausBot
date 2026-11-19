@@ -1,7 +1,6 @@
 import type { Bot } from "@/state/store";
 import { SoulField } from "../SoulField";
 import { ProposalStatus } from "./ProposalStatus";
-import { ReplyStyleField } from "./ReplyStyleField";
 import type { BotPatch } from "./useBotSettingsDerived";
 import { t } from "@/lib/i18n";
 
@@ -14,7 +13,6 @@ export function SoulSection({ bot, patch, onOpenPrompts }: { bot: Bot; onOpenPro
       {onOpenPrompts && <button type="button" aria-haspopup="dialog" className="ui-button ui-button-sm ui-button-pill self-start" onClick={onOpenPrompts}>{t("botPrompts.title")}</button>}
       <ProposalStatus bot={bot} kind="chief" />
       <SoulField bot={bot} onPatch={patch} />
-      <ReplyStyleField bot={bot} patch={patch} />
     </div>
   );
 }

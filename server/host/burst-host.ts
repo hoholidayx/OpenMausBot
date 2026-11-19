@@ -1,7 +1,7 @@
 // Burst mode's host: the lane's threads are ordinary threads of the bot, started through the same turn start any turn uses,
 // so a burst thread gets the memory gate, the budget check and every other guard of a normal turn. The seam for a thread's
 // own computer is `openThread`: each part is one thread with one model today, and the same place can ask for a computer.
-import { fastModelFor } from "../turn-route.ts";
+import { fastModelFor } from "../small-models.ts";
 import { buildNotification, summarize, type NotifyBot } from "../notify.ts";
 import type { BurstCardData, BurstPhase } from "../../shared/burst.ts";
 import type { Notification } from "../../shared/notification.ts";

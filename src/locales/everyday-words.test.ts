@@ -46,7 +46,7 @@ const EVERYDAY_KEYS: Record<string, readonly string[]> = {
   ],
   "the bot panel": [
     "botOverview.line.computer", "botOverview.line.privateWorkspace", "botOverview.preference.cloud", "botOverview.preference.vm",
-    "botSettings.replyStyle.conversationalHint", "voice.engine",
+    "voice.engine",
   ],
   "adding and sharing a bot": ["newBot.presetKeeps", "presetShare.never"],
   "signing in to an AI, the Cloud's own sign-in included": [

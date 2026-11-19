@@ -7,7 +7,6 @@ import { teammateAvailabilityPrompt, type RosterMember } from "./peer-roster.ts"
 import type { ConnectorToolGrant } from "../shared/wire.ts";
 import { loginLabel, type LoginPlace } from "../shared/logins.ts";
 import { vaultNameKey } from "../shared/vault.ts";
-import { isConversational, type ReplyStyle } from "../shared/reply-style.ts";
 import { REPLY_HABITS_PROMPT } from "./reply-habits.ts";
 
 export type PromptPart = { id: string; label: string; text: string };
@@ -66,21 +65,11 @@ export function teamRosterPart(roster: string): PromptPart {
 export const AGENTS_TOOL_BRIDGE_PROMPT =
   " If find_tool and use_tool are in your tool list, your other OpenMausBot tools are reached through them: for a tool named in these instructions, a tool's description or a tool's result that is not itself in your tool list, call find_tool with a few words about what you need or with the tool's name, which returns its description and exact input schema, then run it with use_tool, giving its name and its arguments; find_tool's own description lists the tools reached this way, and they do exactly what they would if called directly. A tool that is in your tool list is always called directly.";
 
-/** `agents` is the turn's agents integration, if any; only a turn asked to bridge is told about the bridge. */
-
-/** Fixed text in the stable half, so it changes the cached prefix only when the setting flips. */
-export const CONVERSATIONAL_STYLE_PROMPT =
-  "\n\nReply style: conversational. Talk like a person in a chat. Keep replies short unless the person asks for detail. Use plain text with no headings, bullet lists, tables or bold unless the person asks for them or the content truly needs them; code always goes in a fenced code block. Send each distinct point as its own short message, separated by a blank line, in the order you find things. When it helps, end with one brief follow-up question. Match the person's language and roughly the length of their message.\n";
-
-export function replyStylePrompt(style: ReplyStyle | undefined): string {
-  return isConversational(style) ? CONVERSATIONAL_STYLE_PROMPT : "";
-}
-
 const MAUSBOT_PERSONA = "You are also this person's MausBot, their helper for everything in OpenMausBot. You know the app: answer \"how do I…\" questions with the plain steps in the app. Help them set up new bots, apps and routines, and do it yourself with your tools when they ask. Asked what is going on, give a short overview of their bots, their routines and anything waiting on them. Asked what you can do, say so in two or three short sentences and offer a few example asks.";
 
 type PromptProfile = {
   name: string; title?: string; description?: string; defaultBot?: object;
-  soul?: string; replyStyle?: ReplyStyle; promptOverrides?: BotPromptOverrides;
+  soul?: string; promptOverrides?: BotPromptOverrides;
 };
 
 function defaultPersona(bot: PromptProfile): string {
@@ -106,7 +95,7 @@ export function roomReplyStyle(bot: PromptProfile) {
 
 export function botPromptSettings(bot: PromptProfile): BotPromptSetting[] {
   const defaults = {
-    soul: "", persona: defaultPersona(bot), "reply-style": replyStylePrompt(bot.replyStyle).trim(),
+    soul: "", persona: defaultPersona(bot), "reply-style": "",
     "reply-habits": REPLY_HABITS_PROMPT.trim(), "room-style": ROOM_REPLY_STYLE,
   };
   return BOT_PROMPT_FIELDS.map((id) => ({
@@ -124,7 +113,7 @@ export function buildSystemPrompt(
   soul: string,
   parts: PromptPart[],
   agents?: { env?: Record<string, string | undefined> },
-  opts?: { replyStyle?: ReplyStyle; rules?: string; overrides?: BotPromptOverrides; room?: boolean },
+  opts?: { rules?: string; overrides?: BotPromptOverrides; room?: boolean },
 ): { text: string; sections: PromptSection[]; stable: string; volatile: string; roster: string } {
   const ordered: PromptPart[] = [
     { id: "persona", label: "Identity", text: persona },
@@ -132,7 +121,7 @@ export function buildSystemPrompt(
     { id: "soul", label: "Standing instructions (SOUL.md)", text: soulSystemPrompt(soul) },
     // Right after the soul: on a direct turn, ahead of every section that names a tool.
     { id: "tool-bridge", label: "Tool search", text: agentsToolBridged(agents) ? AGENTS_TOOL_BRIDGE_PROMPT : "" },
-    { id: "reply-style", label: "Reply style", text: opts?.room ? "" : overriddenParagraph(opts?.overrides?.["reply-style"], replyStylePrompt(opts?.replyStyle)) },
+    { id: "reply-style", label: "Reply style", text: opts?.room ? "" : overriddenParagraph(opts?.overrides?.["reply-style"], "") },
     ...parts,
     { id: "reply-habits", label: "How to reply", text: overriddenParagraph(opts?.overrides?.["reply-habits"], REPLY_HABITS_PROMPT) },
   ];

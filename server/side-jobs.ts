@@ -2,8 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { backgroundTextSlots, type JobSlots } from "./job-slots.ts";
 import type { ProviderAdapter, ProviderInstance, SmallModelFallback, TextGenerationOptions } from "./contracts.ts";
-import { refusesModel } from "./quick-model-fallback.ts";
-import { fastModelFor } from "./turn-route.ts";
+import { refusesModel, fastModelFor } from "./small-models.ts";
 import type { UsageRow } from "./usage-ledger.ts";
 
 /** "representative": a person's assistant answering a teammate's question for them, which must never get tools. */
@@ -63,7 +62,7 @@ export function createSideJobs(deps: SideJobsDeps): SideJobs {
     },
   });
 
-  /** The engine's fastest model by the quick-turn rule. Not for Claude: its one-off call already runs its own small model,
+  /** A small model offered by this engine. Not for Claude: its one-off call already runs its own small model,
    * without thinking. */
   const quickModel = (bot: SideJobBot, own: SideJobInstance): { model?: string } => {
     if (own.driverKind === "claudeAgent" || own.quickModelsUsable?.() === false) return {};

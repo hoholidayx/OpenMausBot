@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, openSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,11 +35,6 @@ it("sends the selected API model's current prefix, including in rooms and after 
     for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw) as ChatRequest;
     requests.push(body);
-    if (body.model === FAST) {
-      res.writeHead(400, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: { code: "model_not_found", message: `Unknown model ${FAST}` } }));
-      return;
-    }
     res.writeHead(200, { "content-type": "text/event-stream" });
     const last = body.messages.at(-1);
     if (last?.role === "user" && last.content?.endsWith(ASK)) {
@@ -169,28 +164,22 @@ it("sends the selected API model's current prefix, including in rooms and after 
     expect(system(requests.at(-1)!)).toMatch(/^Room bot only\.\n\nYou are/);
     expect(system(requests.at(-1)!)).not.toContain(inherited.defaultText);
 
-    const quickBot = await makeBot("groq", "Quick prefix fixture");
-    const quickEditor = editor(quickBot.id);
-    expect((await api("GET", quickEditor)).modelPrefix).toEqual(inherited);
-    const [otherBot] = await direct(quickBot.target, "Check the shared default.");
+    const legacyBot = await makeBot("groq", "Legacy prefix fixture");
+    const legacyEditor = editor(legacyBot.id);
+    expect((await api("GET", legacyEditor)).modelPrefix).toEqual(inherited);
+    const [otherBot] = await direct(legacyBot.target, "Check the shared default.");
     expect(system(otherBot!)).toMatch(/^Fixture model prefix on connection two\.\n\nYou are/);
-    const disabled = await edit(quickEditor, inherited, "");
+    const disabled = await edit(legacyEditor, inherited, "");
     expect(disabled.sections.some((s: { id: string }) => s.id === "model-system-prefix")).toBe(false);
-    const [off] = await direct(quickBot.target, "Check the disabled prefix.");
+    const [off] = await direct(legacyBot.target, "Check the disabled prefix.");
     expect(system(off!)).toMatch(/^You are/);
     await save("groq", "Updated shared default.");
-    await edit(quickEditor, disabled.modelPrefix, null, 409);
-    const restored = await edit(quickEditor, (await api("GET", quickEditor)).modelPrefix, null);
+    await edit(legacyEditor, disabled.modelPrefix, null, 409);
+    const restored = await edit(legacyEditor, (await api("GET", legacyEditor)).modelPrefix, null);
     expect(restored.sections[0].text).toBe("Updated shared default.\n\n");
     expect(restored.modelPrefix.override).toBeNull();
     await save("groq", inherited.defaultText);
-    await edit(quickEditor, inherited, "Quick bot regular prefix.");
-    await api("PATCH", `/api/bots/${quickBot.id}`, { replyStyle: "conversational" });
-    await save("groq", "Fixture fast prefix.", FAST);
-    const quick = await direct(quickBot.target, "Hello there.");
-    expect(quick.map((call) => call.model)).toEqual([FAST, MODEL]);
-    for (const call of quick) expect(system(call)).toMatch(/^You are/);
-
+    await edit(legacyEditor, inherited, "Personal prefix.");
     const threadEditor = editor(secondBot.id, secondBot.threadId);
     const switchThread = (instance: string, model = MODEL) =>
       control(["set-model", ...secondBot.target, "--instance", instance, "--model", model]);
@@ -212,6 +201,10 @@ it("sends the selected API model's current prefix, including in rooms and after 
 
     const { url, dataDir, logPath } = fixture.info;
     await waitForExit(fixture.child, { signal: "SIGTERM" });
+    const botsFile = join(dataDir, "bots.json");
+    const saved = JSON.parse(readFileSync(botsFile, "utf8")) as Array<{ id: string; replyStyle?: string }>;
+    saved.find((bot) => bot.id === legacyBot.id)!.replyStyle = "conversational";
+    writeFileSync(botsFile, JSON.stringify(saved));
     const log = openSync(logPath, "a", 0o600);
     try {
       restarted = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
@@ -232,6 +225,12 @@ it("sends the selected API model's current prefix, including in rooms and after 
     expect((await api("GET", threadEditor)).modelPrefix).toEqual(alternate.modelPrefix);
     await switchThread("groq", FAST);
     expect((await api("GET", threadEditor)).modelPrefix.override).toBe("");
+    const greeting = await direct(legacyBot.target, "Hello there.");
+    expect(greeting.map((call) => call.model)).toEqual([MODEL]);
+    expect(system(greeting[0]!)).toMatch(/^Personal prefix\.\n\nYou are/);
+    expect(system(greeting[0]!)).not.toContain("Reply style: conversational");
+    const pinnedGreeting = await direct(secondBot.target, "Hello on this thread.");
+    expect(pinnedGreeting.map((call) => call.model)).toEqual([FAST]);
   } finally {
     const evidencePath = join(dirname(fixture.info.logPath), `model-system-prefixes-${fixture.info.pid}.json`);
     writeFileSync(evidencePath, JSON.stringify({

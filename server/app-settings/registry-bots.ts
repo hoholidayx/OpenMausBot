@@ -35,7 +35,6 @@ const OTHER = {
   soul: { label: "instructions", value: z.string().max(4000), shown: (text: unknown) => `"${String(text).slice(0, 120)}${String(text).length > 120 ? "…" : ""}"`, was: (one: BotRecord) => one.soul ?? "" },
   notifications: { label: "notifications", value: z.boolean(), shown: onOff, was: (one: BotRecord) => on(one.notifications) },
   speakReplies: { label: "spoken replies", value: z.boolean(), shown: onOff, was: (one: BotRecord) => set(one.speakReplies) },
-  replyStyle: { label: "reply style", value: z.enum(["default", "conversational"]), shown: String, was: (one: BotRecord) => one.replyStyle ?? "default" },
   voice: { label: "voice", value: z.string().max(BOT_PROFILE_LIMITS.voice), shown: String, was: (one: BotRecord) => one.voice ?? "" },
   voiceNotes: { label: "voice notes", value: z.boolean(), shown: onOff, was: (one: BotRecord) => on(one.voiceNotes) },
   voiceNoteEveryReply: { label: "a voice note with every reply", value: z.boolean().nullable(), shown: onOff, was: (one: BotRecord) => one.voiceNoteEveryReply ?? null },

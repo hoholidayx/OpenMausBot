@@ -1,7 +1,6 @@
 import { allowsTool } from "../../shared/tool-scope.ts";
 import { newId, type ProviderAdapter, type ProviderInstance, type RuntimeEvent, type SendTurnInput, type TurnStartResult } from "../contracts.ts";
 import { createChatToolApproval } from "../drivers/chat-tool-approval.ts";
-import { retriedTurnEvent, type RetriedTurn } from "../quick-model-fallback.ts";
 import type { Message } from "../store.ts";
 import type { LocalComputerSpec } from "./computer-client.ts";
 import { requestKey } from "./key.ts";
@@ -41,8 +40,9 @@ type Approval = ReturnType<typeof createChatToolApproval>;
 type RunOutcome = ReplayOutcome | { kind: "error"; message: string };
 type Failed = Extract<ReplayOutcome, { kind: "failed" }>;
 
-interface Run extends RetriedTurn {
+interface Run {
   turnId: string;
+  retryTurnId?: string;
   threadId: string;
   botId: string;
   recipe: Recipe;
@@ -124,12 +124,12 @@ export class SavedStepsDispatch {
   /** The bus's gate for adapter events: true when this took the AI's event for a replay it handed over. */
   take(event: RuntimeEvent): boolean {
     const run = this.runs.get(event.threadId);
-    if (!run || run.phase !== "fallback") return false;
-    const kept = retriedTurnEvent(run, event);
-    if (kept === null) return false;
-    if (kept === "dropped") return true;
-    if (kept.type === "turn.completed") this.forgetRun(run);
-    this.deps.publish(kept);
+    if (!run || run.phase !== "fallback" || !event.turnId || event.turnId === run.turnId) return false;
+    run.retryTurnId ??= event.turnId;
+    if (event.turnId !== run.retryTurnId) return false;
+    if (event.type === "turn.started") return true;
+    if (event.type === "turn.completed") this.forgetRun(run);
+    this.deps.publish({ ...event, turnId: run.turnId });
     return true;
   }
 

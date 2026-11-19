@@ -9,7 +9,6 @@ import {
   mascotFaceColorSchema,
 } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS, fitsOnOneLine } from "../shared/bot-profile.ts";
-import { REPLY_STYLES } from "../shared/reply-style.ts";
 import { BOT_BODY_IDS, botBodySchema } from "../shared/bot-body.ts";
 
 import type { BotRecord } from "./store.ts";
@@ -31,7 +30,6 @@ export const BOT_PROFILE_PATCH_FIELDS = [
   "mascotFaceColor",
   "voice",
   "speakReplies",
-  "replyStyle",
 ] as const;
 
 export const profilePatchSchema = z.object({
@@ -73,7 +71,6 @@ export const profilePatchSchema = z.object({
     .max(BOT_PROFILE_LIMITS.voice, { error: "voice must be at most 200 characters" })
     .optional(),
   speakReplies: z.boolean({ error: "speakReplies must be true or false" }).optional(),
-  replyStyle: z.enum(REPLY_STYLES, { error: "replyStyle must be default or conversational" }).optional(),
 });
 
 export type BotProfilePatchInput = z.input<typeof profilePatchSchema>;
@@ -95,7 +92,6 @@ export type BotProfilePatch = Partial<
     | "mascotFaceColor"
     | "voice"
     | "speakReplies"
-    | "replyStyle"
   >
 >;
 

@@ -199,25 +199,18 @@ describe("SavedSteps.requestSettled", () => {
     expect(saved()).toBeUndefined();
   });
 
-  it("marks a replayed reply, touches its recipe and clears the quick model label", () => {
+  it("marks a replayed reply and updates when its recipe was last used", () => {
     steps.recipes.save("b1", { ...RECIPE, createdAt: NOW - 5_000, lastUsedAt: NOW - 5_000 });
     const replayed = vi.spyOn(steps.dispatch, "replayed").mockImplementation((threadId, turnId) => (threadId === "t1" && turnId === "turn-r" ? "r1" : undefined));
     steps.journal.taint({ threadId: "t1", generation: "g1" });
     const reply: Message = { ...REPLY, id: "reply-r", turnId: "turn-r", text: "Done. I repeated 2 saved steps." };
 
-    steps.requestSettled(settled({ request: { ...LINE, quickModel: "Haiku 4.5" }, reply, after: [reply] }));
+    steps.requestSettled(settled({ request: LINE, reply, after: [reply] }));
 
     expect(replayed).toHaveBeenCalledWith("t1", "turn-r");
-    expect(patches).toStrictEqual([["t1", "m1", { quickModel: undefined }], ["t1", "reply-r", { savedSteps: { recipeId: "r1", replayed: true } }]]);
+    expect(patches).toStrictEqual([["t1", "reply-r", { savedSteps: { recipeId: "r1", replayed: true } }]]);
     expect(steps.recipes.find("b1", RECIPE.key)).toMatchObject({ id: "r1", createdAt: NOW - 5_000, lastUsedAt: NOW });
     expect(steps.journal.take("t1", new Set(["g1"]))).toBeNull();
-  });
-
-  it("leaves the request line alone when a replayed request had no quick model label", () => {
-    steps.recipes.save("b1", RECIPE);
-    vi.spyOn(steps.dispatch, "replayed").mockReturnValue("r1");
-    steps.requestSettled(settled());
-    expect(patches).toStrictEqual([["t1", "reply-1", { savedSteps: { recipeId: "r1", replayed: true } }]]);
   });
 
   it.each<[string, { enabled?: boolean; automated?: boolean; after?: Message[]; request?: Partial<Message>; calls?: RecordedCall[] }]>([

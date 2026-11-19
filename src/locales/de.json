@@ -1428,7 +1428,6 @@
   "trace.group.web": "{count} Webseiten geöffnet",
   "trace.group.app": "{app} genutzt · {count} Aktionen",
   "trace.group.other": "{tool} · {count}-mal",
-  "botSettings.replyStyle.conversationalHint": "Kurze, schlichte Antworten in ein paar kleinen Nachrichten, oft mit einer kurzen Rückfrage. Einfache Nachrichten beantwortet das schnellste Modell derselben KI",
   "botSettings.simple.loginsOff": "Der Browser von {name} ist aus. Schalte ihn im Bildschirm-Panel ein, um dich bei Websites anzumelden.",
   "engines.selectBinary": "Erkannte Binärdatei wählen…",
   "engines.manualPath": "Pfad manuell eingeben…",

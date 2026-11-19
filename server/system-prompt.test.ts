@@ -5,7 +5,6 @@ import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
 import {
   longCommandsPrompt,
   buildSystemPrompt,
-  CONVERSATIONAL_STYLE_PROMPT,
   CLOUD_HOME_PLACE,
   CLOUD_ENGINES_HERE,
   cloudHomePrompt,
@@ -514,35 +513,16 @@ it("tells Cloud bots which folders the person shares, that the copies are read-o
   expect(cloudHomePrompt(false, many)).toContain("and 3 more");
 });
 
-describe("reply style", () => {
-  it("adds nothing for the default style, so existing prompts are unchanged", () => {
-    const plain = buildSystemPrompt("persona", "soul", [{ id: "x", label: "X", text: " tail" }]);
-    expect(buildSystemPrompt("persona", "soul", [{ id: "x", label: "X", text: " tail" }], undefined, { replyStyle: "default" })).toEqual(plain);
-    expect(plain.sections.map((s) => s.id)).not.toContain("reply-style");
-  });
-
-  it("puts the conversational guidance right after the soul, in the stable half", () => {
-    const built = buildSystemPrompt("persona", "soul", [
-      { id: "memory", label: "Memory", text: " memory" },
-      { id: "x", label: "X", text: " tail" },
-    ], undefined, { replyStyle: "conversational" });
-    expect(built.sections.map((s) => s.id)).toEqual(["persona", "soul", "reply-style", "memory", "x", "reply-habits"]);
-    expect(built.stable).toContain(CONVERSATIONAL_STYLE_PROMPT);
-    expect(built.volatile).not.toContain("Reply style");
-    expect(CONVERSATIONAL_STYLE_PROMPT).toMatch(/short/i);
-    expect(CONVERSATIONAL_STYLE_PROMPT).toMatch(/blank line/);
-    expect(CONVERSATIONAL_STYLE_PROMPT).toMatch(/code block/);
-    expect(CONVERSATIONAL_STYLE_PROMPT).toMatch(/language/);
-  });
+it("omits the reply style section by default", () => {
+  const plain = buildSystemPrompt("persona", "soul", [{ id: "x", label: "X", text: " tail" }]);
+  expect(plain.sections.map((s) => s.id)).not.toContain("reply-style");
 });
 
 describe("how every bot replies", () => {
-  it("ends every prompt's stable half, conversational or not", () => {
-    for (const replyStyle of ["default", "conversational"] as const) {
-      const built = buildSystemPrompt("You are Kiwi.", "", [{ id: "memory", label: "Memory", text: " Memory." }], undefined, { replyStyle });
-      expect(built.stable.endsWith(REPLY_HABITS_PROMPT)).toBe(true);
-      expect(built.volatile).not.toContain("How you talk with the person");
-    }
+  it("ends the stable half with reply habits", () => {
+    const built = buildSystemPrompt("You are Kiwi.", "", [{ id: "memory", label: "Memory", text: " Memory." }]);
+    expect(built.stable.endsWith(REPLY_HABITS_PROMPT)).toBe(true);
+    expect(built.volatile).not.toContain("How you talk with the person");
   });
 
   it("asks for an opening line on longer work, the answer first, one question at most, plain words and money facts first", () => {

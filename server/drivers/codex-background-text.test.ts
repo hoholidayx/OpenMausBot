@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProviderInstance, SmallModelFallback, TextGenerationUsage } from "../contracts.ts";
 import { killCliTree, spawnCli } from "../procs.ts";
-import { QuickModelFallback } from "../quick-model-fallback.ts";
+import { RefusedModels } from "../small-models.ts";
 import { createSideJobs } from "../side-jobs.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { CodexDriver } from "./codex.ts";
@@ -369,7 +369,7 @@ describe("Codex generateMemoryText (fake CLI)", () => {
     apiKeyLogin();
     const codex = await create({ FAKE_CODEX_LUNA: "1", FAKE_CODEX_ASTRA: "1", FAKE_CODEX_TEXT_REFUSE: "gpt-6-luna" });
     const file = join(scratch, "refused-quick-models.json");
-    const jobs = (smallModels: QuickModelFallback) => createSideJobs({
+    const jobs = (smallModels: RefusedModels) => createSideJobs({
       bot: () => ({ id: "b1", name: "Bot", threadId: "main-b1", modelSelection: { instanceId: codex.instanceId, model: "gpt-fake-default" } }),
       instance: () => codex,
       refusal: () => undefined,
@@ -377,10 +377,10 @@ describe("Codex generateMemoryText (fake CLI)", () => {
       assertWithinBudget: () => {},
       book: () => {},
     });
-    const review = jobs(new QuickModelFallback({ file, publish: () => {}, stopped: () => false })).text("skill-review", "b1")!;
+    const review = jobs(new RefusedModels(file)).text("skill-review", "b1")!;
     await review.generateText("first");
     await review.generateText("second");
-    await jobs(new QuickModelFallback({ file, publish: () => {}, stopped: () => false })).text("skill-review", "b1")!.generateText("after a restart");
+    await jobs(new RefusedModels(file)).text("skill-review", "b1")!.generateText("after a restart");
     expect(modelsRun()).toEqual(["gpt-6-luna", "gpt-fake-default", "gpt-6-astra", "gpt-6-astra"]);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ [codex.instanceId]: ["gpt-6-luna"] });
   });

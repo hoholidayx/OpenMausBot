@@ -9,7 +9,6 @@ import type { CommandAllowlistCandidate } from "./command-allowlist.ts";
 import type { TurnDigest } from "./digest.ts";
 import type { BotAvatarCrop, MascotFaceColor } from "./bot-avatar.ts";
 import type { BotBodyId } from "./bot-body.ts";
-import type { ReplyStyle } from "./reply-style.ts";
 import type { CredentialTargetId, CUSTOM_SECRET_TARGET, SecretDelivery } from "./credential-request.ts"; import type { EmailOutgoingFields } from "./email.ts";
 import type { TeamSetupRequest } from "./team-setup.ts"; import type { DefaultBotFields, HelperIntroField } from "./default-bot.ts";
 import type { SetupCardFields } from "./setup-card.ts"; import type { BugReportField } from "./devs-report-status.ts"; import type { AccessRequestCardField, BotAccessFields } from "./bot-access.ts";
@@ -318,8 +317,6 @@ export interface WireBot extends DefaultBotFields, BotAccessFields {
   alwaysAllow?: string[];
   /** Speak this bot's replies aloud as they settle, without being asked. */
   speakReplies?: boolean;
-  /** How replies are shaped. Absent = "default". */
-  replyStyle?: ReplyStyle;
   /** This bot's own voice id, so a room of bots doesn't sound like one person. */
   voice?: string;
   /** This bot's own Live call voice, a GPT-Live or Gemini Live voice id; absent, or not the call provider's, uses the app's. */ liveVoice?: string;
@@ -555,8 +552,6 @@ export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCard
    * with how sure it was. Absent on every other message; clients that do
    * not know it ignore it. */
   routedBy?: { provider: "jev" | "workersai" | "openrouter" | "custom" | "gemini"; probability: number };
-  /** On a conversational bot's user line: the picker label of the quick model its reply ran on. */
-  quickModel?: string;
   /** On a "Sent to" hand-off row: the done_when the sender set, redacted, so the chip can show what counts as finished. */
   doneWhen?: string;
   /** Set on the user-role line another bot delivered into this bot's own

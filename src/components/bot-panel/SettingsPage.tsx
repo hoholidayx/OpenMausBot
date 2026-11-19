@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AppWindow, AudioLines, Bell, ChevronRight, ExternalLink, Eye, FileText, MessageSquareText, ShieldCheck, Slack, Tag } from "lucide-react";
+import { AppWindow, AudioLines, Bell, ChevronRight, ExternalLink, Eye, FileText, ShieldCheck, Slack, Tag } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -12,14 +12,12 @@ import { firstSentence } from "@/lib/soul";
 import { currentTaskBot, useStore, type Bot } from "@/state/store";
 import type { ApprovalMode } from "../../../shared/approval-mode";
 import { BOT_PROFILE_LIMITS } from "../../../shared/bot-profile";
-import { REPLY_STYLES, type ReplyStyle } from "../../../shared/reply-style";
 import { ApprovalChip } from "../ComposerPlusMenu";
 import { useDesktopCapabilities } from "../DesktopCapabilities";
 import { DefaultBotHideRow } from "../DefaultBotControls";
 import { SoulField } from "../SoulField";
 import { BotApiCard } from "../bot-settings/BotApiCard";
 import { PackageProvenance } from "../bot-settings/PackageProvenance";
-import { REPLY_STYLE_LABELS } from "../bot-settings/ReplyStyleField";
 import { useChoosesVisibility, visibilityLabel } from "../bot-settings/VisibilitySection";
 import { useBotApps } from "../bot-settings/useBotApps";
 import { useSlackManagementUrl } from "../bot-settings/useSlackManagement";
@@ -89,11 +87,6 @@ export function SettingsPage({ bot, derived, onOpen, editingInstructions = false
     tooltip: entry.id === "turns" && turnsHelp ? `${turnsHelp.label}. ${turnsHelp.reason}` : entry.id === "live" ? t("call.mode.liveHint") : callModeHint("turns"),
   }));
 
-  const replyOptions: SegmentOption<ReplyStyle>[] = REPLY_STYLES.map((style) => ({
-    value: style,
-    label: t(REPLY_STYLE_LABELS[style][0]),
-    tooltip: t(REPLY_STYLE_LABELS[style][1]),
-  }));
   const toggleNotifications = () => {
     const enabled = !bot.notifications;
     if (enabled) void requestNotificationPermission();
@@ -205,21 +198,6 @@ export function SettingsPage({ bot, derived, onOpen, editingInstructions = false
       </Card>
 
       <Card anchor="replies">
-        <ColRow data-panel-row="reply-style">
-          <div className="flex items-center gap-2.5">
-            <RowIcon icon={MessageSquareText} />
-            <RowText title={t("botSettings.replyStyle.title")} />
-          </div>
-          <div className="pl-[38px]">
-            <Segmented
-              attr="data-reply-style"
-              label={t("botSettings.replyStyle.title")}
-              value={bot.replyStyle ?? "default"}
-              onChange={(style) => patch({ replyStyle: style })}
-              options={replyOptions}
-            />
-          </div>
-        </ColRow>
         <SwitchRow
           data-panel-row="notifications"
           icon={Bell}

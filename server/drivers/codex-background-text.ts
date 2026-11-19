@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 import type { ModelCatalog, SmallModelFallback, TextGenerationOptions, TextGenerationUsage } from "../contracts.ts";
 import type { killCliTree, spawnCli } from "../procs.ts";
-import { refusesModel } from "../quick-model-fallback.ts";
+import { refusesModel } from "../small-models.ts";
 import { decodeCodexSelection, OFFICIAL_CODEX_PROVIDER } from "./codex-catalog.ts";
 import { codexConfigProviderArgs } from "./codex-config-provider.ts";
 import { codexToolSurfaceArgs } from "./codex-tool-surface.ts";

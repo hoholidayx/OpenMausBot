@@ -1,15 +1,9 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { newId, type ProviderInstance, type RuntimeEvent, type RuntimeEventListener, type SendTurnInput, type TurnStartResult } from "../contracts.ts";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { newId, type ProviderInstance, type RuntimeEvent, type SendTurnInput, type TurnStartResult } from "../contracts.ts";
 import { CONTROL_BUSY } from "../control-client.ts";
 import { Handoffs, unseenMessages, type HandedState, type Handoff } from "../delta-context.ts";
-import { EventBus } from "../harness/bus.ts";
 import { LimitResetClock } from "../limit-resets.ts";
-import { QuickModelFallback } from "../quick-model-fallback.ts";
 import type { Message } from "../store.ts";
-import { removeTempDir } from "../testing/cleanup.ts";
 import { completeWindowState, windowState } from "../testing/saved-steps-fixtures.ts";
 import { SavedStepsDispatch, type DispatchDeps, type ReplayRequest } from "./dispatch.ts";
 import { requestKey } from "./key.ts";
@@ -758,70 +752,5 @@ describe("SavedStepsDispatch with the engine's session record", () => {
     expect(dispatch.take(ev("item.completed", "e1"))).toBe(true);
     expect(dispatch.take(ev("turn.completed", "e1"))).toBe(true);
     expect(unseen()).toEqual([]);
-  });
-});
-
-describe("SavedStepsDispatch with the quick model fallback", () => {
-  let scratch: string;
-  afterEach(async () => {
-    vi.restoreAllMocks();
-    await removeTempDir(scratch);
-  });
-
-  it("shows a refused quick model's retry as the replay's one turn", async () => {
-    scratch = mkdtempSync(join(tmpdir(), "omb-saved-steps-dispatch-"));
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    const listeners = new Set<RuntimeEventListener>();
-    const sent: SendTurnInput[] = [];
-    const scripts: Array<(emit: (type: string, extra?: Record<string, unknown>) => void) => void> = [
-      (emit) => {
-        emit("turn.started");
-        emit("runtime.error", { message: "400 invalid_request_error: quick-model is not supported" });
-        emit("turn.completed", { ok: false, stopReason: "400 invalid_request_error: quick-model is not supported" });
-      },
-      (emit) => {
-        emit("turn.started");
-        emit("item.completed", { itemType: "assistant_text", text: "Typed it." });
-        emit("turn.completed", { ok: true });
-      },
-    ];
-    const adapter = {
-      provider: "claudeAgent",
-      onEvent: (listener: RuntimeEventListener) => { listeners.add(listener); return () => listeners.delete(listener); },
-      sendTurn: async (input: SendTurnInput) => {
-        sent.push(input);
-        const turnId = `turn-${sent.length}`;
-        const play = scripts[sent.length - 1]!;
-        setImmediate(() => play((type, extra = {}) => {
-          for (const listener of listeners) listener({ eventId: newId(), provider: "claudeAgent", threadId: input.threadId, turnId, createdAt: "2026-10-27T00:00:00Z", type, ...extra } as RuntimeEvent);
-        }));
-        return { turnId };
-      },
-      interruptTurn: async () => {},
-    };
-    const real = { instanceId: "claude", driverKind: "claudeAgent", adapter } as unknown as ProviderInstance;
-    failAt = "list_apps";
-    let bus!: EventBus;
-    const quick = new QuickModelFallback({ file: join(scratch, "refused.json"), publish: (event) => { if (!composed.take(event)) bus.publish(event); }, stopped: () => false });
-    const composed: SavedStepsDispatch = new SavedStepsDispatch({ ...deps, publish: (event) => bus.publish(event) });
-    bus = new EventBus(() => {}, (event) => quick.take(event) || composed.take(event));
-    bus.attach([real]);
-    const delivered: RuntimeEvent[] = [];
-    bus.subscribe((event) => delivered.push(event));
-
-    const { turnId } = await composed.sendTurn(real, REQ, { ...INPUT, model: "quick-model" }, (input) =>
-      quick.sendTurn(real, input, { model: "quick-model", own: { model: "own-model" }, onFallback: () => {} }));
-    await vi.waitFor(() => expect(delivered.some((event) => event.type === "turn.completed")).toBe(true));
-    bus.detachAll();
-
-    expect(delivered.map((event) => [event.type, event.turnId])).toEqual([
-      ["turn.started", turnId], ["item.completed", turnId], ["turn.completed", turnId],
-    ]);
-    expect(delivered.at(-1)).toMatchObject({ ok: true });
-    expect(delivered[1]).toMatchObject({ itemType: "assistant_text", text: "Typed it." });
-    const note = fallbackNote({ kind: "failed", done: 0, total: 2, tool: "click", label: LABEL, error: "Fixture failure." });
-    expect(sent.map(({ model, text }) => ({ model, text }))).toEqual([
-      { model: "quick-model", text: `${INPUT.text}\n\n${note}` }, { model: "own-model", text: `${INPUT.text}\n\n${note}` },
-    ]);
   });
 });
