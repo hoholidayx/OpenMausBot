@@ -199,7 +199,7 @@ export function SettingsPage({ bot, derived, onOpen, editingInstructions = false
       </Card>
 
       <Card anchor="replies">
-        <WorkPartner key={bot.id} botId={bot.id} />
+        <WorkPartner key={bot.threadId} botId={bot.id} threadId={bot.threadId} />
         <SwitchRow
           data-panel-row="notifications"
           icon={Bell}

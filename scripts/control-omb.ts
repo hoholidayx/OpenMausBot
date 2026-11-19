@@ -290,6 +290,7 @@ export async function launchVerificationServer(
   boatFixtureApi?: string,
   /** Programmatic web UI qualification against the fixture's static server. */
   staticDir?: string,
+  dotsFixture?: { port: number; token: string },
 ): Promise<VerificationServer> {
   if (boatFixtureApi) {
     if (!/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(boatFixtureApi)) {
@@ -312,6 +313,12 @@ export async function launchVerificationServer(
   // Native browser daemons use UNIX sockets, and a macOS temp home can exceed
   // their path limit.
   const dataDir = mkdtempSync(join(browser && process.platform !== "win32" ? "/tmp" : tmpdir(), "openmausbot-verify-data-"));
+  if (dotsFixture) {
+    const dir = join(dataDir, "providers", "dots");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "connection.json"), JSON.stringify({ port: dotsFixture.port }));
+    writeFileSync(join(dir, "host.token"), dotsFixture.token, { mode: 0o600 });
+  }
   const fixtureTemp = join(dataDir, "tmp");
   const fixtureDumpPath = join(dataDir, "fake-claude-dump.json");
   mkdirSync(fixtureTemp, { recursive: true });
@@ -426,8 +433,8 @@ export async function launchVerificationServer(
       headers: { origin: url },
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
-    const body = list.ok ? await list.json() as { bots?: Array<{ id: string }> } : null;
-    const seeded = body?.bots;
+    const body = list.ok ? await list.json() as { bots?: Array<{ id: string; modelSelection?: { instanceId: string } }> } : null;
+    const seeded = body?.bots?.filter(bot => !dotsFixture || bot.modelSelection?.instanceId !== "dots");
     if (!Array.isArray(seeded) || seeded.length !== 1) {
       throw new Error(`verification fixture did not seed exactly one starter bot; see ${logPath}`);
     }

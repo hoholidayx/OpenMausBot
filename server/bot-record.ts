@@ -5,6 +5,7 @@ import type { AgentPart, PartPair } from "./package-parts.ts";
 import type { TaskRecord } from "./store.ts";
 
 export interface BotRecord extends Omit<WireBot, "avatarUrl" | "tasks"> {
+  workPartnerThreadId?: string;
   workPartnerIds?: string[];
   promptOverrides?: BotPromptOverrides;
   modelPrefixOverrides?: Record<string, string>;

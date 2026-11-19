@@ -28,3 +28,14 @@ export function PartnerRelayFailure({ botId, threadId, rootId, attempt, retried,
     {error && <span role="alert">{error}</span>}
   </div>;
 }
+
+export function DotsFiles({ message, threadId }: { message: Message; threadId: string }) {
+  if (!message.dotsFiles?.length) return null;
+  return <ul className="my-1 grid min-w-0 gap-1 text-sm">
+    {message.dotsFiles.map(file => <li key={file.id} className="[overflow-wrap:anywhere]">
+      {file.status === "ready" ? <a className="text-accent underline" download={file.name}
+        href={`/api/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(message.id)}/dots-files/${encodeURIComponent(file.id)}`}>{file.name}</a>
+        : <span>{file.name} · {t(file.status === "pending" ? "dots.filePending" : "dots.fileUnavailable")}</span>}
+    </li>)}
+  </ul>;
+}

@@ -41,6 +41,7 @@ import type { ModelSelectionCheck } from "./bots-create.ts";
 import { PASS, type RouteHandler } from "./table.ts";
 
 export interface BotPatchRouteDeps {
+  dotsId?: string;
   store: Store;
   cfg: AppConfig;
   registry: Pick<ProviderRegistry, "get">;
@@ -138,6 +139,9 @@ export function createBotPatchRoutes(deps: BotPatchRouteDeps): RouteHandler {
       if (existingBot && typeof body.unread === "boolean" && deps.shownThread && deps.personMarkThread?.(auth, deps.shownThread(auth, existingBot), body.unread)) {
         delete body.unread;
         if (!Object.keys(body).length) return json(res, 200, { bot: wireBot(existingBot) } satisfies BotUpdateResponse);
+      }
+      if (deps.dotsId === m[1] && ((body.visibility !== undefined && body.visibility !== "admins") || body.access !== undefined || body.modelSelection !== undefined)) {
+        return json(res, 403, { error: "Dots uses its private inbox and dedicated connection." });
       }
       const rawSelection = (body as Record<string, unknown>).modelSelection;
       if (body.threadId !== undefined && rawSelection === undefined) {

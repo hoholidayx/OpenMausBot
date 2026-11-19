@@ -57,7 +57,7 @@ export function PermissionsSection({
   return (
     <div className="flex flex-col gap-4">
       {shows("chief") && <>
-        <WorkPartner key={bot.id} botId={bot.id} />
+        <WorkPartner key={bot.threadId} botId={bot.id} threadId={bot.threadId} />
         {!team && <div
         className={cn(
           "rounded-xl border p-4",

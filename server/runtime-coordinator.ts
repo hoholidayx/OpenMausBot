@@ -62,9 +62,9 @@ const ancestorOf = (ancestor: RoomAddress, target: RoomAddress): boolean =>
 const kindOf = (groupId: string | undefined, parent: Assignment | undefined): HandoffView["kind"] =>
   groupId !== undefined && parent?.assignee.destination.groupId === groupId ? "assignment" : "work";
 
-function scopedPartner(messageId: string | undefined, parent: Assignment, source: RoomAddress, target: RoomAddress, mode: Assignment["mode"]): Assignment["partner"] {
+function scopedPartner(messageId: string | undefined, parent: Assignment, source: RoomAddress, target: RoomAddress, mode: Assignment["mode"], dots?: boolean): Assignment["partner"] {
   if (!messageId || parent.parentId || source.groupId || target.groupId || mode !== "work") return undefined;
-  return parent.origin.kind === "person" && parent.origin.source === "chat" && parent.requester.kind === "person" ? { messageId } : undefined;
+  return parent.origin.kind === "person" && parent.origin.source === "chat" && parent.requester.kind === "person" ? { messageId, ...(dots ? { dots: true } : {}) } : undefined;
 }
 
 function legacyOrigin(origin: Origin): WorkOrigin | undefined {
@@ -321,7 +321,7 @@ export class RuntimeCoordinator implements Coordinator {
       origin: parent.origin,
       requester,
       assignee, mode, reply, brief: text, rework,
-      partner: scopedPartner(options.partnerMessageId, parent, source, target, mode),
+      partner: scopedPartner(options.partnerMessageId, parent, source, target, mode, options.dotsPartner),
       ...(own ? { ownThread: true } : {}),
       ...(options.doneWhen ? { doneWhen: options.doneWhen } : {}),
       levels: { own: level.level, ...(level.chief !== undefined ? { chief: level.chief } : {}) },
@@ -688,7 +688,7 @@ export class RuntimeCoordinator implements Coordinator {
   }
 
   private async run(a: Assignment, input: RunInput, signal: AbortSignal): Promise<RunResult> {
-    const first = input.turn === "first" || input.turn === "rerun" ? this.answeredElsewhere(a) : undefined;
+    const first = !a.partner?.dots && (input.turn === "first" || input.turn === "rerun") ? this.answeredElsewhere(a) : undefined;
     if (first && input.turn === "first") this.host.joined?.(this.project(a), this.project(first));
     const answer = first ? await this.joinAnswer(a, first.id, signal) : undefined;
     if (answer) return answer;
@@ -701,8 +701,9 @@ export class RuntimeCoordinator implements Coordinator {
     if (signal.aborted) return { kind: "failed", outcome: "stopped", text: result.text };
     if (result.cap) return { kind: "continue", text: result.text, note: result.cap.note, ...(result.cap.handoffPath ? { handoffPath: result.cap.handoffPath } : {}), ...evidence(result) };
     if (result.cards) return { kind: "needs_input", question: result.cards.question, cards: result.cards.ids, ...evidence(result) };
-    const question = root ? undefined : needsInputQuestion(result.text);
+    const question = root || a.partner?.dots ? undefined : needsInputQuestion(result.text);
     if (!root && a.origin.kind === "person" && result.approvalAsk && !result.stalled && question === undefined) return { kind: "needs_input", question: result.approvalAsk, ...evidence(result) };
+    if (a.partner?.dots && result.providerEnd) return { kind: "failed", outcome: result.providerEnd === "expired" ? "expired" : "interrupted", remoteCancelled: result.providerEnd === "cancel", text: result.text };
     if (!result.ok) return { kind: "failed", outcome: result.stalled ? "stalled" : "provider_error", text: result.text, ...(result.failure ? { failure: result.failure } : {}), ...evidence(result) };
     if (question === undefined) return { kind: "completed", text: result.text, ...(await this.statusOnly(a, parent, input.turn, result, signal) ? { statusOnly: true } : {}), ...evidence(result) };
     const named = withDefault(question);

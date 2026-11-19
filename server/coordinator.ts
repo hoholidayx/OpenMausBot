@@ -90,6 +90,7 @@ export interface BeginTurnRequest {
 
 /** `cap` continues the same node in place (a step cap, a seat it could not get); `cards` parks it on the person. */
 export interface HostTurnResult {
+  providerEnd?: "cancel" | "expired";
   ok: boolean;
   text: string;
   evidence?: TurnEvidence;
@@ -113,6 +114,7 @@ export interface HandoffOpener {
 
 export interface HandoffOptions {
   partnerMessageId?: string;
+  dotsPartner?: boolean;
   mode?: Mode;
   reply?: Reply;
   thread?: "standing" | "new";

@@ -131,7 +131,7 @@ export class Runtime {
         } else if (outward.length > 0) {
           this.store.update(n, { kind: "restart_reconciled", at: now, detail: "failed: outward action done" });
           this.settle(n, "failed", "interrupted", outwardDetail(outward));
-        } else if (n.restart === "rerun") {
+        } else if (n.restart === "rerun" && !n.partner?.dots) {
           this.store.update(n, { kind: "restart_reconciled", at: now, detail: "failed: cut twice" });
           this.settle(n, "failed", "interrupted", CUT_TWICE);
         } else {
@@ -601,7 +601,7 @@ export class Runtime {
     const fault = result.kind === "failed" && result.failure ? hostFaultOf(result.failure.text, result.failure.stopReason) : null;
     if (fault && retryCannotFix(fault)) n.fault = fault;
     if (result.kind === "completed") this.settle(n, "completed", "done", undefined, ownTurn);
-    else this.settle(n, "failed", result.outcome, undefined, ownTurn);
+    else this.settle(n, result.remoteCancelled ? "cancelled" : "failed", result.outcome, undefined, ownTurn);
   }
 
   /** Held by a turn this tick already knows of: the host's words for it when it has any, as it may know more. */

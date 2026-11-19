@@ -23,9 +23,10 @@ export function voiceNoteTexts(m: Pick<Message, "attachments">): string[] {
  * turn fold used to store as the message text, so moving the words onto the attachment changed no replay.
  * A room post (`peerPost`, stamped on every post_to_room append) or a webhook post (`webhookPost`) never had
  * its note folded in — the note is usually the caption itself — so those keep their post text alone. */
-export function contextText(m: Pick<Message, "text" | "attachments" | "peerPost" | "webhookPost" | "partnerResultId">): string {
+export function contextText(m: Pick<Message, "text" | "attachments" | "peerPost" | "webhookPost" | "partnerResultId" | "dotsFiles">): string {
   const spoken = m.peerPost !== undefined || m.webhookPost ? [] : voiceNoteTexts(m);
   const files = m.partnerResultId ? (m.attachments ?? []).flatMap(file => file.kind === "audio" ? [] : [file.name || file.path]) : [];
+  if (m.partnerResultId) files.push(...(m.dotsFiles ?? []).map(file => file.name));
   const text = spoken.length ? [m.text?.trim(), ...spoken].filter(Boolean).join("\n\n") : m.text ?? "";
   return files.length ? [text, `Attached files: ${JSON.stringify(files)}`].filter(Boolean).join("\n") : text;
 }

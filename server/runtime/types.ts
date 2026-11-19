@@ -79,7 +79,7 @@ export type Level = ApprovalMode;
 export type LevelSource = "own" | "chief" | "engine_cap";
 
 export type PartnerDelivery = "direct" | "relay" | "cancelled" | "unavailable";
-export interface WorkPartnerAssignment { messageId: string; relay?: string; delivery?: PartnerDelivery }
+export interface WorkPartnerAssignment { messageId: string; dots?: true; relay?: string; delivery?: PartnerDelivery }
 
 export interface Assignment {
   id: string;
@@ -270,7 +270,7 @@ export type RunResult =
   /** statusOnly: nothing in `text` for the requester to do (status-reply.ts). */
   | { kind: "completed"; text: string; evidence?: TurnEvidence; statusOnly?: boolean }
   /** failure: the system's own words for why the turn failed and the engine's stop reason, apart from anything the bot said. */
-  | { kind: "failed"; outcome: Exclude<Outcome, "done" | "needs_input">; text: string; evidence?: TurnEvidence; failure?: { text: string; stopReason?: string | null } }
+  | { kind: "failed"; remoteCancelled?: boolean; outcome: Exclude<Outcome, "done" | "needs_input">; text: string; evidence?: TurnEvidence; failure?: { text: string; stopReason?: string | null } }
   | { kind: "needs_input"; question: string; cards?: string[]; decide?: { default?: string }; evidence?: TurnEvidence }
   /** The turn stopped short (a step cap, a seat it could not get) and the
    * same node continues in place with its next execution. */

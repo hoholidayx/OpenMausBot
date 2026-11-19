@@ -54,6 +54,8 @@ type CardAnswer = { botId: string; botName?: string; threadId: string; requestId
 type Behavior = "allow" | "deny" | "answer";
 
 export interface BotMessageRouteDeps {
+  dotsGrant?(auth: RequestAuth, bot: BotRecord, threadId: string, text: string, send?: string): string | undefined;
+  dotsDirect?(auth: RequestAuth, bot: BotRecord, thread: string, typed: boolean): boolean;
   store: Pick<Store,
     | "activeLeaf" | "activePath" | "appendMessage" | "bot" | "botByThread" | "bots" | "groupByThread" | "messagesFor"
     | "patchMessage" | "patchTask" | "projectBotForTask" | "setActiveLeaf" | "setTaskAskedAt" | "taskByThread" | "tasks">;
@@ -241,6 +243,7 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       if (notYours) return json(res, 403, { error: notYours });
       if (body.mode !== undefined && body.mode !== "chat" && body.mode !== "goal") return json(res, 400, { error: "mode must be chat or goal" });
       if (body.mode === "goal") {
+        if (deps.dotsDirect && !deps.dotsDirect(auth, bot, threadId, false)) return json(res, 403, { error: "Dots accepts direct chat or delegated work." });
         if (guarded || pressed || fromAnApp || pointing) return json(res, 400, { error: "a goal is a plain typed message" });
         if (!store.taskByThread(bot.id, threadId)) return json(res, 404, userError("serverError.chat.missingConversation"));
         const goalRefused = directSendRefusal(bot.id, threadId);
@@ -262,7 +265,10 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       if (pressed && !store.taskByThread(bot.id, threadId)) return json(res, 409, { error: "the bot switched tasks before it could receive the message" });
       const phone = fromPhone(auth);
       // A phone's send without an id gets one, so the turn it starts can be known as the phone's.
-      const sendId = parseSendId(body.sendId) ?? (phone ? randomUUID() : undefined);
+      const plain = !guarded && !pressed && !fromAnApp && !pointing && !pageOpen && !relayed;
+      if (deps.dotsDirect && !deps.dotsDirect(auth, bot, threadId, plain)) return json(res, 403, { error: "Open your Dots inbox to send this message." });
+      const providedId = parseSendId(body.sendId) ?? (phone ? randomUUID() : undefined);
+      const sendId = plain ? deps.dotsGrant?.(auth, bot, threadId, typed, providedId) ?? providedId : providedId;
       const press = pressed ? prepareWidgetPress(store, threadId, body.widgetAction, sendId) : null;
       if (press && !press.ok) return json(res, press.status, { error: press.error });
       const answered = press ? serverPress(bot, threadId, press.messageId, press.action, auth) : null;
@@ -515,7 +521,9 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       const notYoursToRetry = owners.retryRefusal(auth, bot.threadId, source.sender);
       if (notYoursToRetry) return json(res, 403, { error: notYoursToRetry, code: "retry_not_yours" });
       // Before the busy guard: a retried edit's own fork is what is busy.
-      const sendId = parseSendId(body.sendId);
+      if (deps.dotsDirect && !deps.dotsDirect(auth, bot, bot.threadId, true)) return json(res, 403, { error: "Dots inbox access required." });
+      const providedId = parseSendId(body.sendId);
+      const sendId = deps.dotsGrant?.(auth, bot, bot.threadId, text, providedId) ?? providedId;
       if (sendId) {
         const accepted = acceptedSendMatch(threadMessages, sendId, text, source.replyToId);
         if (accepted.kind === "conflict" || (accepted.kind === "match" && (accepted.message.parentId ?? null) !== (source.parentId ?? null))) {

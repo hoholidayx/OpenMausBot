@@ -28,6 +28,11 @@ import { createPersonWaits } from "./host/person-waits.ts"; import { askToolName
 import { assertRequestTarget, guardedRequestPath, requestConflict, requestNeedsInput } from "./guarded-requests.ts";
 import { botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
 import { committedPartnerRelay, coordinationRouting, deliverPartner, finishPartnerRelay, partnerBrief, partnerReceipt, partnerSource } from "./host/work-partner.ts";
+import { openDotsHost } from "./dots/host.ts";
+import { createDotsDriver } from "./dots/driver.ts";
+import { connectDots } from "./dots/maus.ts";
+import { dotsRoutes } from "./dots/routes.ts";
+import { dotsInput, forwardedOriginal } from "./dots/files.ts";
 import { workPartnerRoutes } from "./routes/work-partner.ts";
 import { createBotPromptRoutes } from "./routes/bot-prompts.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
@@ -746,7 +751,11 @@ let companionMutationToken: string | undefined = DESKTOP_MANAGED ? "" : undefine
 const FALLBACK_PUBLIC_URL = process.env.OMB_PUBLIC_URL?.trim().replace(/\/+$/, "") || null; const tailnetShare = createTailnetShare({ port: PORT, handle: (req, res) => handleRequest(req, res), attach: (listener, handle) => upgrades.attach(listener, handle), log: (line) => console.log(line) });
 const cfg = loadConfig();
 const modelSystemPrefixes = createModelSystemPrefixes(join(DATA_DIR, "model-system-prefixes.json"));
-const providerConfigs = () => instanceConfigs(cfg);
+const dotsHost = openDotsHost(DATA_DIR);
+const providerConfigs = () => {
+  const configs = instanceConfigs(cfg);
+  return dotsHost ? { ...configs, dots: { driver: "dots", hidden: true } } : configs;
+};
 bindThreadLogCapProvider(() => threadLogCapOrDefault(threadEventLogMaxBytes(cfg)));
 bindDecisionRetention(() => decisionRetentionDays(cfg.decisions?.retentionDays));
 bindSafetyFloor(() => cfg);
@@ -768,7 +777,7 @@ function customDomainStatus() {
     serverIpv4: DESKTOP_MANAGED ? null : customDomainIpv4(),
   };
 }
-const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { statusFile: join(DATA_DIR, "providers", "engine-status.json") });
+const registry = new ProviderRegistry(dotsHost ? [...BUILT_IN_DRIVERS, createDotsDriver(dotsHost)] : BUILT_IN_DRIVERS, { statusFile: join(DATA_DIR, "providers", "engine-status.json") });
 const supportsApprovalMode = createApprovalModeSupport(registry);
 registerEnginesBinDir(); const engineUpdates = engineUpdatesFor({ drivers: BUILT_IN_DRIVERS, turnRunning: () => store.bots.some((bot) => botHasActiveTurn(bot.id)) || store.groups.some(groupIsWorking) || Boolean(routines?.hasActiveRuns()), configuredClis: () => Object.values(providerConfigs()).flatMap((entry) => { const cli = (entry.config as { cli?: unknown } | undefined)?.cli; return typeof cli === "string" && cli ? [cli] : []; }), updated: () => { registry.forgetSnapshots(); broadcast({ kind: "config", ...configStatus() }); } });
 
@@ -2709,6 +2718,16 @@ for (const pending of startupCatalogs) {
   }, () => {});
 }
 if (CLOUD_TEAM) store.newBotSharing = privateUntilShared; testedAi.seed({ defaultBot: !CLOUD_TEAM }); if (!retiredCopy.frozen() && !CLOUD_TEAM) ensureDefaultBot(store, { dataDir: DATA_DIR }); if (CLOUD_TEAM) readTeamRolesWith((email) => sessions.list().filter((session) => session.email?.toLowerCase() === email && session.teamRole).sort((a, b) => b.createdAt - a.createdAt)[0]?.teamRole ?? null); if (CLOUD_TEAM) void mausbotOwnChat.claimAll();
+const dots = dotsHost && !retiredCopy.frozen() ? connectDots(dotsHost, store, () => ownHome.isPrivate() && dotsHost.inbox.ownerMatches(signInAllowList().admins[0]?.trim().toLowerCase() ?? "local-owner"), thread => coordinator.progress(thread), turn => {
+  const child = coordinator.node(turn.id), parent = child?.parentId ? coordinator.node(child.parentId) : undefined;
+  return child?.botId === dotsHost.inbox.botId && child?.threadId === turn.threadId && child.partner?.dots === true &&
+    child.partner.messageId === turn.parent?.messageId && parent?.botId === turn.parent?.botId && parent?.threadId === turn.parent?.threadId &&
+    child.outcome !== "stopped" && (child.status !== "cancelled" || child.outcome === "interrupted");
+}) : undefined;
+function dotsOwner(auth: RequestAuth) {
+  return auth.kind === "loopback" ? ownHome.isPrivate() && ownerOrAdmin(auth) : !auth.session.token && ownHome.owner(auth);
+}
+
 if (skillsLibraryEnabled(cfg)) {
   try {
     const sweep = runSkillsLibraryBootSweep({
@@ -2756,7 +2775,7 @@ const wireTask = (task: TaskRecord, botModel: ModelSelection, awaiting = threads
 
 /** Strips provider session ids (resumeCursors) here, not at call sites, so no broadcast or paired phone ever gets them. */
 const wireBot = (bot: BotRecord, onlyThreadId?: string): WireBot => {
-  const { promptOverrides: _promptOverrides, modelPrefixOverrides: _modelPrefixOverrides, workPartnerIds: _workPartnerIds, resumeCursors: _resumeCursors, tasks, approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, mainThreadChoice: _mainThreadChoice , ...rest } = bot;
+  const { promptOverrides: _promptOverrides, modelPrefixOverrides: _modelPrefixOverrides, workPartnerIds: _workPartnerIds, workPartnerThreadId: _workPartnerThreadId, resumeCursors: _resumeCursors, tasks, approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, mainThreadChoice: _mainThreadChoice , ...rest } = bot;
   // Clients see Ask while an elevated grant awaits the desktop's confirmation, never a grant that may still roll back.
   const visible = approvalGrant && !approvalGrant.threadOnly
     ? { ...rest, approvalMode: "ask" as const, autoApprove: false }
@@ -2776,7 +2795,7 @@ function toolScopeForTurn(botId: string) {
 }
 
 const wireTrustedApprovalBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
-  const { promptOverrides: _promptOverrides, modelPrefixOverrides: _modelPrefixOverrides, workPartnerIds: _workPartnerIds, resumeCursors: _resumeCursors, tasks, approvalGrant: _approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, mainThreadChoice: _mainThreadChoice , ...rest } = bot;
+  const { promptOverrides: _promptOverrides, modelPrefixOverrides: _modelPrefixOverrides, workPartnerIds: _workPartnerIds, workPartnerThreadId: _workPartnerThreadId, resumeCursors: _resumeCursors, tasks, approvalGrant: _approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, mainThreadChoice: _mainThreadChoice , ...rest } = bot;
   const awaiting = threadsAwaitingTeammates();
   return { ...rest, approvalMode: approvalModeFor(rest), mainThreadId: botMainThread(bot.id), avatarUrl: rest.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection, awaiting)) } : {}) };
 };
@@ -3757,7 +3776,8 @@ function requestRelay(capability: InternalCapability, sender: BotRecord, reason:
 }
 
 function publishPartnerResult(child: HandoffView, parent: HandoffView, stage: "worker-finished" | "relay-fallback") {
-  return deliverPartner(store, child, parent, maySharePartner(child, parent), handoffFiles.returnedWith(child, parent),
+  const files = child.partner?.dots && dotsHost ? { dotsFiles: dotsHost.inbox.files(dotsHost.inbox.get(child.id)?.result) } : handoffFiles.returnedWith(child, parent);
+  return deliverPartner(store, child, parent, maySharePartner(child, parent), files,
     serverLine(threadLanguage(parent.threadId), "server.partner.empty"), markTaskContextExternallyUpdated, stage);
 }
 
@@ -3789,6 +3809,10 @@ function partnerResultReadable(row: NonNullable<ReturnType<Coordinator["status"]
 }
 
 function maySharePartner(child: HandoffView, parent: HandoffView): boolean {
+  if (child.partner?.dots) {
+    const source = store.bot(parent.botId);
+    if (child.botId !== dots?.botId || !source || !dots.workThread(child.threadId) || !dots.eligible(source, parent.threadId) || !dots.authorized(parent.threadId, child.partner.messageId)) return false;
+  }
   return !roomHandoffProblem(child, parent) && !keptPrivate({ child: teamHost.privateTo(child.threadId), parent: teamHost.privateTo(parent.threadId) });
 }
 function relayReceipt(threadId: string): Message["partnerRelayReceipt"] {
@@ -3903,6 +3927,11 @@ const handoffTicks = createHandoffTicks(), coordinator: Coordinator = createCoor
     run: runOnRequestBranch(handoffFiles.around(async (node, resumed, signal, composed: ComposedTurn) => {
       const group = node.groupId ? store.group(node.groupId) : undefined;
       const bot = store.bot(node.botId)!; if (node.answeredBy) askCards.decided(node, (node.answeredBy.kind === "bot" ? store.bot(node.answeredBy.botId)?.name : undefined) ?? bot.name);
+      if (!node.parentId && dots && bot.id === dots.botId) {
+        const saved = dotsHost?.inbox.forRoot(node.id);
+        if (!saved || !dots.permitted(saved.turn)) return { ok: false, text: "Dots request unavailable." };
+        return dotsHost!.run(saved.turn, signal);
+      }
       if (!node.parentId && !group && !resumed) return runRootTurn(node, bot, signal, composed);
       if (!node.parentId && group && !resumed) return runRoomRootTurn(node, group, bot, signal, composed);
       const parent = node.parentId ? coordinator.node(node.parentId) : undefined;
@@ -3918,6 +3947,18 @@ const handoffTicks = createHandoffTicks(), coordinator: Coordinator = createCoor
           from: sender ? { botId: sender.id, name: sender.name, color: sender.color } : undefined,
           text: `${request.botIds.map(id => `@${store.bot(id)?.name ?? "Teammate"}`).join(" ")} ${node.text}`,
         });
+      }
+      if (node.partner?.dots || bot.id === dots?.botId || bot.modelSelection.instanceId === "dots") {
+        if (!dotsHost || !dots || bot.id !== dots.botId || !node.partner?.dots || !parent || !maySharePartner(node, parent)) {
+          return { ok: false, text: "Dots requires an authorized work partner assignment." };
+        }
+        const source = store.messagesFor(node.threadId).find(m => m.roomRequest?.id === request.id && m.roomRequest.phase === "request");
+        if (!source) return { ok: false, text: "Dots work request unavailable." };
+        const saved = dotsHost.inbox.get(node.id);
+        const turn = saved?.turn ?? { id: node.id, rootId: node.rootId, threadId: node.threadId, sourceId: source.id,
+          parent: { botId: parent.botId, threadId: parent.threadId, messageId: node.partner.messageId },
+          ...dotsInput(node.text, (source.attachments ?? []).flatMap(f => f.kind === "audio" ? [] : [{ path: f.path, mime: f.mime, name: f.name ?? basename(f.path) }])) };
+        return dotsHost.run(turn, signal);
       }
       markInternalTurn(node.threadId);
       usageTrace.expect(node.threadId, { node: node.id, ...(resumed ? { resumed } : {}) });
@@ -6251,7 +6292,8 @@ bus.subscribe((event: RuntimeEvent) => {
           .map((message) => message.text ?? "").join("\n"));
       }
       if (bot) void replyVoiceNotes.turnSettled({ bot, threadId: event.threadId, turnId: completedTurnId, stoppedByPerson: personStops.stopped(event.threadId, completedTurnId), internal, ...(event.ok ? {} : { ending: { stop: turnStops.read(event.threadId, completedTurnId), cause: turnStops.failureCause(event), interrupted: event.stopReason === "interrupted" } }) });
-      const reply = lastReply.get(event.threadId) ?? "";
+      const reply = event.provider === "dots" && completedTurnId && dotsHost
+        ? dotsHost.inbox.get(completedTurnId)?.result?.text ?? "" : lastReply.get(event.threadId) ?? "";
       if (personStops.stopped(event.threadId, completedTurnId)) pushStoppedTurn(completedTurnId);
       personStops.turnEnded(event.threadId, completedTurnId);
       lastReply.delete(event.threadId);
@@ -6263,7 +6305,7 @@ bus.subscribe((event: RuntimeEvent) => {
         turnResourceOwners.get(event.threadId)?.computerParkedOn !== undefined;
       const capContinues = !event.ok && turnStops.read(event.threadId, completedTurnId)?.handoffPath !== undefined;
       // Judged now: an assignment reports its own failure, and has ended by the time the thread settles.
-      const failed = !event.ok && !stopped && !lazyClaimAlreadyReported && !computerParked && !capContinues && !routineRun && !activeRoutineRunForThread(event.threadId);
+      const failed = event.provider !== "dots" && !event.ok && !stopped && !lazyClaimAlreadyReported && !computerParked && !capContinues && !routineRun && !activeRoutineRunForThread(event.threadId);
       const broken = failed && !coordinator.assignerOf(event.threadId) ? bot ?? (speaker ? store.bot(speaker.botId) : undefined) : undefined;
       const failureDetail = turnStops.failureCause(event) ?? "the run ended without a result";
       // Filed once the thread has settled, so the Chief's retry finds it free. A turn the person stopped is cancelled, whatever its engine said.
@@ -7210,6 +7252,12 @@ async function beginTurn(
   const bot = store.projectBotForTask(botId, threadId);
   if (!bot) throw Object.assign(new Error("no such task"), { status: 404 });
   const instance = registry.get(bot.modelSelection.instanceId);
+  const isDots = profile.id === dots?.botId || profile.modelSelection.instanceId === "dots" || bot.modelSelection.instanceId === "dots";
+  if (isDots && (!dots || !dots.available() || profile.id !== dots.botId || threadId !== dots.inboxThread || instance?.driverKind !== "dots" ||
+    opts?.cardContinuation || opts?.unattended || opts?.automationSource || opts?.peerAsk || opts?.relayed || opts?.commsDepth || opts?.app?.context || opts?.via)) {
+    throw Object.assign(new Error("Dots requires the owner's direct conversation."), { status: 403 });
+  }
+  const dotsBody = isDots ? dotsInput(opts?.userMessage?.text ?? text) : undefined;
   const hostCompaction = replaysNatively(instance?.driverKind);
   if (bot.approvalGrant) {
     throw Object.assign(new Error("this bot's approval level is still being confirmed — try again"), { status: 409, code: "settling" });
@@ -7254,7 +7302,7 @@ async function beginTurn(
   if (guestConfined && instance.adapter.capabilities.guestTurns !== "confined") {
     throw Object.assign(new Error(botApiThread(threadId) ? serverLine(threadLanguage(threadId), "server.botApi.engineRefusal") : guestEngineRefusal(threadId)), { status: 409, code: "guest_engine" });
   }
-  const resolvedImages = extractTurnImages(text);
+  const resolvedImages = dotsBody ? { text: dotsBody.text, images: [], videos: [] } : extractTurnImages(text);
   const usesNativeImageInput = instance.adapter.capabilities.nativeImageInput === true;
   let providerText = promptWithDataContext(usesNativeImageInput ? resolvedImages.text : text, opts?.dataContext);
   const turnImages = usesNativeImageInput ? resolvedImages.images : [];
@@ -7319,6 +7367,7 @@ async function beginTurn(
           ...(opts?.relayed ? { relayed: true } : {}), ...(automated ? { automated: true } : {}),
         });
   }
+  if (isDots && !dotsHost?.inbox.authorized(threadId, userMessage)) throw Object.assign(new Error("Dots message was not authorized by its owner."), { status: 403 });
   const personLine = !opts?.coordination && !opts?.cardContinuation && !opts?.automationSource
     && !opts?.computerSelectionContinuation && !opts?.editedMessageId && !commsDepth && !opts?.peerAsk && !userMessage.peerAsk;
   if (personLine && !userMessage.relayed && (coordinator.answer(threadId, text) || signInSettle.answerInChat(bot.id, threadId, text))) {
@@ -7405,6 +7454,17 @@ async function beginTurn(
 
   void (async () => {
     try {
+      if (dotsBody && dotsHost) {
+        if (companyShutdown || !directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("Dots send stopped.");
+        const turn = { id: "direct-" + userMessage.id, rootId: dispatchClaimId, threadId, sourceId: userMessage.id, ...dotsBody };
+        runningTurnEngines.set(threadId, instance);
+        const { turnId } = await instance.adapter.sendTurn({ botId, threadId, text: turn.text, dots: turn });
+        const owner = directRequestOwners.get(threadId);
+        if (owner?.generation === dispatchClaimId) owner.turnId = turnId;
+        handoffs.bindTurn(threadId, dispatchClaimId, turnId);
+        clearDirectTurnDispatch(threadId, dispatchClaimId);
+        return;
+      }
       const engineRead = registry.engineRead(instance.instanceId);
       if (engineRead) {
         await engineRead;
@@ -7854,7 +7914,8 @@ async function beginTurn(
         else vpsUnavailableNote = ` This bot's VPS computer is unavailable this turn (${autoVpsProblem}), so no computer is mounted. Work that needs no screen can go ahead. If the request needs the VPS desktop, do not claim to have used it: say it is unavailable${hint ? ` and what the person can do: ${hint}` : "."}`;
       }
       // One reachability rule: a bot is never told about a peer that coordinate_bots would refuse.
-      const sectionPeers = personalReach.peers(store.bots, bot, threadId);
+      const sectionPeers = personalReach.peers(store.bots, bot, threadId).filter(peer =>
+        peer.id !== dots?.botId || (dots.bound(bot, threadId) && !!userMessage && dots.authorized(threadId, userMessage.id)));
       if (agentsMounted) {
         integrations.agents = agentsIntegration(bot.id, threadId, commsDepth, skillAuthoring, dispatchClaimId, opts?.coordination?.id, worksInWorkspace, opts?.automationSource !== undefined);
       }
@@ -11510,7 +11571,11 @@ ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstal
 ROUTES.push(createSharedComputerRoutes({ enabled: (auth) => lendingEnabled() || (ownerLends() && ownHome.owner(auth)), computers: sharedComputers, sessionLive: (id) => sessions.isLive(id), environmentId: ENVIRONMENT_ID,
   cloudHomeLender: CLOUD_HOME ? CLOUD_HOME_LENDER : null, principal: sessionLendingPrincipal, personKey: (session) => lendingPersonKey(session, ownHome.ownServer()), power: () => cloudPower, links: CLOUD_HOME ? deviceLinks : null, upgrades, asks: computerAsks?.asks ?? null, answerer: cardAnswererFor }));
 // `routines` is assigned at boot, so it is read per request.
+if (dotsHost && dots) ROUTES.push(dotsRoutes(dotsHost, dots, dotsOwner, (auth, thread) => visibleTo(viewerFor(auth)).thread(thread) && threadShown(auth)(thread)));
 ROUTES.push(createBotMessageRoutes({
+  dotsGrant: (auth, bot, thread, text, send) => dotsOwner(auth) ? dots?.grant(bot, thread, text, send) : send,
+  dotsDirect: (auth, bot, thread, plain) => bot.modelSelection.instanceId !== "dots" && bot.id !== dots?.botId ||
+    !!(dots && bot.id === dots.botId && dots.available() && thread === dots.inboxThread && plain && dotsOwner(auth)),
   compactContext: (bot) => compactContext(bot, bot.threadId), invalidateContext,
   store, registry, handoffs, liveTurn: (threadId) => liveTurns.running(threadId), phoneSecretSubmissions, directTurnDispatchClaims, groupSpeakers,
   routines: () => routines,
@@ -11562,6 +11627,7 @@ ROUTES.push(createBotCreateRoutes({
 }), createTeamOwnerRoutes({ team: CLOUD_TEAM, people: teamOwners.people, store, presence: teamPresence.of, record: (auth, row) => appendAdminAction(DATA_DIR, { ...row, actor: decisionActorFor(auth) }), sees: (auth, botId) => visibleTo(viewerFor(auth)).bot(botId), publicBot,
   profileOf: (email) => teamHost.people.profile(personKey({ id: "", email })) }));
 ROUTES.push(workPartnerRoutes({ store,
+  dots: dots ? { id: dots.botId, owner: dotsOwner, canBind: dots.canBind } : undefined,
   mayEdit: (auth, bot) => visibleTo(viewerFor(auth)).bot(bot.id) && (!CLOUD_HOME || cloudOwnerSession(auth) || levelOf(auth, bot.id) === "edit"),
   retry: (auth, id, threadId, rootId, attempt) => {
     const root = coordinator.node(rootId);
@@ -11571,7 +11637,7 @@ ROUTES.push(workPartnerRoutes({ store,
     store.patchMessage(threadId, failure.id, { partnerRelayFailure: { ...failure.partnerRelayFailure, retried: true } });
     return true;
   },
-  candidates: (auth, bot) => personalReach.peers(store.bots, bot, bot.threadId).filter(peer => visibleTo(viewerFor(auth)).bot(peer.id)),
+  candidates: (auth, bot, thread) => personalReach.peers(store.bots, bot, thread).filter(peer => visibleTo(viewerFor(auth)).bot(peer.id)),
 }));
 ROUTES.push(createBotPromptRoutes({
   store, preview: previewSystemPrompt,
@@ -11587,7 +11653,7 @@ ROUTES.push(createBotSettingsRoutes({
   canManageCommandAllowlist, commandAllowlistResponse, cardAnswerRefusal, threadRead: teamMessages.seen, levelOf, personMarkThread: personRooms.personMarkThread,
 }));
 const botOrderRoutes = createBotOrderRoutes({ store, visibleFor: (auth) => visibleTo(viewerFor(auth)), ...(botOrders ? { own: { person: botOrders.personOf, order: botOrders, told: (person, botIds) => broadcast({ kind: "bots.order", botIds }, { person }) } } : {}) }); ROUTES.push(createGroupOrderRoutes({ store, visibleFor: (auth) => visibleTo(viewerFor(auth)) }), botOrderRoutes, createBotAccessRoutes({ team: CLOUD_TEAM, people: teamOwners.people, store, levelOf, wireBot, publicGroupState, broadcast, audienceChanged, record: (auth, row) => appendAdminAction(DATA_DIR, { ...row, actor: decisionActorFor(auth) }), shared: createShareNotice({ people: () => teamOwners.people?.list() ?? [], profileName: (email) => teamHost.people.profile(personKey({ id: "", email })).name, store: () => store, inbox: () => teamMessages.inbox }) }), accessRequests.routes);
-const botPatchRoutes = createBotPatchRoutes({ turnBots: directTurnBots,
+const botPatchRoutes = createBotPatchRoutes({ dotsId: dots?.botId, turnBots: directTurnBots,
   store, cfg, registry, sessions, browserRuntime, browserLive, cacheKeepWarm, hostedModels: null, supportsApprovalMode,
   routines: () => routines, activeVpsThreads,
   hostedWorkspace: HOSTED_WORKSPACE, hostedFullAccessRefusal: HOSTED_FULL_ACCESS_REFUSAL, desktopManaged: DESKTOP_MANAGED,
@@ -13034,14 +13100,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             requireActiveInternalCapability();
             const recipient = store.bot(target.botId);
             if (!recipient) throw new Error("The recipient no longer exists");
+            const dotsTarget = recipient.id === dots?.botId || recipient.modelSelection.instanceId === "dots";
+            if (dotsTarget && (!dots || recipient.id !== dots.botId || !partnerMessageId || !dots.bound(internalSender, address.threadId) ||
+              !dots.authorized(address.threadId, partnerMessageId) || EXTERNAL || room || address.groupId || post || call.ownThread || call.answers ||
+              (call.thread && call.thread !== "new" && call.thread !== "standing"))) {
+              throw new Error("Dots accepts work only from its bound private conversation.");
+            }
             // Work a person's request hands on opens in the receiving bot's chat with them when it may use their own apps.
             const opener = (room ? null : handOnFor) ?? openerFrom(address.threadId); if (!room) personalReach.checkHandOn(internalSender, recipient, address.threadId, opener, call.answers ? { threadId: coordinator.node(call.answers)?.threadId } : undefined);
             // A Chief answers, for the person, the question a teammate it manages waits on in a thread the Chief did not open.
-            let lends = mode === "work" && handsOnLending(internalCapability); const forPerson = EXTERNAL || room || fresh || post || call.answers || mode !== "work" || call.thread === "standing" || !teammatePrompts.actsForPerson(internalSender, internalCapability.threadId) || !canManage(internalSender, recipient) || !threadReadableFrom(internalCapability.threadId)(call.thread) || !asksActingPerson(internalCapability.threadId, store.groupByThread(internalCapability.threadId) ? internalCapability.generation : undefined)(call.thread, recipient.id) ? undefined : await questionRouting.answerForPerson({ lends, sender: internalSender, senderThreadId: address.threadId, target: recipient, threadId: call.thread, message: call.message });
+            let lends = mode === "work" && handsOnLending(internalCapability); const forPerson = dotsTarget || EXTERNAL || room || fresh || post || call.answers || mode !== "work" || call.thread === "standing" || !teammatePrompts.actsForPerson(internalSender, internalCapability.threadId) || !canManage(internalSender, recipient) || !threadReadableFrom(internalCapability.threadId)(call.thread) || !asksActingPerson(internalCapability.threadId, store.groupByThread(internalCapability.threadId) ? internalCapability.generation : undefined)(call.thread, recipient.id) ? undefined : await questionRouting.answerForPerson({ lends, sender: internalSender, senderThreadId: address.threadId, target: recipient, threadId: call.thread, message: call.message });
             if (forPerson) { if (forPerson.outcome === "failed") refused.push(forPerson.detail); else answeredForPerson.add(forPerson); receipts.push(forPerson); continue; }
-            const continued = room || fresh ? undefined : workThreadFor(store, { botId: target.botId, botName: recipient.name, fromBotId: internalSender.id, fromThreadId: address.threadId, thread: call.thread, notice: mode === "notify", any: Boolean(post),
+            const continued = dotsTarget || room || fresh ? undefined : workThreadFor(store, { botId: target.botId, botName: recipient.name, fromBotId: internalSender.id, fromThreadId: address.threadId, thread: call.thread, notice: mode === "notify", any: Boolean(post),
               answering: coordinator.answersTo(internalCapability.roomHandoffId ?? generation), also: (task) => !CLOUD_TEAM || threadStarters.get(task.threadId) === opener, reach: (task) => outsideLineage.mayReach(address.threadId, task.threadId) });
-            const relayed = EXTERNAL || post || (!call.answers && (room || fresh || mode === "consult")) ? undefined : await questionRouting.relay({ lends, sender: internalSender, senderThreadId: address.threadId,
+            const relayed = dotsTarget || EXTERNAL || post || (!call.answers && (room || fresh || mode === "consult")) ? undefined : await questionRouting.relay({ lends, sender: internalSender, senderThreadId: address.threadId,
               senderNode: coordinator.node(internalCapability.roomHandoffId ?? generation), target: recipient, message: call.message, ...(call.answers ? { answers: call.answers } : {}), ...(continued ? { threadId: continued.threadId, ...(steersOwn ? { selected: true } : {}) } : {}),
               ...(internalCapability.delegatedThisTurn ? { sentThisTurn: internalCapability.delegatedThisTurn } : {}) });
             if (relayed) { if (relayed.outcome === "failed") refused.push(relayed.detail); receipts.push(relayed); continue; } if (post && !post.wake && continued) { receipts.push(leaveThreadPost(store, { from: internalSender, fromThreadId: address.threadId, deliveryId: post.deliveryId, text: call.message, to: recipient, task: continued, label: serverLine(threadLanguage(continued.threadId), "server.threads.posted", { bot: internalSender.name }) })); continue; } // no turn starts: its next run reads it
@@ -13062,7 +13134,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const routed = lane ? { botId: target.botId, threadId: lane.threadId } : target;
             outsideLineage.carry(address.threadId, routed.threadId);
             const { node, duplicate } = coordinator.enqueue(address, generation, internalCapability.roomHandoffId, routed, call.message, {
-              partnerMessageId,
+              partnerMessageId, dotsPartner: dotsTarget,
               mode, reply, thread: lane || fresh || steersOwn || postsOwn ? "new" : "standing", rework: call.rework, ...(lane ? {} : { requestBatchKey }), ...(fanOut ? { fanOut } : {}), ...(call.ownThread || steersOwn || postsOwn ? { ownThread: true } : {}),
               ...(call.doneWhen ? { doneWhen: call.doneWhen } : {}),
             });
@@ -13184,7 +13256,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }).safeParse(await readInternalBody());
         if (!parsed.success) return json(res, 400, { error: coordinateTooLong(parsed.error.issues) ?? "Provide 1-4 distinct botIds and a message of 1-4000 characters; thread is standing, new or the id of a thread you opened on that teammate, title one line of at most 80 characters, reply is resume or none, consult is a boolean, done_when at most 1000 characters, files at most 5 paths." });
         const { groupId, botIds, message, reason, rework, thread, title, reply, consult, inMyFolder, done_when: doneWhen, answers, files: paths } = parsed.data;
-        const result = await handoffFiles.coordinate({ paths, answers, senderId: internalSender.id, recipients: botIds.length, saveOne: async (path) => saveTurnFile(internalCapability, internalSender.id, await attachmentVmForTurn(internalCapability), path, undefined, true),
+        const dotsOrigin = paths?.length && dots && botIds.length === 1 && botIds[0] === dots.botId && dots.bound(internalSender, internalCapability.threadId)
+          ? boundRequest({ groupId, botIds, message, rework, thread, reply, consult, answers }, internalSender, internalCapability)(botIds) : undefined;
+        const source = dotsOrigin && dots!.authorized(internalCapability.threadId, dotsOrigin)
+          ? store.messagesFor(internalCapability.threadId).find(m => m.id === dotsOrigin)?.text : undefined;
+        const result = await handoffFiles.coordinate({ paths, answers, senderId: internalSender.id, recipients: botIds.length, saveOne: async (path) =>
+          (source && await forwardedOriginal(source, path)) || saveTurnFile(internalCapability, internalSender.id, await attachmentVmForTurn(internalCapability), path, undefined, true),
           send: (files) => coordinateBots({ groupId, botIds, message, reason: reason || undefined, rework, thread, title: title || undefined, reply, consult, inMyFolder, doneWhen: doneWhen || undefined, ...(answers ? { answers } : {}), ...(files ? { files } : {}) }) }); refusedHandoffs.settled(internalCapability.threadId, internalSender, botIds, result.status);
         return json(res, result.status, result.body);
       }
@@ -14580,6 +14657,7 @@ if (CLOUD_HOME) registerCloudPower(cloudPower = createCloudPower({ dataDir: DATA
 
 let pausedSent = starterAwake.paused().join(); store.onChange((change) => { if (change.type === "bot.deleted") botHolds.forget("bot", change.botId); if (change.type !== "bot" && change.type !== "bot.deleted") return; const paused = starterAwake.paused().join(); if (paused !== pausedSent) { pausedSent = paused; broadcast({ kind: "config", ...configStatus() }); } });
 server.listen(PORT, listenHost(server), async () => {
+  if (dots && dots.available()) dotsHost?.start(dots);
   void tailnetShare.start(process.env);
   console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
   personWaits.boot(); browserSweep.start(); startCloudTeamPolicy({ cloudHome: CLOUD_HOME, dataDir: DATA_DIR, managed: managedPolicy, sessions }); startCloudTeamRoster({ cloudHome: CLOUD_HOME, sessions }); if (!retiredCopy.frozen()) appTriggers.start(); startCloudHomeConnectedApps({ cloudHome: CLOUD_HOME !== null, dataDir: DATA_DIR, cloudGrant: process.env.OMB_CLOUD_CONNECTED_APPS_GRANT, ownKey: () => composio.connectionMode(cfg) === "self-hosted", apply: (access) => { composio.setManagedBrokerAccess(access); broadcast({ kind: "config", ...configStatus() }); } });
@@ -14641,6 +14719,7 @@ const gracefulShutdown = createGracefulShutdown({
     () => {
       followupsReady = false;
       companyShutdown = true;
+      void dotsHost?.stop();
       // Before any provider is torn down, so what the teardown fails stays cut for the next start.
       coordinator.close();
       noteTurnsCutByShutdown();
@@ -14663,6 +14742,7 @@ const gracefulShutdown = createGracefulShutdown({
       tunnelListener?.close(); void tailnetShare.close(); phoneRelay?.stop(); stopCloudHomeConnectedApps();
     },
     () => phoneScreen.closeAll(),
+    async () => { await dotsHost?.stop(); },
     () => registry.disposeAll(),
     async () => { await dataEngine.closeAll().catch((error) => console.warn("data: close failed", error)); },
     async () => {

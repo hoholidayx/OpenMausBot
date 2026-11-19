@@ -312,6 +312,7 @@ desktop routing, cancellation, and computer authority cleanup.
 ## Evidence
 
 - [私聊工作搭档的异步交付与真实模型验收](async-bot-partner.md)
+- [Dots 单上游工作端的配置与真实往返验收](dots-work-partner.md)
 
 The [Gemini speech fixture](gemini-speech.md) checks write-only credentials,
 voice selection and WAV synthesis against an offline provider in an isolated

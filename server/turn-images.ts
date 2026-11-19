@@ -24,7 +24,7 @@ type MarkdownNode = {
   };
 };
 
-type TagCandidate = { start: number; end: number; kind: "image" | "file"; path: string };
+type TagCandidate = { start: number; end: number; kind: "image" | "file"; path: string; name?: string };
 
 const OWNED_IMAGE_NAME =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(png|jpg|gif|webp)$/;
@@ -62,7 +62,7 @@ function walk(node: MarkdownNode, visit: (node: MarkdownNode) => void): void {
 }
 
 /** Standalone tags only: prose that contains a tag literal must not become an attachment capability. */
-function attachmentTagCandidates(text: string): TagCandidate[] {
+export function attachmentTagCandidates(text: string): TagCandidate[] {
   const candidates: TagCandidate[] = [];
   walk(fromMarkdown(text) as MarkdownNode, (node) => {
     if (node.type !== "html" || !node.value || !node.position) return;
@@ -75,7 +75,7 @@ function attachmentTagCandidates(text: string): TagCandidate[] {
     if (text.slice(lineStart, start).trim() || text.slice(end, lineEnd).trim()) return;
     const match = ATTACHMENT_TAG.exec(node.value);
     if (!match) return;
-    candidates.push({ start, end, kind: match[1] === "file" ? "file" : "image", path: decodeAttachmentAttribute(match[2]!) });
+    candidates.push({ start, end, kind: match[1] === "file" ? "file" : "image", path: decodeAttachmentAttribute(match[2]!), name: match[3] && decodeAttachmentAttribute(match[3]) });
   });
   return candidates;
 }

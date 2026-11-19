@@ -544,6 +544,10 @@ export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCard
   partnerRelayReceipt?: { rootId: string; attempt: number };
   partnerRelayFailure?: { rootId: string; attempt: number; retried?: boolean };
   partnerResultId?: string;
+  /** The durable Dots receipt that produced this row. */
+  dotsEventId?: string;
+  /** Hosted files are downloaded through the message that grants access to them. */
+  dotsFiles?: Array<{ id: string; name: string; status: "pending" | "ready" | "unavailable" }>;
   partnerResultFailed?: boolean;
   /** Optional flat reply reference for an inline quote. */
   replyToId?: string;

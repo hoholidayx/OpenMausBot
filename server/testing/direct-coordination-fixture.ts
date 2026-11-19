@@ -6,16 +6,16 @@ import { request } from "../../scripts/mcp-server.ts";
 import { readHandoffs } from "./handoff-rows.ts";
 
 /** With OMB_TEST_DESKTOP_OWNER_TOKEN it runs as the desktop app runs it, every change carrying the app's owner capability. */
-export async function fixture(test: (f: any) => Promise<void>, fakeEnv: NodeJS.ProcessEnv = {}) {
+export async function fixture(test: (f: any) => Promise<void>, fakeEnv: NodeJS.ProcessEnv = {}, dotsFixture?: { port: number; token: string }) {
   const desktopOwner = fakeEnv.OMB_TEST_DESKTOP_OWNER_TOKEN;
   const realFetch = globalThis.fetch;
   if (desktopOwner) globalThis.fetch = (input, init = {}) => realFetch(input, { ...init,
     headers: { ...Object.fromEntries(new Headers(init.headers)), "x-openmausbot-desktop-owner": desktopOwner } });
-  try { await fixtureSession(test, fakeEnv); } finally { globalThis.fetch = realFetch; }
+  try { await fixtureSession(test, fakeEnv, dotsFixture); } finally { globalThis.fetch = realFetch; }
 }
 
-async function fixtureSession(test: (f: any) => Promise<void>, fakeEnv: NodeJS.ProcessEnv) {
-  const session = await launchVerificationServer({ ...process.env, ...fakeEnv }, undefined, undefined, undefined, undefined, { scripted: true });
+async function fixtureSession(test: (f: any) => Promise<void>, fakeEnv: NodeJS.ProcessEnv, dotsFixture?: { port: number; token: string }) {
+  const session = await launchVerificationServer({ ...process.env, ...fakeEnv }, undefined, undefined, undefined, undefined, { scripted: true }, [], undefined, undefined, dotsFixture);
   const cli = (...args: string[]) => runControlOmb(args, { env: { OPENMAUSBOT_URL: session.info.url } }) as Promise<any>;
   const api = (path: string, body?: unknown, method = "POST") => request(path, body === undefined ? {} : { method, body: JSON.stringify(body) }, session.info.url) as Promise<any>;
   try {

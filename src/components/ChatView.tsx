@@ -4,7 +4,7 @@ import { PHONE_LAYOUT, useMediaQuery } from "@/lib/use-media-query";
 import { ThreadLinkContext } from "@/components/ThreadLinkMenu";
 import { useShowThreads } from "@/lib/thread-preferences";
 import { AlertTriangle, ChevronLeft, ChevronRight, Monitor, RefreshCw, Square, Webhook } from "lucide-react";
-import { PartnerAuthor, PartnerRelayFailure } from "./WorkPartnerMessage";
+import { DotsFiles, PartnerAuthor, PartnerRelayFailure } from "./WorkPartnerMessage";
 import { WorkingDots } from "@/components/WorkingIndicator";
 import { ChatBusyContext, CopyButton, MESSAGE_ROW, MessageActions, messageActionClass, ReplyAction } from "@/components/MessageActions";
 import { ReactAction, ReactionChips } from "@/components/Reactions";
@@ -377,7 +377,7 @@ const Bubble = memo(function Bubble({
   const visibleText = webhookView?.task ?? attachments?.display ?? text;
   const hasAttachments = Boolean(cited?.citations.length || (attachments && (attachments.images.length || attachments.files.length)));
   const attachmentsOnly = !webhookView && !replyTarget && !visibleText.trim() &&
-    (user ? hasAttachments : generatedPaths.length + linkedFiles.length > 0);
+    (user ? hasAttachments : generatedPaths.length + linkedFiles.length + (message.dotsFiles?.length ?? 0) > 0);
   const collapsible =
     user && !webhookView && !expanded && (visibleText.length > USER_COLLAPSE_CHARS || visibleText.split("\n").length > USER_COLLAPSE_LINES);
   useEffect(() => {
@@ -531,6 +531,7 @@ const Bubble = memo(function Bubble({
                   ))}
                 </div>
               )}
+              <DotsFiles message={message} threadId={threadId} />
               {!group && <AttachmentGallery images={generatedPaths} files={linkedFiles} originals={attached.originals} message={{ threadId, messageId: message.id }} className={text ? undefined : "mb-0"} eager={eagerAttachments} />}
               {tabled && blocks ? (
                 <ReplyBlocks blocks={blocks} join={join} tray={botActions} citation={{ messageId: message.id, ownerType: "bot", ownerId: botId, threadId }}

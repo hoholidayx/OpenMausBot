@@ -72,18 +72,18 @@ export function finishPartnerRelay(store: PartnerStore, root: HandoffView, child
   return true;
 }
 
-function resultText(child: HandoffView, files: Pick<Message, "attachments">, empty: string) {
+function resultText(child: HandoffView, files: Pick<Message, "attachments" | "dotsFiles">, empty: string) {
   const body = child.status === "completed" ? child.result : child.outcomeDetail || child.result;
-  return redactSecretsInText(body) || (files.attachments?.length ? "" : empty);
+  return redactSecretsInText(body) || (files.attachments?.length || files.dotsFiles?.length ? "" : empty);
 }
 
 export function deliverPartner(
   store: PartnerStore, child: HandoffView, parent: HandoffView, mayShare: boolean,
-  attachments: Pick<Message, "attachments">, empty: string, contextChanged: (owner: BotRecord, threadId: string) => void,
+  attachments: Pick<Message, "attachments" | "dotsFiles">, empty: string, contextChanged: (owner: BotRecord, threadId: string) => void,
   stage: "worker-finished" | "relay-fallback",
 ): PartnerDelivery {
   const origin = child.partner?.messageId;
-  if (child.status === "cancelled" || child.outcome === "stopped") return "cancelled";
+  if (child.outcome === "stopped" || (child.status === "cancelled" && !(child.partner?.dots && child.outcome === "interrupted"))) return "cancelled";
   if (!origin || !mayShare) return "unavailable";
   const owner = store.bot(parent.botId), author = store.bot(child.botId);
   if (!owner || !author || author.hidden) return "unavailable";
@@ -93,7 +93,7 @@ export function deliverPartner(
   if (stage === "worker-finished" && child.status === "completed" && child.partner?.relay &&
     store.activePath(parent.threadId).some(row => row.id === origin)) return "relay";
   const row = { role: "bot", kind: "text", from: { botId: author.id, name: author.name, color: author.color },
-    partnerResultId: child.id, partnerResultFailed: child.status === "failed" || undefined, replyToId: origin, text: resultText(child, attachments, empty), ...attachments,
+    partnerResultId: child.id, partnerResultFailed: child.status !== "completed" || undefined, replyToId: origin, text: resultText(child, attachments, empty), ...attachments,
     threadRef: { botId: child.botId, threadId: child.threadId, title: store.taskByThread(child.botId, child.threadId)?.title ?? author.name } } as const;
   if (appendAtRequest(store, parent.threadId, origin, row)) contextChanged(owner, parent.threadId);
   store.patchTask(parent.botId, parent.threadId, { unread: true });
