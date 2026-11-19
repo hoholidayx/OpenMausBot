@@ -311,6 +311,8 @@ desktop routing, cancellation, and computer authority cleanup.
 
 ## Evidence
 
+- [私聊工作搭档的异步交付与真实模型验收](async-bot-partner.md)
+
 The [Gemini speech fixture](gemini-speech.md) checks write-only credentials,
 voice selection and WAV synthesis against an offline provider in an isolated
 server, with manual steps for real Google access and playback.

@@ -45112,7 +45112,13 @@
       "botPrompts.prefixOff": "b48e050dc5ae30ae5ed5a039e40f544a5aea8e9927d5450aa574677350cd3b13",
       "botPrompts.prefixCustom": "4d49323fca5b432b164bb15baf8ac69bb250952ae62d974f7a88a9780a7f963e",
       "botPrompts.prefixHint": "471bd372adb54a52c9e71844a73887a230f0093f5c31979657fc058b5935d9f6",
-      "botPrompts.prefixEmpty": "af74aeea386b8d861834b0d331e819f7d3832e29b43f07da19d6f904d2868be6"
+      "botPrompts.prefixEmpty": "af74aeea386b8d861834b0d331e819f7d3832e29b43f07da19d6f904d2868be6",
+      "botSettings.workPartner": "73d8ed4f112d635b91613b7f895c18dd8276ba2ae8f6849d34c38bfb17bd2b92",
+      "botSettings.noWorkPartner": "18e437c25a26f3d6dd03676687b553513f6fee6d26e3bb824b9ec2f8bf6d89a3",
+      "botSettings.partnerUnavailable": "9266cbfbdc8e3d198b3f5615d927a22f6dda8dd4c98afab75d43ec2749783983",
+      "server.partner.empty": "e7dc5f92a55bb21f59ddd366fa44466bffba9133263fa00e0177893e32d8f421",
+      "server.partner.relayFailed": "e833b8b91abba715fd29e401ecb91dad83c83937695335ecfe3151cad59987ee",
+      "workPartner.retryRelay": "7c20b8d8e007a2a64816b70e5d85f7c1a7744edc35c5c442a1f3f45a868cff8c"
     },
     "zh-tw": {
       "whop.description": "1a07cf04ef17029448d3781415cbac16d54e66b821907a40d94e0e6349710e70",

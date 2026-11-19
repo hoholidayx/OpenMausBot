@@ -1,4 +1,10 @@
 {
+  "server.partner.relayFailed": "搭档已完成工作，但转述失败。",
+  "workPartner.retryRelay": "重试转述",
+  "botSettings.workPartner": "工作搭档",
+  "botSettings.noWorkPartner": "未绑定搭档",
+  "botSettings.partnerUnavailable": "搭档不可用",
+  "server.partner.empty": "任务已结束，未返回正文或文件。",
   "hostedMcp.otherAppsSetup": "已连接：{services}。请设置或恢复连接服务以使用其他应用。",
   "agentcard.description": "用你自己的 Agentcard 账号购物和付款。",
   "agentcard.notice": "用你的 Agentcard 账号登录，不需要 API 密钥。Agentcard 保管你的卡片并处理购买审批；OpenMausBot 不保存任何卡片信息。能使用 Agentcard 的机器人可以调用它的全部工具，包括购买和展示卡片信息，所以请在“机器人访问权限”中选择哪些机器人可以使用它。",

@@ -117,7 +117,7 @@ export class Runtime {
           this.safe("park", () => this.runner.park(n, n.question ?? "", true));
           continue;
         }
-        if (n.status !== "running") continue;
+        if (!this.needsRecovery(n)) continue;
         const carried = n.carrying ?? [];
         const handedOut = childrenSince(this.store, n).length > 0;
         const outward = handedOut ? [] : this.outwardOf(n);
@@ -196,6 +196,15 @@ export class Runtime {
     return this.store.prune(before);
   }
 
+  private needsRecovery(n: Assignment): boolean {
+    if (n.status !== "running") return false;
+    const reply = !n.parentId && n.executions > 1 ? this.runner.committedRelay?.(n) : undefined;
+    if (reply === undefined) return true;
+    n.result = clip(reply, RESULT_MAX);
+    this.settle(n, "completed", "done", undefined, true);
+    return false;
+  }
+
   /** Hand work to a teammate from a running node. Never throws. */
   enqueue(req: EnqueueRequest): EnqueueResult {
     try {
@@ -245,6 +254,7 @@ export class Runtime {
     const node: Assignment = {
       id: randomUUID(), rootId: parent ? parent.rootId : "", ...(parent ? { parentId: parent.id } : {}), depth: parent ? parent.depth + 1 : 0,
       origin: root ? root.origin : req.origin, requester: req.requester, assignee: target, mode,
+      partner: req.partner,
       reply: req.reply ?? (mode === "notify" ? "none" : "resume"), brief, ...(req.doneWhen ? { doneWhen: req.doneWhen } : {}),
       status: "queued", level, levelSource: source, executions: 0, restarts: 0, createdAt: now, lastActivityAt: now, result: "",
       rework: Boolean(req.rework), ...(req.approved !== undefined ? { approved: req.approved } : {}),
@@ -519,6 +529,11 @@ export class Runtime {
     this.decideCarried(carried);
   }
 
+  private setDecider(n: Assignment, result: Extract<RunResult, { kind: "needs_input" }>): void {
+    const choice = result.decide?.default?.trim();
+    if (!n.partner && result.decide && n.parentId && !n.cards) n.decide = choice ? { default: clip(choice, BRIEF_MAX) } : {}; else delete n.decide;
+  }
+
   private settleTurn(n: Assignment, result: RunResult, live?: LiveTurn): void {
     const now = this.clock.now();
     if (!live?.interruption) delete n.restart;
@@ -553,8 +568,7 @@ export class Runtime {
     if (result.kind === "needs_input") {
       n.status = "needs_input"; n.question = clip(result.question, BRIEF_MAX); n.lastActivityAt = now; delete n.remindedAt;
       if (result.cards?.length) n.cards = result.cards; else delete n.cards;
-      const choice = result.decide?.default?.trim();
-      if (result.decide && n.parentId && !n.cards) n.decide = choice ? { default: clip(choice, BRIEF_MAX) } : {}; else delete n.decide;
+      this.setDecider(n, result);
       this.store.update(n, { kind: "parked", at: now, detail: `needs_input${n.decide ? " (its requester decides)" : ""}: ${clip(result.question, DETAIL_MAX)}` });
       this.touch(n);
       this.safe("park", () => this.runner.park(n, n.question ?? ""));
@@ -564,7 +578,7 @@ export class Runtime {
       }
       return;
     }
-    n.result = clip(result.text, RESULT_MAX);
+    n.result = n.partner && result.kind === "completed" ? result.text : clip(result.text, RESULT_MAX);
     if (result.kind === "completed" && result.statusOnly) n.statusOnly = true;
     const kids = awaited(this.store.children(n.id));
     const unseen = live !== undefined && kids.some(c => isTerminal(c) && !live.carried.has(c.id));
@@ -580,7 +594,7 @@ export class Runtime {
       this.touch(n, ...root && root.id !== n.id ? [root] : []);
       return;
     }
-    const ownTurn = !n.parentId;
+    const ownTurn = !n.parentId && !kids.some(child => child.partner?.delivery === "relay");
     const fault = result.kind === "failed" && result.failure ? hostFaultOf(result.failure.text, result.failure.stopReason) : null;
     if (fault && retryCannotFix(fault)) n.fault = fault;
     if (result.kind === "completed") this.settle(n, "completed", "done", undefined, ownTurn);
@@ -782,7 +796,8 @@ export class Runtime {
     const now = this.clock.now();
     const parent = n.parentId ? this.store.get(n.parentId) : undefined;
     if (!ownTurn) {
-      this.safe("report", () => this.runner.report(n, parent));
+      const delivery = this.safe("report", () => this.runner.report(n, parent));
+      if (delivery && n.partner) n.partner.delivery = delivery;
       if (this.lastThrew) { this.reportDue.add(n.id); return; }
     }
     n.reportedAt = now;
@@ -793,7 +808,7 @@ export class Runtime {
   }
 
   private wake(n: Assignment, kind: InboxKind): boolean {
-    if (n.reply === "none") return false;
+    if (n.reply === "none" || (n.partner && (kind !== "settled" || n.partner.delivery !== "relay"))) return false;
     const now = this.clock.now();
     const owner = wakeOwner(n);
     const item: InboxItem = { id: randomUUID(), assignmentId: n.id, kind, createdAt: now };
@@ -832,7 +847,7 @@ export class Runtime {
   private nothingToAnswer(n: Assignment): boolean {
     if (n.requester.kind !== "person" && n.requester.kind !== "bot_turn") return false;
     const news = settledSince(this.store, n);
-    return news.length > 0 && news.every(c => c.status === "completed" && c.statusOnly === true);
+    return news.length > 0 && news.every(c => c.partner ? c.partner.delivery !== "relay" : c.status === "completed" && c.statusOnly === true);
   }
 
   private resumeReason(n: Assignment): "settled" | "asked" | undefined {

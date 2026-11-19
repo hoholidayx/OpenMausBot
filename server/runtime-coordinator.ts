@@ -62,6 +62,11 @@ const ancestorOf = (ancestor: RoomAddress, target: RoomAddress): boolean =>
 const kindOf = (groupId: string | undefined, parent: Assignment | undefined): HandoffView["kind"] =>
   groupId !== undefined && parent?.assignee.destination.groupId === groupId ? "assignment" : "work";
 
+function scopedPartner(messageId: string | undefined, parent: Assignment, source: RoomAddress, target: RoomAddress, mode: Assignment["mode"]): Assignment["partner"] {
+  if (!messageId || parent.parentId || source.groupId || target.groupId || mode !== "work") return undefined;
+  return parent.origin.kind === "person" && parent.origin.source === "chat" && parent.requester.kind === "person" ? { messageId } : undefined;
+}
+
 function legacyOrigin(origin: Origin): WorkOrigin | undefined {
   if (origin.kind !== "person") return { kind: "outside" };
   return origin.quote ? { kind: "user", request: origin.quote } : undefined;
@@ -96,7 +101,7 @@ export function view(a: Assignment, parent?: Assignment): HandoffView {
     id: a.id, rootId: a.rootId, threadId: a.assignee.destination.threadId, botId: a.assignee.botId, key: a.assignee.botId,
     text: a.brief, createdAt: a.createdAt, status, result: a.result, reported: a.reportedAt !== undefined, executions: a.executions,
     lastProgressAt: a.lastActivityAt, kind: kindOf(groupId, parent), restarts: a.restarts,
-    mode: a.mode, reply: a.reply,
+    mode: a.mode, reply: a.reply, partner: a.partner,
   };
   if (a.outcome !== undefined) node.outcome = a.outcome;
   if (a.outcomeDetail !== undefined) node.outcomeDetail = a.outcomeDetail;
@@ -205,6 +210,31 @@ export class RuntimeCoordinator implements Coordinator {
     return a && this.project(a);
   }
 
+  retryPartnerRelay(rootId: string, attempt: number): boolean {
+    this.ready();
+    const root = this.store.get(rootId);
+    if (!root || root.parentId || root.status !== "failed" || root.executions !== attempt || root.outcome !== "provider_error") return false;
+    if (!this.store.children(rootId).some(child => child.partner?.relay && child.status === "completed")) return false;
+    root.status = "resume";
+    root.result = "";
+    delete root.finishedAt;
+    delete root.outcome;
+    delete root.outcomeDetail;
+    delete root.reportedAt;
+    root.lastActivityAt = this.now();
+    this.store.update(root, { kind: "resume_due", at: root.lastActivityAt, detail: "retry partner relay" });
+    return true;
+  }
+
+  requestPartnerRelay(id: string, reason: string): boolean {
+    this.ready();
+    const node = this.store.get(id);
+    if (!node?.partner || node.status !== "running") return false;
+    node.partner.relay = reason;
+    this.store.update(node);
+    return true;
+  }
+
   answersTo(id: string): { botId: string; threadId: string } | undefined {
     this.ready();
     const a = this.store.get(id);
@@ -291,6 +321,7 @@ export class RuntimeCoordinator implements Coordinator {
       origin: parent.origin,
       requester,
       assignee, mode, reply, brief: text, rework,
+      partner: scopedPartner(options.partnerMessageId, parent, source, target, mode),
       ...(own ? { ownThread: true } : {}),
       ...(options.doneWhen ? { doneWhen: options.doneWhen } : {}),
       levels: { own: level.level, ...(level.chief !== undefined ? { chief: level.chief } : {}) },
@@ -515,10 +546,10 @@ export class RuntimeCoordinator implements Coordinator {
     this.ready();
     const threads = new Set<string>();
     for (const n of this.live()) {
-      const parent = n.parentId && n.reply !== "none" ? this.store.get(n.parentId) : undefined;
+      const parent = n.parentId && !n.partner && n.reply !== "none" ? this.store.get(n.parentId) : undefined;
       if (parent && !isTerminal(parent) && parent.assignee.destination.groupId === undefined) threads.add(parent.assignee.destination.threadId);
       const root = view(n);
-      if (!root.parentId && !root.groupId && (root.status === "resume" || (root.status === "waiting" && root.question === undefined && !root.cards?.length))) {
+      if (!root.parentId && !root.groupId && (root.status === "resume" || (root.status === "waiting" && !this.store.children(n.id).every(child => child.partner) && root.question === undefined && !root.cards?.length))) {
         threads.add(root.threadId);
       }
     }
@@ -601,6 +632,7 @@ export class RuntimeCoordinator implements Coordinator {
     const host = this.host;
     return {
       validate: (a, parent) => host.validate(view(a, parent), parent && this.project(parent)),
+      committedRelay: a => host.committedRelay?.(view(a)),
       canStart: a => {
         const node = this.project(a);
         return host.busy(node) ? host.holdReason?.(node) ?? false : true;
@@ -625,7 +657,7 @@ export class RuntimeCoordinator implements Coordinator {
   }
 
   private async statusOnly(a: Assignment, parent: Assignment | undefined, turn: RunInput["turn"], result: HostTurnResult, signal: AbortSignal): Promise<boolean> {
-    if (turn !== "first" || !this.host.statusReply || !mayBeStatusOnly(a, parent, result.text, result.evidence)) return false;
+    if (a.partner || turn !== "first" || !this.host.statusReply || !mayBeStatusOnly(a, parent, result.text, result.evidence)) return false;
     try {
       return a.requester.botId !== undefined && isStatusOnly(await this.host.statusReply(a.requester.botId, statusReplyPrompt(a.brief, result.text), signal));
     } catch (error) {
@@ -638,7 +670,7 @@ export class RuntimeCoordinator implements Coordinator {
     const names = this.host.names(node, parent && this.project(parent));
     const settled = input.settled ?? [];
     const asked = input.asked ?? [];
-    const reports = settled.map(child => ({ id: child.id, text: composeReport(this.readable(child, a, node), this.host.names(view(child, a), node)) }));
+    const reports = settled.filter(child => !child.partner || child.partner.delivery === "relay").map(child => ({ id: child.id, text: composeReport(this.readable(child, a, node), this.host.names(view(child, a), node)) }));
     const questions = asked.map(child => composeQuestion(this.readable(child, a, node), this.host.names(view(child, a), node)));
     const faults = settled.flatMap(child => child.status === "failed" && child.fault ? [{ fault: child.fault, who: this.host.names(view(child, a), node).assignee }] : []);
     const reviewRoom = (included: ReadonlySet<string>, briefVisible: boolean) => input.restartNote +
@@ -741,7 +773,7 @@ export class RuntimeCoordinator implements Coordinator {
   private readable(child: Assignment, parent: Assignment, parentView: HandoffView): Assignment {
     const problem = this.host.validate(view(child, parent), parentView);
     if (!problem) return child;
-    const { evidence: _evidence, question: _question, ...rest } = child;
+    const { evidence: _evidence, question: _question, partner: _partner, ...rest } = child;
     return { ...rest, result: `${child.question === undefined ? "Result" : "Question"} withheld: ${problem}` };
   }
 

@@ -42,6 +42,7 @@ export const BRIDGE_HOT_TOOL_NAMES: ReadonlySet<string> = new Set([
   "select_computer",
   "attach_file",
   "post_to_room",
+  "request_partner_relay",
   "post_to_thread",
   "request_credential",
   "request_sign_in",

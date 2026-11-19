@@ -337,6 +337,9 @@ const TOOL_DEFINITIONS = [
       required: ["group_id", "message"],
     },
   },
+  { name: "request_partner_relay", description: "Ask the delegating bot to interpret or present your final result to the person. Takes effect when your work completes.", inputSchema: {
+    type: "object", additionalProperties: false, properties: { reason: { type: "string", description: "What the delegating bot needs to do with the result." } }, required: ["reason"],
+  } },
   THREAD_POST_TOOL_DEFINITION,
   {
     name: "create_bot",
@@ -758,6 +761,7 @@ export function fullInputSchema(name: string): unknown {
 
 function catalogTools(profile: CatalogProfile) {
   const BOT_SCOPED_TOOLS = TOOL_DEFINITIONS.filter((tool) =>
+    (profile.workPartner || tool.name !== "request_partner_relay") &&
     (profile.botId === WATCHER_OPTIONS_CARD_BOT_ID || !WATCHER_TOOL_NAMES.has(tool.name)) &&
     (profile.computerSelection === true || tool.name !== "select_computer") &&
     (profile.room !== true || !ROOM_REFUSED_TOOL_NAMES.has(tool.name)) &&

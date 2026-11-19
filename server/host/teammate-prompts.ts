@@ -65,7 +65,7 @@ export function createTeammatePrompts(deps: TeammatePromptDeps) {
           : card ? "stopped on a card waiting for the person in that teammate's thread; tell the person to open it" : "working on it now",
         ...(card?.kind === "question" && card.label ? { question: escapeNotes(card.label).slice(0, 400) } : {}) };
     });
-    return ` Assignments you already sent are still outstanding, and nothing in this conversation cancelled them: ${JSON.stringify(listed)}. Do not resend them, do not poll or wait for them, and do not tell the user they were lost. Each result returns to this conversation on its own and resumes you then. To change or add to one, send the change to the same teammate with coordinate_bots, with its threadId as thread: it goes into that work, answering the question it waits on or reaching the turn running it. Answer the message above with that work still in flight.`;
+    return ` Assignments you already sent are still outstanding, and nothing in this conversation cancelled them: ${JSON.stringify(listed)}. Do not resend them, do not poll or wait for them, and do not tell the user they were lost. ${pending.some(node => node.partner) ? "Your work partner replies directly here unless it requests a follow-up." : "Each result returns to this conversation on its own and resumes you then."} To change or add to one, send the change to the same teammate with coordinate_bots, with its threadId as thread: it goes into that work, answering the question it waits on or reaching the turn running it. Answer the message above with that work still in flight.`;
   }
 
   const unattendedWork = (botId: string, threadId: string): boolean => deps.isUnattended(botId, threadId) || deps.startedOutside(threadId);

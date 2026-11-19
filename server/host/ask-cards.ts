@@ -12,6 +12,7 @@ import type { RuntimeEvent } from "../contracts.ts";
 import type { HandoffView } from "../coordinator.ts";
 import { buildNotification, type Notification } from "../notify.ts";
 import type { RequestAuth } from "../request-auth.ts";
+import { appendAtRequest } from "./work-partner.ts";
 import { isStopCommand } from "../room-holds.ts";
 import { needsInputQuestion } from "../runtime-coordinator.ts";
 import { withDefault } from "../runtime/questions.ts";
@@ -25,7 +26,7 @@ const NEEDS_INPUT_LINE = /^needs input:/i;
 
 export interface AskCardsDeps {
   store: Pick<Store, "bot" | "messagesFor" | "activePath" | "appendMessage" | "patchMessage" | "taskByThread" | "patchTask" | "group"
-    | "groupTaskByThread" | "patchGroup" | "groupByThread">;
+    | "insertMessageAfter" | "groupTaskByThread" | "patchGroup" | "groupByThread">;
   node(id: string): HandoffView | undefined;
   /** The conversation that handed this one its work, while that work is live. */
   delegatorOf(threadId: string): { threadId: string; botId?: string } | undefined;
@@ -40,6 +41,8 @@ export interface AskCardsDeps {
   answerCard(input: { auth: RequestAuth; threadId: string; requestId: string; behavior: "answer"; message: string }): Promise<{ ok: true } | { ok: false; status: number; error: string }>;
   /** The conversation a card in `threadId` was asked in: an inbox copy's original. */
   answeredIn(threadId: string, requestId: string): string;
+  partnerIn?(threadId: string): HandoffView | undefined;
+  maySharePartner?(node: HandoffView, parent: HandoffView): boolean;
   now?: () => number;
 }
 
@@ -78,15 +81,49 @@ export function createAskCards(deps: AskCardsDeps) {
   const now = deps.now ?? Date.now;
   const waitingOnPersonChips = new Map<string, { threadId: string; messageId: string; name: string; kind: string }>();
 
+  function mirrorQuestion(node: HandoffView, parent: HandoffView, source: Message): boolean {
+    const bot = store.bot(node.botId);
+    if (!bot || !node.partner || !source.card?.requestId || source.card.requestType !== "question" ||
+      !deps.maySharePartner?.(node, parent)) return false;
+    const copy = store.messagesFor(parent.threadId).find(row => row.partnerQuestion?.assignmentId === node.id && row.card?.requestId === source.card?.requestId);
+    if (copy) {
+      if (JSON.stringify(copy.card) !== JSON.stringify(source.card)) store.patchMessage(parent.threadId, copy.id, { card: source.card });
+    } else {
+      appendAtRequest(store, parent.threadId, node.partner.messageId, { role: "bot", kind: "options", card: source.card, text: source.text,
+        from: { botId: bot.id, name: bot.name, color: bot.color }, replyToId: node.partner.messageId,
+        partnerQuestion: { assignmentId: node.id, threadId: node.threadId } });
+      store.patchTask(parent.botId, parent.threadId, { unread: true });
+    }
+    return true;
+  }
+
+  function syncPartnerCards(node: HandoffView) {
+    const parent = node.partner && node.parentId ? deps.node(node.parentId) : undefined;
+    if (!parent) return;
+    for (const copy of store.messagesFor(parent.threadId).filter(row => row.partnerQuestion?.assignmentId === node.id)) {
+      const source = store.messagesFor(node.threadId).find(row => row.card?.requestId === copy.card?.requestId);
+      if (source) mirrorQuestion(node, parent, source);
+    }
+  }
+
   function showWaitingOnPersonChip(threadId: string, requestId: string, asker: BotRecord, kind: "approval" | "answer") {
     const delegator = delegatorOf(threadId);
     if (!delegator || delegator.threadId === threadId || deps.copiedInto(delegator.threadId, asker.id, threadId)) return;
+    const partner = kind === "answer" ? deps.partnerIn?.(threadId) : undefined;
+    const parent = partner?.parentId ? deps.node(partner.parentId) : undefined;
+    const source = partner && store.messagesFor(threadId).find(row => row.card?.requestId === requestId);
+    if (partner && parent && source && mirrorQuestion(partner, parent, source)) return;
     const chip = store.appendMessage(delegator.threadId, { role: "bot", kind: "activity",
       from: { botId: asker.id, name: asker.name, color: asker.color },
       tool: { name: `Waiting on your ${kind} in @${asker.name}`, nameCode: kind === "approval" ? "chat.notice.waitingApprovalElsewhere" : "chat.notice.waitingAnswerElsewhere", nameParams: { name: asker.name } },
       threadRef: { botId: asker.id, threadId, title: store.taskByThread(asker.id, threadId)?.title ?? asker.name },
     });
     waitingOnPersonChips.set(`${threadId}:${requestId}`, { threadId: delegator.threadId, messageId: chip.id, name: asker.name, kind });
+  }
+
+  function syncIn(threadId: string) {
+    const node = deps.partnerIn?.(threadId);
+    if (node) syncPartnerCards(node);
   }
 
   function settleWaitingOnPersonChips(threadId: string, resolved?: Extract<RuntimeEvent, { type: "request.resolved" }>) {
@@ -133,6 +170,20 @@ export function createAskCards(deps: AskCardsDeps) {
     message.kind === "activity" && (message.threadRef?.threadId ?? message.comm?.threadId) === node.threadId && message.tool?.name === chip
     && message.at >= (node.startedAt ?? node.createdAt));
 
+  function parkedPartner(node: HandoffView, parent: HandoffView | undefined): boolean {
+    if (!node.partner || !parent) return false;
+    if (!deps.maySharePartner?.(node, parent)) return true;
+    const ids = node.cards ?? [`${OPEN_QUESTION}${node.id}-${node.executions}`];
+    const cards = askersLines(node).filter(row => row.card?.requestId && ids.includes(row.card.requestId));
+    return cards.some(row => mirrorQuestion(node, parent, row));
+  }
+
+  function existingParent(parent?: HandoffView) {
+    if (!parent) return undefined;
+    const task = parent.groupId ? store.groupTaskByThread(parent.groupId, parent.threadId) : store.taskByThread(parent.botId, parent.threadId);
+    return task ? parent : undefined;
+  }
+
   /** `restored`: a restart parks it again, and nothing already shown is shown twice. */
   function park(node: HandoffView, question: string, restored?: boolean) {
     if (!node.parentId && node.cards?.length) return;
@@ -148,11 +199,10 @@ export function createAskCards(deps: AskCardsDeps) {
     const title = store.taskByThread(bot.id, node.threadId)?.title ?? "Teammate work";
     const chip = `${bot.name} needs your input: ${withDefault(question).question.slice(0, 180)}`;
     const group = parent?.groupId ? store.group(parent.groupId) : undefined;
-    let liveParent: HandoffView | undefined;
-    if (parent?.groupId) liveParent = group && store.groupTaskByThread(group.id, parent.threadId) ? parent : undefined;
-    else if (parent) liveParent = store.taskByThread(parent.botId, parent.threadId) ? parent : undefined;
+    const liveParent = existingParent(parent);
     const asksWithCard = Boolean(node.parentId && !node.cards?.length);
     const posted = asksWithCard && questionCard(node, question);
+    if (parkedPartner(node, liveParent)) return;
     if (restored && (asksWithCard ? !posted : !liveParent || chipShown(liveParent.threadId, node, chip))) return;
     if (liveParent && !(asksWithCard && deps.copiedInto(liveParent.threadId, bot.id, node.threadId))) {
       store.appendMessage(liveParent.threadId, {
@@ -240,8 +290,10 @@ export function createAskCards(deps: AskCardsDeps) {
     const id = requestId.startsWith(OPEN_QUESTION) ? requestId.slice(OPEN_QUESTION.length).replace(/-\d+$/, "") : "";
     const node = id ? deps.node(id) : undefined;
     const message = store.messagesFor(threadId).find((candidate) => candidate.card?.requestId === requestId && !candidate.inbox);
+    if (node?.partner && (node.threadId !== threadId || node.status !== "waiting" || requestId !== `${OPEN_QUESTION}${node.id}-${node.executions}`)) throw new Error("This partner question is no longer open.");
     if (!node || node.status !== "waiting" || node.question === undefined || node.cards?.length || !message?.card || !deps.answerNode(node.id, text)) return false;
     store.patchMessage(threadId, message.id, { card: { ...message.card, answered: "answer", answeredText: text, answeredBy: undefined } });
+    syncPartnerCards(node);
     return true;
   }
 
@@ -277,5 +329,5 @@ export function createAskCards(deps: AskCardsDeps) {
     questionCard({ id: `${botId}-${turnId}`, threadId, botId, executions: 1, createdAt: reply.at, startedAt: reply.at } as HandoffView, question);
   }
 
-  return { park, remind, decided, closed, askedAgain, answerParked, answeredInWords, typed, ownQuestion, showWaitingOnPersonChip, settleWaitingOnPersonChips };
+  return { syncPartnerCards, syncIn, park, remind, decided, closed, askedAgain, answerParked, answeredInWords, typed, ownQuestion, showWaitingOnPersonChip, settleWaitingOnPersonChips };
 }

@@ -46,6 +46,7 @@ export interface HandoffView {
   text: string;
   createdAt: number;
   requestBatchKey?: string;
+  partner?: Assignment["partner"];
   /** Its reply only acknowledged (runtime/status-reply.ts). */
   statusOnly?: boolean;
   status: HandoffStatus;
@@ -111,6 +112,7 @@ export interface HandoffOpener {
 }
 
 export interface HandoffOptions {
+  partnerMessageId?: string;
   mode?: Mode;
   reply?: Reply;
   thread?: "standing" | "new";
@@ -144,6 +146,7 @@ export interface LiveHandoffEdge {
 
 /** Every method may throw; the runtime logs a throw and reads it as "not now". */
 export interface CoordinatorHost {
+  committedRelay?(node: HandoffView): string | undefined;
   /** Recheck addresses and route permission immediately before every dispatch. */
   validate(node: HandoffView, parent?: HandoffView): string | undefined;
   busy(node: HandoffView): boolean;
@@ -151,7 +154,7 @@ export interface CoordinatorHost {
   holdReason?(node: HandoffView): string;
   /** For a root this is the person's own conversation continuing: person-visible, never internal. */
   run(node: HandoffView, resumed: boolean, signal: AbortSignal, composed: ComposedTurn): Promise<HostTurnResult>;
-  report(child: HandoffView, parent?: HandoffView): void;
+  report(child: HandoffView, parent?: HandoffView): import("./runtime/types.ts").PartnerDelivery | void;
   changed(groupIds: ReadonlySet<string>, directThreadIds: ReadonlySet<string>): void;
   names(node: HandoffView, parent?: HandoffView): EnvelopeNames;
   /** `restored` shows the question again only if the first showing never happened; a root parked on its own cards shows nothing more. */
@@ -182,6 +185,8 @@ export interface Coordinator {
   node(id: string): HandoffView | undefined;
   /** The conversation the running assignment `id` may answer with a one-way notice: its requester, when it was handed
    * with reply none outside rooms. */
+  retryPartnerRelay(rootId: string, attempt: number): boolean;
+  requestPartnerRelay(id: string, reason: string): boolean;
   answersTo(id: string): { botId: string; threadId: string } | undefined;
   has(id: string): boolean;
   /** Every row of the last thirty days, parsed: for tests and one-off tools, never for a path a turn takes. */

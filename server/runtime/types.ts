@@ -78,6 +78,9 @@ export type Outcome =
 export type Level = ApprovalMode;
 export type LevelSource = "own" | "chief" | "engine_cap";
 
+export type PartnerDelivery = "direct" | "relay" | "cancelled" | "unavailable";
+export interface WorkPartnerAssignment { messageId: string; relay?: string; delivery?: PartnerDelivery }
+
 export interface Assignment {
   id: string;
   rootId: string;
@@ -117,12 +120,13 @@ export interface Assignment {
    * runs, activity the host reports through progress(), written on a coarse cadence. */
   lastActivityAt: number;
   finishedAt?: number;
-  /** What the assignee last said or how it ended (at most 12 000 characters). */
+  /** The assignee’s final text. Bound partner work retains its full deliverable. */
   result: string;
   /** What the harness observed of the turn (commands, files, tool counts),
    * attached to the report as evidence. Never model text. */
   evidence?: TurnEvidence;
-  /** The report reached the requester's conversation. */
+  partner?: WorkPartnerAssignment;
+  /** The runtime finished handling this assignment’s report. */
   reportedAt?: number;
   /** The same brief to the same assignee under one parent is one request;
    * a repeat lands on it unless rework is set. */
@@ -211,6 +215,7 @@ export interface InboxItem {
 }
 
 export interface EnqueueRequest {
+  partner?: WorkPartnerAssignment;
   /** The requesting conversation's own running assignment; absent when a new root opens. */
   parentId?: string;
   origin: Origin;
@@ -308,6 +313,7 @@ export interface EnvelopeNames {
 
 /** What the runtime needs from the server. No method may throw into the runtime: a throw is logged and read as "not now". */
 export interface TurnRunner {
+  committedRelay?(node: Assignment): string | undefined;
   /** Recheck addresses and routes right before every dispatch. A string
    * refuses the assignment with that reason. */
   validate(a: Assignment, parent?: Assignment): string | undefined;
@@ -324,7 +330,7 @@ export interface TurnRunner {
   remind?(a: Assignment, closesAt: number): void;
   /** A settled child, into its requester's conversation (a chip, a line), or
    * a root that ended alone, into its own. Called once per settlement. */
-  report(a: Assignment, parent?: Assignment): void;
+  report(a: Assignment, parent?: Assignment): PartnerDelivery | void;
   /** Rows changed: refresh what shows them. */
   changed(assignments: readonly Assignment[]): void;
   /** Display names for the envelope of a turn (ids are the fallback). */

@@ -12,6 +12,7 @@ export interface AgentsConversation {
   bot: NonNullable<Parameters<typeof roleToolEnv>[0]> & { id: string; computer?: string; xResearch?: boolean; toolsOff?: readonly string[] };
   /** A room's thread: rooms refuse widgets, pages and a computer pick. */
   room: boolean;
+  workPartner?: boolean;
   /** Only bots or automation drive it (`botDrivenConversation`): no turn in it is a person's own message to pick a computer for. */
   botDriven?: boolean;
   /** `x`: a research credential is held (a treg key or a plan's); `research`: research works for it too; `appHosting`:
@@ -34,6 +35,7 @@ const flag = (on: boolean) => (on ? "1" : "0");
 export function agentsServerEnv(conversation: AgentsConversation, turn: AgentsTurn, bearer: (turn: AgentsTurn) => string, harnessUrl: string): Record<string, string> {
   const { bot, host } = conversation;
   return {
+    ...(conversation.workPartner ? { OMB_WORK_PARTNER: "1" } : {}),
     ...AGENTS_PROXY_ENV,
     OMB_HARNESS_URL: harnessUrl,
     OMB_BOT_ID: bot.id,

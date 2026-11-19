@@ -156,7 +156,7 @@ export function titleFromLlm(raw: string): string | null {
 
 export type { BotRecord } from "./bot-record.ts";
 
-export type BotWirePrivateKeys = "promptOverrides" | "modelPrefixOverrides" | "resumeCursors" | "mainThreadChoice" | "tasks" | "avatarUrl" | "approvalGrant" | "lastProfileRequestId" | "lastTeamSetupReceipt" | "packageBase" | "assignedSkills";
+export type BotWirePrivateKeys = "promptOverrides" | "modelPrefixOverrides" | "workPartnerIds" | "resumeCursors" | "mainThreadChoice" | "tasks" | "avatarUrl" | "approvalGrant" | "lastProfileRequestId" | "lastTeamSetupReceipt" | "packageBase" | "assignedSkills";
 export type BotWireProjection = Pick<BotRecord, Exclude<keyof BotRecord, BotWirePrivateKeys>>;
 export type BotWireProjectionIsExact = AssertExact<Omit<WireBot, "avatarUrl" | "tasks">, BotWireProjection> & AssertSameKeys<Omit<WireBot, "avatarUrl" | "tasks">, BotWireProjection>;
 export const botWireProjectionIsExact: BotWireProjectionIsExact = true;
@@ -1132,13 +1132,13 @@ export class Store {
     return path.reverse();
   }
 
-  markTerminalAssistantMessage(threadId: string, turnId: string): Message | null {
+  markTerminalAssistantMessage(threadId: string, turnId: string, partnerRelayReceipt?: Message["partnerRelayReceipt"]): Message | null {
     const path = this.activePath(threadId);
     for (let i = path.length - 1; i >= 0; i -= 1) {
       const message = path[i];
       if (message.role === "bot" && message.kind === "text" && message.turnId === turnId) {
         if (message.turnTerminal) return message;
-        return this.patchMessage(threadId, message.id, { turnTerminal: true, turnCompletedAt: Date.now() });
+        return this.patchMessage(threadId, message.id, { turnTerminal: true, turnCompletedAt: Date.now(), partnerRelayReceipt });
       }
     }
     return null;
@@ -1534,7 +1534,7 @@ export class Store {
     return changed;
   }
 
-  patchBotProfile(id: string, patch: BotProfilePatch & Partial<Pick<BotRecord, "cwd" | "browserProfile" | "lastProfileRequestId" | "promptOverrides" | "modelPrefixOverrides">>): BotRecord | null {
+  patchBotProfile(id: string, patch: BotProfilePatch & Partial<Pick<BotRecord, "cwd" | "browserProfile" | "lastProfileRequestId" | "promptOverrides" | "modelPrefixOverrides" | "workPartnerIds">>): BotRecord | null {
     const bot = this.bot(id);
     if (!bot) return null;
     const next = { ...bot, ...reshowWhenMoved(bot, patch) };

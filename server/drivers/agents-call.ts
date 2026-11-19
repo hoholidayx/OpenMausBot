@@ -186,6 +186,15 @@ function recallWhen(at: unknown, dateOnly: boolean): string {
   return dateOnly ? day : `${day} ${pad(said.getHours())}:${pad(said.getMinutes())}`;
 }
 
+async function callPartnerRelay(args: Json, context: ToolCallContext): Promise<ToolCallResult> {
+  const result = await context.client.api("/api/internal/partner-relay", { method: "POST", body: JSON.stringify({
+    fromBotId: context.botId, fromThreadId: context.threadId, reason: args.reason,
+  }) });
+  return result.error ? { text: String(result.error), isError: true } : { text: "Requested. Finish your work with the material to relay." };
+}
+
+const THREAD_TOOLS = new Map<string, typeof callPartnerRelay>([[THREAD_POST_TOOL, callThreadPostTool], ["request_partner_relay", callPartnerRelay]]);
+
 export async function callTool(called: string, input: Json, context: ToolCallContext): Promise<ToolCallResult> {
   const { name, arguments: given } = resolveAgentsCall(called, input);
   const args = dropBlankArguments(name, given);
@@ -382,7 +391,8 @@ export async function callTool(called: string, input: Json, context: ToolCallCon
       text: `Posted in ${r.roomName ?? "the room"}${r.attachedVoiceNote ? " with the voice note attached" : ""}. Nobody's turn was started, so expect no reply — tell the user it is posted.`,
     };
   }
-  if (name === THREAD_POST_TOOL) return callThreadPostTool(args, context);
+  const postTool = THREAD_TOOLS.get(name);
+  if (postTool) return postTool(args, context);
   if (name === RENAME_THREAD_TOOL) return callRenameThreadTool(args, context);
   if (name === "select_computer") {
     if (args.surface !== undefined && (typeof args.surface !== "string" || !["auto", "cloud", "vm", "local", "browser"].includes(args.surface))) {

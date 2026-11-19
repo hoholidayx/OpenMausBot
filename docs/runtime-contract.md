@@ -16,6 +16,7 @@ This replaces the two delegation systems, the six wake lanes, the dozen clocks a
 | `assignee` | Which bot, in which thread (a work thread, the standing thread, a room thread: `room_thread` is a member's own turn in a room, or work handed into one). |
 | `mode` | `work`, `consult` (answer, act on nothing), `notify` (one-way). |
 | `reply` | `resume` (wake the requester), `poll` (inbox only), `none`. |
+| `partner` | A directly delegated work partner records the originating user message, an optional relay request, and its delivery disposition. |
 | `status`, `outcome`, `outcomeDetail` | Section 2. |
 | `level`, `levelSource` | Section 3. Computed at enqueue, recorded, never patched onto a thread. |
 | `executions`, `restarts`, `restart` | Turns started; restart bookkeeping (section 5). |
@@ -47,6 +48,12 @@ queued ──admit──> running ──turn ends──> completed | failed | ca
 - **Cancel** cascades down the tree, aborts running turns, and is itself a terminal outcome (`stopped`) that is reported.
 - **Stop awaiting** (the person stops the requester's conversation, a bot's thread or a room thread): children that never started are cancelled; running children keep their process and still report; the requester's node is cancelled and nothing resumes it. Stop in a room is this for the room thread, then the room's remaining rows are cancelled.
 - **A goal run routes its own steps.** A room goal step's node (`goalRunId`) ends plainly however its turn ended: the run reassigns around a member that could not get its seat, and a step that left a card open ends; the runtime never runs a step a second time, and after a restart a step's rerun is refused (the run ended with the restart), silently.
+
+### Bound work in a private chat
+
+When a person’s private chat delegates work directly to its bound partner, the chat remains available for new messages. The worker’s successful or failed result is delivered to the original request under the worker’s name. A direct delivery schedules zero requester turns. A partner question is copied to the original chat with its assignment and question IDs so an answer on that card goes to the worker.
+
+A worker can explicitly request a relay. The requester then has one follow-up turn to present the material. At settlement, a committed reply in the originating chat acknowledges that relay attempt. If the relay fails or completes with no visible answer, the server publishes the worker’s result and available files under its own name. The worker’s assignment ID deduplicates the fallback across retries and restarts. If the person switches branches before the relay can start, the worker’s result goes to the originating branch. Retrying a failed presentation reuses the completed work. Delivery rechecks both threads and current access. Cancellation and loss of access suppress the pending result. [Isolated verification](verification/async-bot-partner.md)
 
 ## 3. One level rule
 

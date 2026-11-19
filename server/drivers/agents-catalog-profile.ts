@@ -5,6 +5,7 @@ import { toolsOffFromEnv, type ToolGroup } from "../../shared/tool-groups.ts";
 /** Which tools a conversation is shown, the same on every one of its turns. Presentation only: the server still
  * authenticates and scopes every call. */
 export interface CatalogProfile {
+  workPartner?: boolean;
   skillAuthoring: boolean;
   sharedComputers: boolean;
   voiceNotes: boolean;
@@ -40,6 +41,7 @@ export interface CatalogProfile {
 /** Everything is off unless the harness says "1". */
 export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
   return {
+    workPartner: env.OMB_WORK_PARTNER === "1",
     skillAuthoring: env.OMB_SKILL_AUTHORING_ENABLED === "1",
     sharedComputers: env.OMB_SHARED_COMPUTERS_ENABLED === "1",
     voiceNotes: env.OMB_VOICE_NOTES === "1",

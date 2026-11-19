@@ -67,6 +67,7 @@ const assignmentSchema = z.object({
   result: z.string(),
   evidence: evidenceSchema.optional(),
   statusOnly: z.boolean().optional(),
+  partner: z.object({ messageId: z.string(), relay: z.string().optional(), delivery: z.enum(["direct", "relay", "cancelled", "unavailable"]).optional() }).optional(),
   reportedAt: z.number().optional(),
   rework: z.boolean(),
   question: z.string().optional(),

@@ -1,3 +1,4 @@
+import { WorkPartner } from "../bot-settings/WorkPartner";
 import { useState } from "react";
 import { AppWindow, AudioLines, Bell, ChevronRight, ExternalLink, Eye, FileText, ShieldCheck, Slack, Tag } from "lucide-react";
 
@@ -198,6 +199,7 @@ export function SettingsPage({ bot, derived, onOpen, editingInstructions = false
       </Card>
 
       <Card anchor="replies">
+        <WorkPartner key={bot.id} botId={bot.id} />
         <SwitchRow
           data-panel-row="notifications"
           icon={Bell}

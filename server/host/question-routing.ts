@@ -62,7 +62,7 @@ export function createQuestionRouting(deps: QuestionRoutingDeps) {
     if (input.level !== "full" || personOnly(input.question)) return undefined;
     const node = deps.active().find((n) => n.threadId === input.threadId && n.botId === input.botId && n.status === "running" && n.parentId !== undefined);
     const requester = node?.parentId ? deps.node(node.parentId) : undefined;
-    if (!node || !requester || node.origin?.kind === "outside" || deps.keptPrivate(node, requester)) return undefined;
+    if (!node || node.partner || !requester || node.origin?.kind === "outside" || deps.keptPrivate(node, requester)) return undefined;
     return `Not asked: at this level nobody is interrupted. Take the sensible default yourself, carry on, and say in one plain line what you chose. If you truly cannot choose, end your turn with NEEDS INPUT:, the question and Default: your pick, and @${store.bot(requester.botId)?.name ?? "your requester"} decides.`;
   }
 

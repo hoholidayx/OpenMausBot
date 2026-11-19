@@ -21,11 +21,13 @@ import { LentComputers, provenRequestPerson, SharedComputers, sharedComputerOper
 import { cloudHomeLendingRefusal, cloudHomeOwnTurnRefusal, createCloudRoutineAuthors, ownerOnlyConversation } from "./cloud-lending.ts"; import { createOwnHome, oneOwner, selfHostedPersonName } from "./own-home.ts"; import { assertRoomFolder } from "./room-folder.ts"; import { cloudConnectedAppsBrokerUrl, startCloudHomeConnectedApps, stopCloudHomeConnectedApps } from "./cloud-connected-apps.ts"; import { createTeamConnectionsHost } from "./host/team-connections-host.ts"; import { createCloudLendingTurns } from "./host/cloud-lending-turns.ts"; import { createTeamConnectionRoutes } from "./routes/team-connections.ts";
 import { botMemoryFiles, createLendingMemory } from "./lending-memory.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
-import { STATUS_REPLY_TIMEOUT_MS } from "./runtime/status-reply.ts"; import { createCoordinator, type ComposedTurn, type CoordinateBotsCall, type Coordinator, type HandoffOpener, type HandoffOptions, type HandoffView, type HostTurnResult } from "./coordinator.ts";
+import { STATUS_REPLY_TIMEOUT_MS } from "./runtime/status-reply.ts"; import { createCoordinator, type ComposedTurn, type CoordinateBotsCall, type Coordinator, type CoordinatorHost, type HandoffOpener, type HandoffView, type HostTurnResult } from "./coordinator.ts";
 import { queuedBehindPersonText, turnWaitedOnPerson, UnansweredApprovals } from "./waiting-on-person.ts";
 import { createPersonWaits } from "./host/person-waits.ts"; import { askToolName, createAskCards } from "./host/ask-cards.ts"; import { createQuestionRouting } from "./host/question-routing.ts"; import { workThreadFor } from "./host/work-thread.ts"; import { leaveThreadPost, postToThread, threadWaitsOn, unreadThreadPosts } from "./host/thread-posts.ts"; import { anyCardLive, closedByStop, resumableCards as cardsWaitedOn } from "./host/resumable-cards.ts"; import { createMcpChat } from "./host/mcp-chat.ts"; import { isCardOwnerLive, isMcpSignInCard } from "./host/mcp-sign-in-cards.ts"; import { createConnectCardSettle } from "./host/connect-card-settle.ts";
 import { assertRequestTarget, guardedRequestPath, requestConflict, requestNeedsInput } from "./guarded-requests.ts";
 import { botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
+import { committedPartnerRelay, coordinationRouting, deliverPartner, finishPartnerRelay, partnerBrief, partnerReceipt, partnerSource } from "./host/work-partner.ts";
+import { workPartnerRoutes } from "./routes/work-partner.ts";
 import { createBotPromptRoutes } from "./routes/bot-prompts.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 
@@ -1018,8 +1020,19 @@ function isLegacyMemoryRequest(threadId: string, requestId: string): boolean {
   return isLegacyMemoryCard(card);
 }
 
-function cardAnswerRefusal(auth: RequestAuth, threadId: string, requestId: string, behavior: string): string | null {
+function storedCardRefusal(threadId: string, requestId: string): string | null {
   if (isLegacyMemoryRequest(threadId, requestId)) return LEGACY_MEMORY_DISABLED;
+  const copy = store.messagesFor(threadId).find(row => row.partnerQuestion && row.card?.requestId === requestId);
+  if (!copy?.partnerQuestion) return null;
+  const node = coordinator.node(copy.partnerQuestion.assignmentId);
+  const parent = node?.parentId ? coordinator.node(node.parentId) : undefined;
+  return node && parent && maySharePartner(node, parent) ? null : "This partner question is no longer available.";
+}
+
+function cardAnswerRefusal(auth: RequestAuth, threadId: string, requestId: string, behavior: string): string | null {
+  const partnerRefusal = storedCardRefusal(threadId, requestId);
+  if (partnerRefusal) return partnerRefusal;
+
   if (auth.kind === "loopback") {
     return auth.trust === "service" && behavior !== "deny"
       ? "A local service can only decline this request. Approve or answer it in OpenMausBot while signed in."
@@ -1690,7 +1703,7 @@ function agentsIntegration(
   const bot = store.bot(botId), speaking = botForThread(botId, threadId) ?? bot;
   // Only advertises the tools; the routes behind them refuse regardless.
   const host = agentsCatalogHost(speaking);
-  return { ...agentsProxyLaunch(), env: agentsServerEnv({ threadId, bot: bot ?? { id: botId }, room: Boolean(store.groupByThread(threadId)), botDriven: automated || botDrivenConversation(store.taskByThread(botId, threadId)), host },
+  return { ...agentsProxyLaunch(), env: agentsServerEnv({ threadId, workPartner: Boolean(roomHandoffId && coordinator.node(roomHandoffId)?.partner), bot: bot ?? { id: botId }, room: Boolean(store.groupByThread(threadId)), botDriven: automated || botDrivenConversation(store.taskByThread(botId, threadId)), host },
     { generation, depth, skillAuthoring, roomHandoffId, ...(hostFiles && !CLOUD_HOME && !HOSTED_WORKSPACE ? { deliversSavedFiles: true } : {}) },
     (turn) => mintInternalCapability({ botId, threadId, kind: "agents", createdBots: 0, openedThreads: 0, ...turn }), `http://127.0.0.1:${PORT}`) };
 }
@@ -2742,7 +2755,7 @@ const wireTask = (task: TaskRecord, botModel: ModelSelection, awaiting = threads
 
 /** Strips provider session ids (resumeCursors) here, not at call sites, so no broadcast or paired phone ever gets them. */
 const wireBot = (bot: BotRecord, onlyThreadId?: string): WireBot => {
-  const { promptOverrides: _promptOverrides, modelPrefixOverrides: _modelPrefixOverrides, resumeCursors: _resumeCursors, tasks, approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, mainThreadChoice: _mainThreadChoice , ...rest } = bot;
+  const { promptOverrides: _promptOverrides, modelPrefixOverrides: _modelPrefixOverrides, workPartnerIds: _workPartnerIds, resumeCursors: _resumeCursors, tasks, approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, mainThreadChoice: _mainThreadChoice , ...rest } = bot;
   // Clients see Ask while an elevated grant awaits the desktop's confirmation, never a grant that may still roll back.
   const visible = approvalGrant && !approvalGrant.threadOnly
     ? { ...rest, approvalMode: "ask" as const, autoApprove: false }
@@ -2762,7 +2775,7 @@ function toolScopeForTurn(botId: string) {
 }
 
 const wireTrustedApprovalBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
-  const { promptOverrides: _promptOverrides, modelPrefixOverrides: _modelPrefixOverrides, resumeCursors: _resumeCursors, tasks, approvalGrant: _approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, mainThreadChoice: _mainThreadChoice , ...rest } = bot;
+  const { promptOverrides: _promptOverrides, modelPrefixOverrides: _modelPrefixOverrides, workPartnerIds: _workPartnerIds, resumeCursors: _resumeCursors, tasks, approvalGrant: _approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, mainThreadChoice: _mainThreadChoice , ...rest } = bot;
   const awaiting = threadsAwaitingTeammates();
   return { ...rest, approvalMode: approvalModeFor(rest), mainThreadId: botMainThread(bot.id), avatarUrl: rest.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection, awaiting)) } : {}) };
 };
@@ -3716,8 +3729,87 @@ function followupAtBoot(threadId: string): "dispatched" | "pending" | undefined 
 }
 const followupEndedRoots = new Map<string, string | undefined>();
 
-const askCards = createAskCards({ store, node: (id) => coordinator.node(id), delegatorOf, notify, answerCard: respondToCard, answerNode: (id, text) => coordinator.answerNode(id, text),
-  answeredIn: (threadId, requestId) => automationReports.answeredIn(teamMessages.inbox.answeredIn(threadId, requestId), requestId), live: (threadId, requestId) => askMessageByRequest.has(`${threadId}:${requestId}`),
+function boundRequest(call: CoordinateBotsCall, sender: BotRecord, capability: InternalCapability) {
+  const root = coordinator.node(capability.roomHandoffId ?? capability.generation);
+  const messageId = capability.generation === EXTERNAL_RUNTIME_GENERATION ? undefined : directRequestOwners.get(capability.threadId)?.messageId;
+  return (targets: string[]) => partnerSource(call, sender, targets, root, messageId);
+}
+
+const THREAD_DELIVERY_ROUTES = new Set(["/api/internal/partner-relay", "/api/internal/post-to-thread"]);
+
+function deliverToThread(path: string, body: Record<string, unknown>, capability: InternalCapability, sender: BotRecord,
+  coordinateBots: Parameters<typeof postToThread>[1]["coordinateBots"]) {
+  if (path === "/api/internal/partner-relay") return requestRelay(capability, sender, body.reason);
+  return postToThread(body, { senderId: sender.id, fromThreadId: capability.threadId, store, coordinateBots,
+    waitsOn: threadId => threadWaitsOn(coordinator, capability.roomHandoffId ?? capability.generation, threadId) });
+}
+
+function requestRelay(capability: InternalCapability, sender: BotRecord, reason: unknown) {
+  const node = coordinator.node(capability.roomHandoffId ?? capability.generation);
+  const parent = node?.parentId ? coordinator.node(node.parentId) : undefined;
+  if (!node?.partner || node.botId !== sender.id || node.threadId !== capability.threadId || !parent || !maySharePartner(node, parent)) {
+    return { status: 403, body: { error: "No active work partner assignment." } };
+  }
+  if (typeof reason !== "string" || !reason.trim() || reason.length > 2000) return { status: 400, body: { error: "Give a brief reason." } };
+  if (!coordinator.requestPartnerRelay(node.id, reason.trim())) return { status: 409, body: { error: "The assignment ended." } };
+  return { status: 200, body: { accepted: true } };
+}
+
+function publishPartnerResult(child: HandoffView, parent: HandoffView, stage: "worker-finished" | "relay-fallback") {
+  return deliverPartner(store, child, parent, maySharePartner(child, parent), handoffFiles.returnedWith(child, parent),
+    serverLine(threadLanguage(parent.threadId), "server.partner.empty"), markTaskContextExternallyUpdated, stage);
+}
+
+function reportRoot(child: HandoffView) {
+  parkedSeats.delete(child.id);
+  const followupEnded = followupEndedRoots.has(child.id);
+  const followupLine = followupEndedRoots.get(child.id);
+  followupEndedRoots.delete(child.id);
+  if (finishPartnerRelay(store, child, coordinator.children(child.id), serverLine(threadLanguage(child.threadId), "server.partner.relayFailed"),
+    (worker, parent) => publishPartnerResult(worker, parent, "relay-fallback"))) return;
+  if (child.status === "completed" || child.outcome === "stopped" || (followupEnded && !followupLine)) return;
+  if (child.goalRunId) return;
+  const room = child.groupId ? store.group(child.groupId) : undefined;
+  if (child.groupId ? !room || !store.groupTaskByThread(room.id, child.threadId) : !store.taskByThread(child.botId, child.threadId)) return;
+  const cause = followupLine ?? (child.outcome === "interrupted" && child.outcomeDetail ? child.outcomeDetail : child.result);
+  const member = room ? store.bot(child.botId) : undefined;
+  store.appendMessage(child.threadId, { role: "bot", kind: "activity",
+    ...(member ? { from: { botId: member.id, name: member.name, color: member.color } } : {}), tool: failedTurnTool(cause) });
+  if (room) store.markGroupThreadUnread(room.id, child.threadId, true);
+  else store.patchTask(child.botId, child.threadId, { unread: true });
+  return;
+}
+
+function partnerResultReadable(row: NonNullable<ReturnType<Coordinator["status"]>>["assignment"]): boolean {
+  if (!row.partner) return true;
+  const child = coordinator.node(row.id);
+  const parent = child?.parentId ? coordinator.node(child.parentId) : undefined;
+  return Boolean(child && parent && maySharePartner(child, parent));
+}
+
+function maySharePartner(child: HandoffView, parent: HandoffView): boolean {
+  return !roomHandoffProblem(child, parent) && !keptPrivate({ child: teamHost.privateTo(child.threadId), parent: teamHost.privateTo(parent.threadId) });
+}
+function relayReceipt(threadId: string): Message["partnerRelayReceipt"] {
+  const root = coordinator.runningIn(threadId).find(node => !node.parentId && node.executions > 1);
+  if (root && coordinator.children(root.id).some(child => child.partner?.delivery === "relay")) return { rootId: root.id, attempt: root.executions };
+}
+function runOnRequestBranch(run: CoordinatorHost["run"]): CoordinatorHost["run"] {
+  return async (node, resumed, signal, composed) => {
+    if (!node.parentId && node.executions > 1) {
+      const requests = coordinator.children(node.id).flatMap(child => child.partner?.delivery === "relay" ? [child.partner.messageId] : []);
+      if (requests.length && !store.activePath(node.threadId).some(row => requests.includes(row.id))) return { ok: true, text: "" };
+    }
+    return run(node, resumed, signal, composed);
+  };
+}
+function answeredIn(threadId: string, requestId: string): string {
+  const copy = store.messagesFor(threadId).find(row => row.partnerQuestion && row.card?.requestId === requestId);
+  return copy?.partnerQuestion?.threadId ?? automationReports.answeredIn(teamMessages.inbox.answeredIn(threadId, requestId), requestId);
+}
+const askCards = createAskCards({ store, partnerIn: id => coordinator.runningIn(id).find(node => node.partner),
+  maySharePartner, node: (id) => coordinator.node(id), delegatorOf, notify, answerCard: respondToCard, answerNode: (id, text) => coordinator.answerNode(id, text),
+  answeredIn, live: (threadId, requestId) => askMessageByRequest.has(`${threadId}:${requestId}`),
   copiedInto: (inboxThreadId, botId, threadId) => Boolean(CLOUD_TEAM) && teamMessages.inbox.isHomeOf(inboxThreadId, teamOwners.routing.askedPerson(botId, threadId)) });
 const questionRouting = createQuestionRouting({ store, handedInUnproven, active: () => coordinator.active(), node: (id) => coordinator.node(id), parkedFor: (botId) => coordinator.parkedFor(botId), answerNode: (id, text, by) => coordinator.answerNode(id, text, by), live: (threadId, requestId) => askMessageByRequest.has(`${threadId}:${requestId}`),
   unattended: (botId, threadId) => teammatePrompts.unattendedWork(botId, threadId),
@@ -3735,9 +3827,10 @@ const handoffTicks = createHandoffTicks(), coordinator: Coordinator = createCoor
     botOfThread: threadId => store.botByThread(threadId)?.id,
   },
   host: { holdReason: (node) => queuedStatus(node), statusReply: (requester, prompt, signal) => sideJobs.text("status-reply", requester)?.generateText(prompt, { signal, timeoutMs: STATUS_REPLY_TIMEOUT_MS }) ?? Promise.resolve(undefined),
+    committedRelay: root => committedPartnerRelay(store, root),
     validate: (node, parent) => node.mode === "notify" && node.status !== "queued" ? undefined
       : !node.parentId && node.groupId ? roomRootProblem(node)
-      : roomHandoffProblem(node, parent),
+      : node.partner && parent && !maySharePartner(node, parent) ? "The work can no longer be shared with this conversation." : roomHandoffProblem(node, parent),
     busy: n => {
       if (parkedSeatTaken(n.id)) return true;
       if (n.groupId) return Boolean(store.bot(n.botId)?.busy || groupThreadIsWorking(n.groupId, n.threadId));
@@ -3759,22 +3852,9 @@ const handoffTicks = createHandoffTicks(), coordinator: Coordinator = createCoor
       if (directThreadIds.size > 0) drainQueuedSends();
     },
     report: (child, parent) => {
-      askCards.closed(child); if (child.outcome === "expired" && child.cards?.length) stopCards(child.threadId, new Set(child.cards));
+      askCards.closed(child); askCards.syncPartnerCards(child); if (child.outcome === "expired" && child.cards?.length) stopCards(child.threadId, new Set(child.cards));
       if (!parent) {
-        parkedSeats.delete(child.id);
-        const followupEnded = followupEndedRoots.has(child.id);
-        const followupLine = followupEndedRoots.get(child.id);
-        followupEndedRoots.delete(child.id);
-        if (child.status === "completed" || child.outcome === "stopped" || (followupEnded && !followupLine)) return;
-        if (child.goalRunId) return;
-        const room = child.groupId ? store.group(child.groupId) : undefined;
-        if (child.groupId ? !room || !store.groupTaskByThread(room.id, child.threadId) : !store.taskByThread(child.botId, child.threadId)) return;
-        const cause = followupLine ?? (child.outcome === "interrupted" && child.outcomeDetail ? child.outcomeDetail : child.result);
-        const member = room ? store.bot(child.botId) : undefined;
-        store.appendMessage(child.threadId, { role: "bot", kind: "activity",
-          ...(member ? { from: { botId: member.id, name: member.name, color: member.color } } : {}), tool: failedTurnTool(cause) });
-        if (room) store.markGroupThreadUnread(room.id, child.threadId, true);
-        else store.patchTask(child.botId, child.threadId, { unread: true });
+        reportRoot(child);
         return;
       }
       // A notice's failure is marked in its own thread, so a restart's recovery cannot send it again.
@@ -3785,6 +3865,7 @@ const handoffTicks = createHandoffTicks(), coordinator: Coordinator = createCoor
         }
         return;
       }
+      if (child.partner) return publishPartnerResult(child, parent, "worker-finished");
       if (child.kind === "assignment" && child.status === "completed") return;
       const group = parent.groupId ? store.group(parent.groupId) : undefined;
       if (parent.groupId ? !group || !store.groupTaskByThread(group.id, parent.threadId) : !store.taskByThread(parent.botId, parent.threadId)) return;
@@ -3818,7 +3899,7 @@ const handoffTicks = createHandoffTicks(), coordinator: Coordinator = createCoor
           { botId: parent.botId, name: store.bot(parent.botId)?.name ?? childTask.openedBy.name, at: Date.now() });
       }
     },
-    run: handoffFiles.around(async (node, resumed, signal, composed: ComposedTurn) => {
+    run: runOnRequestBranch(handoffFiles.around(async (node, resumed, signal, composed: ComposedTurn) => {
       const group = node.groupId ? store.group(node.groupId) : undefined;
       const bot = store.bot(node.botId)!; if (node.answeredBy) askCards.decided(node, (node.answeredBy.kind === "bot" ? store.bot(node.answeredBy.botId)?.name : undefined) ?? bot.name);
       if (!node.parentId && !group && !resumed) return runRootTurn(node, bot, signal, composed);
@@ -3891,7 +3972,7 @@ const handoffTicks = createHandoffTicks(), coordinator: Coordinator = createCoor
           undefined, error => { result.stopReason = error; }, () => operation.cancelled,
           () => groupProviderHandshakeStarted(operation), () => groupProviderHandshakeSettled(operation),
           { claimed: true }, { roomHandoffId: node.id, resumed, systemInstructions, turnInstructions: brief, turnNote: composed.note, reviewRoom: composed.reviewRoom, liveRoster, followMentions: false, result, coordination }, operation), composed.turn !== "first");
-    }),
+    })),
     names: (node, parent) => {
       const scope = parent ?? node;
       const person = personNameIn(scope.threadId);
@@ -4662,6 +4743,7 @@ async function answerRequest(
     const settled = store.messagesFor(threadId).find((m) => m.id === cardMessage.id)?.card;
     if (settled) {
       store.patchMessage(threadId, cardMessage.id, { card: { ...settled, answeredText: message } });
+      askCards.syncIn(threadId);
     }
   }
   // Record only verdicts that reached the engine; a question's answer is not a decision.
@@ -4708,7 +4790,7 @@ async function respondToCard(input: {
   callId?: string;
   via?: DecisionVia;
 }): Promise<CardRespondResult> {
-  const { auth, requestId, behavior, message, callId, via } = input, threadId = automationReports.answeredIn(teamMessages.inbox.answeredIn(input.threadId, requestId), requestId);
+  const { auth, requestId, behavior, message, callId, via } = input, threadId = answeredIn(input.threadId, requestId);
   // A call outlives the request that started it: the session must still be valid.
   if (auth.kind === "session" && !sessions.isLive(auth.session.id)) {
     return { ok: false, status: 401, error: "The session that started this call has ended." };
@@ -4886,6 +4968,14 @@ const watchdog = new TurnWatchdog({
     release.unref?.();
   },
 });
+function handoffResultText(event: Extract<RuntimeEvent, { type: "turn.completed" }>): string {
+  const reply = event.ok ? store.messagesFor(event.threadId).findLast(row => row.role === "bot" && row.kind === "text" && row.turnId === event.turnId)?.text : undefined;
+  const partner = coordinator.runningIn(event.threadId).some(node => node.partner);
+  if (partner && event.ok) return reply ?? "";
+  const text = event.ok ? reply || event.stopReason || "The bot finished without a text reply" : stoppedTurnText(event.threadId, event.turnId, undefined, event.stopReason);
+  return text.slice(0, 12_000);
+}
+
 watchdog.start(); const idleThreads = createIdleThreads({ store, claims: directTurnDispatchClaims, generations: directTurnGenerationByThread, drain: drainQueuedSends, engineTurn: (threadId) => runningTurnEngines.has(threadId) || liveTurns.running(threadId) !== undefined || settlingTurns.has(threadId), settle: (botId, threadId) => { watchdog.settle(threadId); settleDirectFollowup(directTurnGenerationByThread.get(threadId)); stopScreenPoller(botId, threadId); directTurnBots.delete(threadId); }, releaseComputer: (botId, threadId) => { releaseTurnResources(turnResourceOwners.get(threadId)); releaseLocalVmThread(threadId); vpsThreadEnded(botId, threadId); } }); const peerLimitResend = createPeerLimitResend<NonNullable<Parameters<typeof startTurn>[2]>, DirectTurnOutcome>({ store, registry, takeover: () => limitTakeover, turnStops, hostedModels: null, providerConfigs, quotaSwitchEnabled: () => quotaSwitchEnabled(), policyModelRefusal, checkedTaskModelSwitch, assertWithinBudget: () => {}, handedOff: (id) => coordinator.node(id)?.parentId !== undefined, guest: (threadId) => guestDrivenTurns.has(threadId) || cloudGuestDriven(threadId), generation: (threadId) => directTurnGenerationByThread.get(threadId), blocked: (botId, threadId) => botHolds.held(botId) || threadBusy(botId, threadId) || hasQueuedSteeredMessages(botId, threadId) || Boolean(directRequestOwners.get(threadId)?.stopped), settle: settleDirectCoordination, release: (generation) => directCoordinationSettlers.delete(generation), failedLine: (threadId, detail) => serverLine(threadLanguage(threadId), "server.peerResend.failed", { detail }), startTurn }); // bot-to-bot turns whose AI met its usage limit before anything ran go once to the backup AI
 
 bus.subscribe((event: RuntimeEvent) => {
@@ -4899,12 +4989,9 @@ bus.subscribe((event: RuntimeEvent) => {
     watchdog.settle(event.threadId);
     revokeInternalCapabilityForProviderEvent(event);
     if (event.turnId && store.botByThread(event.threadId)) {
-      const reply = event.ok ? store.messagesFor(event.threadId).findLast(message =>
-        message.role === "bot" && message.kind === "text" && message.turnId === event.turnId)?.text : undefined;
-      const text = event.ok ? reply || event.stopReason || "The bot finished without a text reply"
-        : stoppedTurnText(event.threadId, event.turnId, undefined, event.stopReason);
+      const deliveredText = handoffResultText(event);
       const stop = event.ok ? undefined : turnStops.read(event.threadId, event.turnId), handoffPath = stop?.handoffPath, failure = stop?.cause ?? stop?.error;
-      const outcome: DirectTurnOutcome = { ok: event.ok, text: unansweredApprovals.annotate(event.threadId, event.turnId, text.slice(0, 12_000), event.ok), ...approvalAsk(store.botByThread(event.threadId)?.id, event.threadId, event.turnId),
+      const outcome: DirectTurnOutcome = { ok: event.ok, text: unansweredApprovals.annotate(event.threadId, event.turnId, deliveredText, event.ok), ...approvalAsk(store.botByThread(event.threadId)?.id, event.threadId, event.turnId),
         ...(handoffPath ? { cap: { note: STEP_CAP_NOTE, handoffPath } } : {}), ...(event.ok ? {} : { failure: { text: failure ?? "", stopReason: event.stopReason } }) };
       const owner = directFollowupTurns.complete(event.threadId, event.turnId, outcome);
       if (owner) {
@@ -6088,7 +6175,6 @@ bus.subscribe((event: RuntimeEvent) => {
     }
     case "request.resolved": {
       if (event.requestId) pendingCommandRules.delete(`${event.threadId}:${event.requestId}`);
-      if (event.requestId) askCards.settleWaitingOnPersonChips(event.threadId, event);
       const waiting = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
       if (bot && turnWaitedOnPerson(store.taskByThread(bot.id, event.threadId))) {
         store.setTaskActivity(bot.id, event.threadId, "working");
@@ -6114,6 +6200,8 @@ bus.subscribe((event: RuntimeEvent) => {
         }
         if (event.requestId) askMessageByRequest.delete(`${event.threadId}:${event.requestId}`);
       }
+      askCards.settleWaitingOnPersonChips(event.threadId, event);
+      askCards.syncIn(event.threadId);
       break;
     }
     case "turn.retrying":
@@ -6155,7 +6243,7 @@ bus.subscribe((event: RuntimeEvent) => {
       const stopped = event.stopReason === "interrupted" || clientStopped;
       landParkedFiles();
       if (completedTurnId) {
-        const terminal = store.markTerminalAssistantMessage(event.threadId, completedTurnId);
+        const terminal = store.markTerminalAssistantMessage(event.threadId, completedTurnId, event.ok ? relayReceipt(event.threadId) : undefined);
         if (terminal) store.patchMessage(event.threadId, terminal.id, { turnSucceeded: event.ok });
         if (bot && event.ok) store.suggestTaskLink(bot.id, event.threadId, store.activePath(event.threadId)
           .filter((message) => message.role === "bot" && message.kind === "text" && message.turnId === completedTurnId)
@@ -7885,6 +7973,7 @@ async function beginTurn(
           place: phones.place(threadId, !(commsDepth > 0 || opts?.automationSource !== undefined || opts?.unattended || opts?.peerAsk || opts?.coordination)),
         }),
         { id: "coordination", label: "Team and who is speaking", text: PROVENANCE_PROMPT + (coordinationPrompt && !apiFenced ? ` ${coordinationPrompt}` : "") }, teamRosterPart(coordinationPrompt && !apiFenced ? teamPrompt.roster : ""),
+        { id: "work-partner", label: "Work partner", text: partnerBrief(bot, sectionPeers, automated, agentsMounted) },
         { id: "assignment", label: "Teammate task", text: coordinationNode?.parentId ? `\n${coordinationSystemInstructions()}` : "" },
         { id: "outstanding", label: "Outstanding teammate work", text: teammatePrompts.outstanding(threadId) },
         { id: "teammate-questions", label: "Teammates' questions to the person", text: teammatePrompts.questions(liveBot ?? bot, threadId) },
@@ -11432,7 +11521,7 @@ ROUTES.push(createBotMessageRoutes({
   turnSelection, policyModelRefusal, clearUnattended, drainQueuedSends, answeringCardAs, resolveAndSendTrust, resolveAndSendTeamSetup, resolveAndSendMcp,
   resolveAndSendRoutine, resolveAndSendProfile, resolveAndSendModel, resolveSkillRequest, sendSkillResolution, answerRequest,
   deliverLateQuestionAnswer, stopThreadForPerson, cancelDirectTurnDispatch, revokeInternalCapabilitiesForThread,
-  cancelGroupTurnOperations, closeOpenApprovals, harnessCardOutcome, answeredIn: (threadId, requestId) => automationReports.answeredIn(teamMessages.inbox.answeredIn(threadId, requestId), requestId), pressRecords: proactive.brief.pressRecords, serverPress: (bot, threadId, messageId, action, auth) => proactive.brief.serverPress(bot, threadId, messageId, action, auth),
+  cancelGroupTurnOperations, closeOpenApprovals, harnessCardOutcome, answeredIn, pressRecords: proactive.brief.pressRecords, serverPress: (bot, threadId, messageId, action, auth) => proactive.brief.serverPress(bot, threadId, messageId, action, auth),
   goals: oneOnOneGoals, inboxReply: teamMessages.replyIn, typedCardAnswer: askCards.typed, ...(CLOUD_TEAM ? { teamAiOwnerName: () => teamAiOwner(teamOwners.people?.list() ?? [], teamHost.personName)?.name ?? "" } : {}),
   relayedReaction: (threadId, messageId, person, emoji) => void store.setReaction(threadId, messageId, relayedPersonKey(person),
     { emoji, name: person.name ?? person.email, at: Date.now() }),
@@ -11471,6 +11560,18 @@ ROUTES.push(createBotCreateRoutes({
   personaliseSetupCard: (bot) => setupSuggestions.personalise(bot.id), chiefChanged: (changed) => chiefRooms.moved(changed),
 }), createTeamOwnerRoutes({ team: CLOUD_TEAM, people: teamOwners.people, store, presence: teamPresence.of, record: (auth, row) => appendAdminAction(DATA_DIR, { ...row, actor: decisionActorFor(auth) }), sees: (auth, botId) => visibleTo(viewerFor(auth)).bot(botId), publicBot,
   profileOf: (email) => teamHost.people.profile(personKey({ id: "", email })) }));
+ROUTES.push(workPartnerRoutes({ store,
+  mayEdit: (auth, bot) => visibleTo(viewerFor(auth)).bot(bot.id) && (!CLOUD_HOME || cloudOwnerSession(auth) || levelOf(auth, bot.id) === "edit"),
+  retry: (auth, id, threadId, rootId, attempt) => {
+    const root = coordinator.node(rootId);
+    if (!root || root.botId !== id || root.threadId !== threadId || !visibleTo(viewerFor(auth)).bot(id) || cloudThreadRefusal(auth, threadId) || !threadShown(auth)(threadId)) return false;
+    const failure = store.activePath(threadId).find(row => row.partnerRelayFailure?.rootId === rootId && row.partnerRelayFailure.attempt === attempt);
+    if (!failure?.partnerRelayFailure || !coordinator.retryPartnerRelay(rootId, attempt)) return false;
+    store.patchMessage(threadId, failure.id, { partnerRelayFailure: { ...failure.partnerRelayFailure, retried: true } });
+    return true;
+  },
+  candidates: (auth, bot) => personalReach.peers(store.bots, bot, bot.threadId).filter(peer => visibleTo(viewerFor(auth)).bot(peer.id)),
+}));
 ROUTES.push(createBotPromptRoutes({
   store, preview: previewSystemPrompt,
   prefix: (bot) => modelSystemPrefixes.setting(bot, registry.get(bot.modelSelection.instanceId)),
@@ -12917,14 +13018,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const running = store.projectBotForTask(internalSender.id, address.threadId) ?? internalSender;
           coordinator.beginTurn({ id: generation, address, brief: call.message, level: approvalModeForTurn(running, true, address.threadId), ...(opener ? { opener } : {}) });
         }
-        const mode: NonNullable<HandoffOptions["mode"]> = call.consult ? "consult" : call.reply === "none" ? "notify" : "work";
-        const reply: NonNullable<HandoffOptions["reply"]> = call.reply === "none" ? "none" : EXTERNAL ? "poll" : "resume";
-        const returns = reply === "none" ? "nothing comes back from it" : reply === "poll" ? "read its result with assignment_status" : "its result will resume you";
+        const requestFor = boundRequest(call, internalSender, internalCapability);
+        const { mode, reply, returns } = coordinationRouting(call, EXTERNAL, requestFor(botIds));
         const roomTargets = targets.filter(target => target.groupId).length, lanes = roomTargets > 0 && roomJobs.useLanes(destination!, roomThreadId!, roomTargets, mode);
         const receipts: PeerDeliveryReceipt[] = [];
         const refused: string[] = [];
         const answeredForPerson = new Set<PeerDeliveryReceipt>();
         for (const target of targets) {
+          const partnerMessageId = requestFor([target.botId]);
+          const { mode, reply, returns } = coordinationRouting(call, EXTERNAL, partnerMessageId);
           let createdThread: string | undefined;
           const room = target.groupId ? destination : undefined;
           try {
@@ -12959,6 +13061,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const routed = lane ? { botId: target.botId, threadId: lane.threadId } : target;
             outsideLineage.carry(address.threadId, routed.threadId);
             const { node, duplicate } = coordinator.enqueue(address, generation, internalCapability.roomHandoffId, routed, call.message, {
+              partnerMessageId,
               mode, reply, thread: lane || fresh || steersOwn || postsOwn ? "new" : "standing", rework: call.rework, ...(lane ? {} : { requestBatchKey }), ...(fanOut ? { fanOut } : {}), ...(call.ownThread || steersOwn || postsOwn ? { ownThread: true } : {}),
               ...(call.doneWhen ? { doneWhen: call.doneWhen } : {}),
             });
@@ -13010,7 +13113,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const lead = destination && sent ? roomJobs.describeRoomJobs(destination, roomThreadId!, receipts,
           { senderId: internalSender.id, returns, lanes, awaited: reply !== "none" }) : "";
         if (EXTERNAL) coordinator.endTurn(generation, { ok: sent, text: sent ? "" : refused.join("; ") });
-        const message = coordinateResultMessage(reply, answeredOnly);
+        const partnerOnly = partnerReceipt(receipts, coordinator);
+        const message = partnerOnly ? "Accepted asynchronously. Your partner delivers the result directly to this conversation. Continue with your own part." : coordinateResultMessage(reply, answeredOnly);
         return { status: sent ? 200 : 409, body: { receipts, ...(sent ? { message: lead ? `${lead} ${message}` : message } : { error: refused.join("; ") }),
           ...(EXTERNAL && sent ? { rootId: generation } : {}) } };
       };
@@ -13023,18 +13127,18 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const shape = (a: Row) => ({
           id: a.id, botId: a.assignee.botId, botName: store.bot(a.assignee.botId)?.name ?? a.assignee.botId, status: a.status,
           ...(a.outcome !== undefined ? { outcome: a.outcome } : {}), ...(a.outcomeDetail !== undefined ? { outcomeDetail: a.outcomeDetail } : {}),
-          result: a.result, ...(a.question !== undefined ? { question: a.question } : {}), mode: a.mode, reply: a.reply, ...queuedWaiting(a.id),
+          result: a.result, partner: a.partner, ...(a.question !== undefined ? { question: a.question } : {}), mode: a.mode, reply: a.reply, ...queuedWaiting(a.id),
           createdAt: a.createdAt, ...(a.startedAt !== undefined ? { startedAt: a.startedAt } : {}), ...(a.finishedAt !== undefined ? { finishedAt: a.finishedAt } : {}),
         });
           // Only this conversation's own tree; a row of another conversation is refused.
         const owned = (a: Row) => coordinator.node(a.rootId)?.threadId === fromThreadId;
-        const reachable = (a: Row) => { const target = store.bot(a.assignee.botId); return !target || target.id === internalSender.id || canReach(internalSender, target) || personalReach.reaches(internalSender, target, fromThreadId); };
+        const reachable = (a: Row) => { if (!partnerResultReadable(a)) return false; const target = store.bot(a.assignee.botId); return !target || target.id === internalSender.id || canReach(internalSender, target) || personalReach.reaches(internalSender, target, fromThreadId); };
         if (!id) {
           const outstanding = coordinator.outstandingFor(fromThreadId).flatMap(n => { const row = coordinator.status(n.id)?.assignment; return row && reachable(row) ? [shape(row)] : []; });
           return json(res, 200, { outstanding });
         }
         if (internalCapability.delegatedThisTurn?.has(id)) {
-          return json(res, 409, { error: `Assignment ${id} was handed out during this turn. Finish your response now so the teammate can work; its result returns to this conversation and resumes you. Do not check or wait for it until a later turn.` });
+          return json(res, 409, { error: `Assignment ${id} was handed out during this turn. Finish your response now so the teammate can work; delivery follows the assignment receipt. Do not check or wait for it until a later turn.` });
         }
         const waitMs = Math.min(Math.max(Number(url.searchParams.get("wait_ms")) || 0, 0), 240_000);
         const deadline = Date.now() + waitMs;
@@ -13059,7 +13163,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               for (const lane of lanes.values()) coordinator.poll(lane);
             }
             const current = coordinator.status(id) ?? status;
-            return json(res, 200, { assignment: shape(current.assignment), children: current.children.map(shape), inbox: current.inbox });
+            return json(res, 200, { assignment: shape(current.assignment), children: current.children.filter(partnerResultReadable).map(shape), inbox: current.inbox });
           }
           await new Promise((wake) => setTimeout(wake, 500));
         }
@@ -13082,7 +13186,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const result = await handoffFiles.coordinate({ paths, answers, senderId: internalSender.id, recipients: botIds.length, saveOne: async (path) => saveTurnFile(internalCapability, internalSender.id, await attachmentVmForTurn(internalCapability), path, undefined, true),
           send: (files) => coordinateBots({ groupId, botIds, message, reason: reason || undefined, rework, thread, title: title || undefined, reply, consult, inMyFolder, doneWhen: doneWhen || undefined, ...(answers ? { answers } : {}), ...(files ? { files } : {}) }) }); refusedHandoffs.settled(internalCapability.threadId, internalSender, botIds, result.status);
         return json(res, result.status, result.body);
-      } if (method === "POST" && path === "/api/internal/post-to-thread") { const posted = await postToThread(await readInternalBody(), { senderId: internalSender.id, fromThreadId: internalCapability.threadId, store, coordinateBots, waitsOn: (threadId) => threadWaitsOn(coordinator, internalCapability.roomHandoffId ?? internalCapability.generation, threadId) }); return json(res, posted.status, posted.body); }
+      }
+      if (method === "POST" && THREAD_DELIVERY_ROUTES.has(path)) {
+        const body = await readInternalBody();
+        requireActiveInternalCapability();
+        const result = await deliverToThread(path, body, internalCapability, internalSender, coordinateBots);
+        return json(res, result.status, result.body);
+      }
       if (method === "GET" && path === "/api/internal/room-targets") {
         const source = store.groupByThread(internalCapability.threadId);
         if (source && (source.dm || !inRoom(source, internalSender.id))) {

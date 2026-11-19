@@ -4,6 +4,7 @@ import { PHONE_LAYOUT, useMediaQuery } from "@/lib/use-media-query";
 import { ThreadLinkContext } from "@/components/ThreadLinkMenu";
 import { useShowThreads } from "@/lib/thread-preferences";
 import { AlertTriangle, ChevronLeft, ChevronRight, Monitor, RefreshCw, Square, Webhook } from "lucide-react";
+import { PartnerAuthor, PartnerRelayFailure } from "./WorkPartnerMessage";
 import { WorkingDots } from "@/components/WorkingIndicator";
 import { ChatBusyContext, CopyButton, MESSAGE_ROW, MessageActions, messageActionClass, ReplyAction } from "@/components/MessageActions";
 import { ReactAction, ReactionChips } from "@/components/Reactions";
@@ -415,6 +416,7 @@ const Bubble = memo(function Bubble({
   return (
     <div {...{ [MESSAGE_ROW]: "" }} data-look={user ? "message-user" : "message-bot"} className={cn("group flex w-full flex-col", user ? "animate-msg-in items-end" : "items-start", simple && join?.above && SIMPLE_STACKED)}>
       {message.relay ? <RelayLabel message={message} /> : peer && <PeerLabel peer={peer} />}
+      <PartnerAuthor message={message} />
       {speaker && <div className="mb-0.5 px-1 text-right text-[13px] [overflow-wrap:anywhere] font-semibold text-ink-secondary">{speaker}</div>}
       <div className={cn("chat-message-line flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
@@ -614,6 +616,10 @@ const ActivityChip = memo(function ActivityChip({ message, place = "auto" }: { m
 });
 
 const RoomHandoffChip = ({ message, comm, bots, dispatch, threadId }: { message: Message; comm: NonNullable<Message["comm"]>; bots: readonly Bot[]; dispatch: Dispatch<Action>; threadId: string }) => { const store = useStoreRef(); return <HandoffChip message={message} bots={bots} threadId={threadId} title={t("chat.openConversationWith", { name: comm.withName })} onClick={() => openRoomThread(dispatch, comm, store.state().groups)} />; };
+function transcriptRows(item: ReturnType<typeof groupTranscript>[number]) {
+  return item.kind === "message" ? [item.message] : item.messages;
+}
+
 const MessagesList = memo(function MessagesList({
   messages: saved,
   transcript,
@@ -653,7 +659,7 @@ const MessagesList = memo(function MessagesList({
   onRegenerate: () => void;
   onReply: (message: Message) => void;
 }) {
-  const { botId, threadId, botName, botColor, bots, hasMore, focus, showToolCalls, locale, simple = false } = useChatRows(), busy = use(ChatBusyContext);
+  const { botId, threadId, botName, botColor, bots, hasMore, focus, showToolCalls, locale, canReact, simple = false } = useChatRows(), busy = use(ChatBusyContext);
   const messages = useLiveTranscript(threadId, saved, transcript);
   // A finished turn keeps the bot's progress lines and folds only its tool steps under "Worked for", in both modes.
   const items = useMemo(() => groupTranscript(messages), [messages, locale]);
@@ -677,10 +683,11 @@ const MessagesList = memo(function MessagesList({
     <PeerMessagesContext value={transcript}>
       {items.map((item, i) => {
         const previous = items[i - 1];
-        const prev = previous && (previous.kind === "message" ? previous.message : previous.messages.at(-1));
-        const first = item.kind === "message" ? item.message : item.messages[0];
+        const prev = previous && transcriptRows(previous).at(-1);
+        const rows = transcriptRows(item);
+        const first = rows[0];
         const newDay = needsStamp(prev, first, simple);
-        const divider = dividerAbove(item.kind === "message" ? [item.message] : item.messages);
+        const divider = dividerAbove(rows);
         if (item.kind === "turn" || item.kind === "run") {
           if (!showToolCalls) return divider && <div key={item.id} className="contents">{divider}</div>;
           const forceOpen = item.messages.some((step) => step.id === focusedId);
@@ -696,7 +703,7 @@ const MessagesList = memo(function MessagesList({
           );
         }
         const m = item.message;
-        const row = (() => {
+        const row = m.partnerRelayFailure ? <PartnerRelayFailure botId={botId} threadId={threadId} {...m.partnerRelayFailure} canRetry={canReact} /> : (() => {
           if (isCancelledTranscriptRow(m)) {
             return (
               <CancelledTurnRow

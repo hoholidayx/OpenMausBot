@@ -538,6 +538,13 @@ export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCard
   at: number;
   /** the message this one follows; null = thread root. */
   parentId?: string | null;
+  /** A copy of the named assignment’s question. Answers go to its source thread. */
+  partnerQuestion?: { assignmentId: string; threadId: string };
+  /** Durable acknowledgement of a committed relay execution, used during restart recovery. */
+  partnerRelayReceipt?: { rootId: string; attempt: number };
+  partnerRelayFailure?: { rootId: string; attempt: number; retried?: boolean };
+  partnerResultId?: string;
+  partnerResultFailed?: boolean;
   /** Optional flat reply reference for an inline quote. */
   replyToId?: string;
   /** Stable client identity for at-most-once chat POST retries. */

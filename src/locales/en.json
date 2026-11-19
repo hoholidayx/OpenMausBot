@@ -1,4 +1,10 @@
 {
+  "server.partner.relayFailed": "The partner finished, but the follow-up reply failed.",
+  "workPartner.retryRelay": "Retry reply",
+  "botSettings.workPartner": "Work partner",
+  "botSettings.noWorkPartner": "No work partner",
+  "botSettings.partnerUnavailable": "Unavailable partner",
+  "server.partner.empty": "The work ended without a reply or a file.",
   "connectedWorkspaces.localTitle": "Environments on this computer",
   "connectedWorkspaces.missing": "missing",
   "connectedWorkspaces.current": "Current",

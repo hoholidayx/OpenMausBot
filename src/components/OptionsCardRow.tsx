@@ -9,15 +9,20 @@ import { isQuestionCard } from "@/lib/question-card";
 import type { Asker } from "./AskCard";
 import { AskingLine } from "./TeamOwner";
 
-/**
- * Called, not mounted: a quiz that dropped out must come back as null so the transcript draws no row and no day
- * separator.
- */
 function typedPast(card: Message, transcript: Message[]): boolean {
+  if (card.partnerQuestion) return false;
   const index = transcript.findIndex((entry) => entry.id === card.id);
   return index >= 0 && transcript.slice(index + 1).some((later) => later.role === "user" && later.kind === "text");
 }
 
+function questionAsker(message: Message, fallback?: Asker): Asker | undefined {
+  return message.partnerQuestion ? message.from ?? fallback : fallback;
+}
+
+/**
+ * Called, not mounted: a quiz that dropped out must come back as null so the transcript draws no row and no day
+ * separator.
+ */
 export function optionsCardRow({ message: m, transcript, botId, botName, botColor, threadId, asker }: {
   message: Message;
   transcript: Message[];
@@ -34,7 +39,7 @@ export function optionsCardRow({ message: m, transcript, botId, botName, botColo
     <HelperIntro botId={botId} threadId={threadId} message={m} answered={shouldHideOnboardingCard(m, transcript)}
       followup={transcript.find((entry) => entry.helperFollowup)} />
   ) : isQuestionCard(m.card) ? (
-    <QuestionCard threadId={threadId} asker={asker ?? (botColor ? { name: botName, color: botColor } : undefined)} message={m} typedPast={typedPast(m, transcript)} />
+    <QuestionCard threadId={threadId} asker={questionAsker(m, asker) ?? (botColor ? { name: botName, color: botColor } : undefined)} message={m} typedPast={typedPast(m, transcript)} />
   ) : m.card?.requestId && m.card.tool ? (
     <ApprovalCard bot={{ name: botName }} message={m} threadId={threadId} />
   ) : shouldHideOnboardingCard(m, transcript) ? null : (

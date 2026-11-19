@@ -7,6 +7,7 @@ This directory contains plans maintained for this fork.
 
 ## Finished plans
 
+- [私聊中绑定工作搭档与异步交付](../finished_plans/async-bot-partner.md)
 - [Bot 提示词清单与编辑范围](../finished_plans/bot-prompts.md)
 
 Historical upstream plans, requirements, and designs are in the

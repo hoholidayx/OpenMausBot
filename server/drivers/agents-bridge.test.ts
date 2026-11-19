@@ -111,7 +111,7 @@ describe("what a bridged turn is listed", () => {
   });
 
   it("names every hot tool the catalog really has, so a renamed tool cannot fall out of the list unnoticed", () => {
-    const everyName = new Set(everyProfile().flatMap(({ profile: turn }) => names(availableTools(turn))));
+    const everyName = new Set(everyProfile().flatMap(({ profile: turn }) => names(availableTools({ ...turn, workPartner: true }))));
     for (const hot of BRIDGE_HOT_TOOL_NAMES) expect(everyName.has(hot), hot).toBe(true);
     // 12 to 16 of them on any one turn, always fewer than the turn has
     for (const { name, profile: turn } of everyProfile()) {
