@@ -47,8 +47,9 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const { dragProps } = useCaptionChrome();
   const [query, setQuery] = useState("");
   const [toolsBotId, setToolsBotId] = useState<string | null>(null);
-  const [promptsBotId, setPromptsBotId] = useState<string | null>(null);
-  const openPrompts = () => setPromptsBotId(bot.id);
+  const [prompts, setPrompts] = useState<{ botId: string; initialPrefix?: boolean; threadId?: string } | null>(null);
+  const openPrompts = () => setPrompts({ botId: bot.id });
+  const openPrefix = (threadId?: string) => setPrompts({ botId: bot.id, initialPrefix: true, threadId });
   const openTools = () => setToolsBotId(bot.id);
   const collapsed = !state.botSettingsExpandAccordion;
   const q = query.trim().toLowerCase();
@@ -68,7 +69,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
 
   const { overview, overviewError, prompt, promptError } = useBotOverview(bot, {
     overview: section === "overview" && !simpleView,
-    prompt: section === "overview" && !simpleView && promptsBotId !== bot.id,
+    prompt: section === "overview" && !simpleView && prompts?.botId !== bot.id,
   });
   const history = useBotHistory(bot, section === "history" && !simpleView);
 
@@ -140,7 +141,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
       case "access":
         return <AccessSection bot={bot} derived={derived} onOpenTools={openTools} />;
       case "model":
-        return <ModelSection bot={bot} />;
+        return <ModelSection bot={bot} onOpenPrefix={() => openPrefix()} />;
       case "permissions":
         return <PermissionsSection bot={bot} derived={derived} />;
       case "voice":
@@ -181,6 +182,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
             bot={bot}
             derived={derived}
             linkedSection={linkedSection}
+            onOpenPrefix={() => openPrefix(bot.threadId)}
             onOpenTools={openTools}
             onOpenPrompts={openPrompts}
             onClose={() => dispatch({ type: "toggleSettings", open: false })}
@@ -274,7 +276,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
         </div>
         </>}
       </aside>
-      {promptsBotId === bot.id && <BotPromptsDialog key={bot.id} bot={bot} onClose={() => setPromptsBotId(null)} />}
+      {prompts?.botId === bot.id && <BotPromptsDialog key={bot.id} bot={bot} initialPrefix={prompts.initialPrefix} threadId={prompts.threadId} onClose={() => setPrompts(null)} />}
       {toolsBotId === bot.id && <BotToolsDialog key={bot.id} bot={bot} engineKind={derived.engine?.driverKind}
         patch={derived.patch} onClose={() => setToolsBotId(null)} />}
       <HistoryRollbackDialog history={history} returnFocusRef={dialogRef} />

@@ -17,13 +17,14 @@ import { linkTarget, usePanelLink } from "./panel-link";
 import { PanelHero } from "./PanelHero";
 import { PageHeader, roundButtonCls } from "./rows";
 
-export function BotPanel({ bot, derived, linkedSection, onClose, onOpenTools, onOpenPrompts }: {
+export function BotPanel({ bot, derived, linkedSection, onClose, onOpenTools, onOpenPrompts, onOpenPrefix }: {
   bot: Bot;
   derived: ReturnType<typeof useBotSettingsDerived>;
   linkedSection: BotSettingsSection | null;
   onClose: () => void;
   onOpenTools: () => void;
   onOpenPrompts?: () => void;
+  onOpenPrefix?: () => void;
 }) {
   const { dragProps } = useCaptionChrome();
   const link = usePanelLink();
@@ -162,7 +163,7 @@ export function BotPanel({ bot, derived, linkedSection, onClose, onOpenTools, on
               </div>
             </div>
             <div role="tabpanel">
-              {tab === "details" && <DetailsTab bot={bot} derived={derived} onOpen={openPage} />}
+              {tab === "details" && <DetailsTab bot={bot} derived={derived} onOpen={openPage} onOpenPrefix={onOpenPrefix} />}
               {tab === "library" && <LibraryTab bot={bot} onOpen={openPage} />}
               {tab === "computer" && <ComputerTab bot={bot} derived={derived} onOpen={openPage} />}
             </div>

@@ -3,7 +3,7 @@ import type { Action, AppState, BotAnnouncement } from "./store";
 
 export interface StoreActions {
   dispatch: Dispatch<Action>;
-  flushBotPatches: (botId: string) => Promise<BotAnnouncement | null>;
+  flushBotPatches: (botId: string, modelScope?: { threadId?: string }) => Promise<BotAnnouncement | null>;
   refreshInstances: (options?: { reportErrors?: boolean; cached?: boolean }) => Promise<void>;
   refreshModels: (instanceId: string) => Promise<void>;
 }

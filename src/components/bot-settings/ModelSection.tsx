@@ -4,12 +4,13 @@ import { cn } from "@/lib/cn";
 import { useStore, type Bot, type InstanceInfo } from "@/state/store";
 import { useBotEditor } from "./BotEditorContext";
 import { ProposalStatus } from "./ProposalStatus";
+import { BotModelPrefixButton } from "./BotModelPrefix";
 import { ThreadModelsLine } from "../ThreadModelsLine";
 import { t } from "@/lib/i18n";
 import { Select } from "../Select";
 import { backupNote } from "@/lib/engine-rail";
 
-export function ModelSection({ bot }: { bot: Bot }) {
+export function ModelSection({ bot, onOpenPrefix }: { bot: Bot; onOpenPrefix?: () => void }) {
   const { state, dispatch } = useStore();
   const { draft } = useBotEditor();
   const modelVariants = state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId)?.capabilities?.modelVariants;
@@ -29,6 +30,7 @@ export function ModelSection({ bot }: { bot: Bot }) {
             </div>
           }
         />
+        {!draft && onOpenPrefix && <BotModelPrefixButton bot={bot} onOpen={onOpenPrefix} />}
         {!draft && <ThreadModelsLine bot={bot} className="mt-3" />}
         {!draft && <div className="mt-3 text-[13px] text-ink-secondary">{t("model.section.installationDefault")}</div>}
       </div>

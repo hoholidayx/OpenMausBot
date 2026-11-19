@@ -25,7 +25,7 @@ it("keys by connection and model, changes only the stable prompt and persists ed
   prefixes.save(one.instanceId, model, "  Prefix one.\n第二行  ");
   prefixes.save(two.instanceId, model, "Prefix two.");
   expect(prefixes.apply(base, one, "Vendor/model")).toBe(base);
-  expect(prefixes.apply(base, one, model, "Another model")).toBe(base);
+  expect(prefixes.apply(base, one, model, { quickModel: "Another model" })).toBe(base);
   expect(prefixes.apply(base, { ...one, driverKind: "claudeAgent" }, model)).toBe(base);
 
   const saved = createModelSystemPrefixes(file);

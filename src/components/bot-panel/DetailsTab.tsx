@@ -2,11 +2,12 @@ import { Calendar, CalendarPlus, ChevronRight, Sparkles } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { useStore, type Bot } from "@/state/store";
+import { currentTaskBot, useStore, type Bot } from "@/state/store";
 import { useChatMoreItems } from "../ChatMoreMenu";
 import { EffortRow, ModelPicker } from "../ModelPicker";
 import type { SidebarMenuItem } from "../SidebarPopoverMenu";
 import type { useBotSettingsDerived } from "../bot-settings/useBotSettingsDerived";
+import { BotModelPrefixButton } from "../bot-settings/BotModelPrefix";
 import { BotConversations } from "./Conversations";
 import type { SimplePageId } from "./page-registry";
 import { TryAsking } from "./TryAsking";
@@ -40,11 +41,13 @@ export function ItemRow({ item }: { item: SidebarMenuItem }) {
   );
 }
 
-export function DetailsTab({ bot, derived, onOpen }: {
+export function DetailsTab({ bot, derived, onOpen, onOpenPrefix }: {
   bot: Bot;
   derived: Derived;
+  onOpenPrefix?: () => void;
   onOpen: (page: SimplePageId) => void;
 }) {
+  const threadBot = currentTaskBot(bot);
   const { items } = useChatMoreItems(bot);
   const { dispatch } = useStore();
   const routinesOn = derived.botRoutines.filter((routine) => routine.enabled).length;
@@ -56,15 +59,16 @@ export function DetailsTab({ bot, derived, onOpen }: {
       <section data-panel-card="model" className="pt-2">
         <div data-panel-row="model" className={cn(rowCls, "rounded-[8px]")}>
           <ModelPicker
-            bot={bot}
+            bot={threadBot}
             contained
             threadId={bot.threadId}
             label={<span className="flex shrink-0 items-center gap-2.5"><RowIcon icon={Sparkles} /><RowText title={t("model.simple.model")} /></span>}
           />
         </div>
+        {onOpenPrefix && <BotModelPrefixButton bot={threadBot} onOpen={onOpenPrefix} />}
         {/* The picker hides its own reasoning row when contained, so this tab draws it as its own row. */}
         <EffortRow
-          bot={bot}
+          bot={threadBot}
           threadId={bot.threadId}
           compact
           className={cn(rowCls, "min-w-0 flex-1 rounded-[8px]")}

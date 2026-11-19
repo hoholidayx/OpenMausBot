@@ -80,11 +80,13 @@ In the isolated settings fixture, select Atlas. Open **Prompts** next to Tools i
 2. Close with Escape, reopen, and verify the edit. Switch to Juniper and verify its reply habits still use the default.
 3. In Atlas, select **Restore default**, inspect the text, and save. Reopen to check that the field follows the default. For **Standing instructions (SOUL)** the built-in default is empty.
 4. At phone width, use the section selector to open the assembled SOUL preview. The text and save controls must remain reachable at both widths.
+5. Connect a loopback chat provider and select the same model for Atlas and Juniper. Save a model-wide prefix in the connection settings. Open **Model system prefix** beside Atlas's model selector, choose **Custom for this bot**, edit and save. Check the first section of the preview. Reopen through **Prompts** and verify the same text. Juniper should still show **Follow model default**.
+6. Set Atlas to **Off for this bot**, then change the model-wide default. Reopen Atlas from **Model** in Advanced mode, choose **Restore default** and save. Reopen and verify the new default text. Repeat with a thread pinned to a different connection through the Simple model selector. The saved override belongs to that bot, connection and model across conversations.
 
 The automated fixture checks the system messages received by a loopback API model in direct and room conversations, per-bot isolation, a stale save, and restoration on a subsequent turn.
 
 ```sh
-pnpm exec vitest run server/bot-prompts.e2e.test.ts
+pnpm exec vitest run server/bot-prompts.e2e.test.ts server/model-system-prefixes.e2e.test.ts
 ```
 
 ## Creation drafts and defaults

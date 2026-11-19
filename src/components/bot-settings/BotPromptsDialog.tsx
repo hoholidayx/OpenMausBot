@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { X } from "lucide-react";
-import type { BotPromptField, BotPromptSetting } from "../../../shared/bot-prompts";
+import type { BotModelPrefixSetting, BotPromptSetting } from "../../../shared/bot-prompts";
 import { BOT_PROFILE_LIMITS } from "../../../shared/bot-profile";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { cn } from "@/lib/cn";
@@ -9,28 +9,35 @@ import { utf8Bytes } from "@/lib/soul";
 import { api, useStore, type Bot } from "@/state/store";
 import { Layer } from "../Layer";
 import { SETTINGS_INPUT } from "../SettingsPrimitives";
+import { PrefixModeSelect, type PrefixMode } from "./BotModelPrefix";
 import type { PromptPreviewData } from "./PromptPreview";
 
-type Catalog = PromptPreviewData & { editable: BotPromptSetting[] };
-type Draft = { base: BotPromptSetting; value: string | null };
-const fieldName = (id: BotPromptField) => t(`botPrompts.${id}`);
+type Field = BotPromptSetting | BotModelPrefixSetting;
+type Catalog = PromptPreviewData & { editable: BotPromptSetting[]; modelPrefix: BotModelPrefixSetting | null };
+type Draft = { base: Field; value: string | null; mode?: PrefixMode; customText?: string };
+type DialogProps = { bot: Bot; onClose: () => void; initialPrefix?: boolean; threadId?: string };
+const prefixId = "model-system-prefix";
+const fieldName = (id: Field["id"]) => id === prefixId ? t("settings.modelSystemPrefix.title") : t(`botPrompts.${id}`);
+const editableFields = (catalog: Catalog) => catalog.modelPrefix ? [catalog.modelPrefix, ...catalog.editable] : catalog.editable;
 const count = (bytes: number) => t("botPrompts.tokens", { tokens: Math.ceil(bytes / 4) });
 
-export function BotPromptsDialog(props: { bot: Bot; onClose: () => void }) {
+export function BotPromptsDialog(props: DialogProps) {
   return <Layer modal><Editor key={props.bot.id} {...props} /></Layer>;
 }
 
-function Editor({ bot, onClose }: { bot: Bot; onClose: () => void }) {
+function Editor({ bot, onClose, initialPrefix, threadId }: DialogProps) {
   const dialog = useRef<HTMLDivElement>(null);
   const title = useId();
   const input = useRef<HTMLTextAreaElement>(null);
   useModalDialog(dialog, onClose);
   const { flushBotPatches } = useStore();
-  const path = `/api/bots/${bot.id}/system-prompt`;
+  const query = new URLSearchParams({ editor: "1" });
+  if (threadId) query.set("threadId", threadId);
+  const path = `/api/bots/${bot.id}/system-prompt?${query}`;
   const [catalog, setCatalog] = useState<Catalog>();
   const [reload, setReload] = useState(0);
-  const [selection, setSelection] = useState("soul");
-  const [drafts, setDrafts] = useState<Partial<Record<BotPromptField, Draft>>>({});
+  const [selection, setSelection] = useState(initialPrefix ? prefixId : "soul");
+  const [drafts, setDrafts] = useState<Partial<Record<Field["id"], Draft>>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -38,22 +45,20 @@ function Editor({ bot, onClose }: { bot: Bot; onClose: () => void }) {
     let active = true;
     setError("");
     setCatalog(undefined);
-    void flushBotPatches(bot.id).then(() => api<Catalog>(`${path}?editor=1`)).then((data) => {
+    void flushBotPatches(bot.id, { threadId }).then(() => api<Catalog>(path)).then((data) => {
       if (!Array.isArray(data.editable)) throw new Error(t("botOverview.promptError"));
-      if (active) setCatalog(data);
+      if (active) {
+        setCatalog(data);
+        if (!data.modelPrefix) setSelection((id) => id === prefixId ? "soul" : id);
+      }
     }).catch((e: Error) => { if (active) setError(e.message); });
     return () => { active = false; };
-  }, [bot.id, flushBotPatches, path, reload]);
+  }, [bot.id, flushBotPatches, path, reload, threadId]);
 
-  const field = catalog?.editable.find(({ id }) => id === selection);
+  const fields = catalog ? editableFields(catalog) : [];
+  const field = fields.find(({ id }) => id === selection);
   const section = catalog?.sections.find(({ id }) => `preview/${id}` === selection);
   const draft = field && drafts[field.id];
-  const override = draft ? draft.value : field?.override;
-  const value = override ?? field?.defaultText ?? "";
-  const bytes = utf8Bytes(value);
-  const edit = (next: string | null) => {
-    if (field) setDrafts({ ...drafts, [field.id]: { base: draft?.base ?? field, value: next } });
-  };
   const save = async () => {
     if (!draft || saving) return;
     const { base } = draft;
@@ -63,6 +68,7 @@ function Editor({ bot, onClose }: { bot: Bot; onClose: () => void }) {
     try {
       const data = await api<Catalog>(path, { method: "PUT", body: JSON.stringify({
         id: base.id, expected: base.override, defaultText: base.defaultText, value: draft.value,
+        ...(base.id === prefixId ? { instanceId: base.instanceId, model: base.model } : {}),
       }) });
       setCatalog(data);
       setDrafts((current) => ({ ...current, [base.id]: undefined }));
@@ -101,31 +107,12 @@ function Editor({ bot, onClose }: { bot: Bot; onClose: () => void }) {
         </div>}
         {!catalog && !error && <p role="status">{t("botOverview.loading")}</p>}
         {catalog && <div className="flex min-h-0 flex-1 flex-col gap-4 sm:flex-row">
-          <PromptPicker catalog={catalog} selection={selection} saving={saving} choose={choose} />
+          <PromptPicker catalog={catalog} fields={fields} selection={selection} saving={saving} choose={choose} />
           <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-            {field && <>
-              <div className="flex items-baseline justify-between gap-2">
-                <label htmlFor={`${title}-text`} className="text-[17px] font-semibold">{fieldName(field.id)}</label>
-                <span className="text-[12px] text-ink-secondary">{t(override == null ? "botPrompts.default" : "botPrompts.custom")}</span>
-              </div>
-              <textarea key={field.id} ref={input} id={`${title}-text`} dir="auto" value={value} disabled={saving} onChange={(e) => edit(e.target.value)}
-                aria-invalid={bytes > BOT_PROFILE_LIMITS.soul}
-                className={`${SETTINGS_INPUT} min-h-0 flex-1 resize-none p-3 font-mono leading-relaxed`} />
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[12px] tabular-nums text-ink-secondary">
-                  {t("botIdentity.soul.bytes", { bytes, limit: BOT_PROFILE_LIMITS.soul })} · {count(bytes)}
-                </span>
-                <div className="flex gap-2">
-                  <button type="button" className="ui-button ui-button-sm ui-button-pill" disabled={saving || override == null}
-                    onClick={() => { edit(null); input.current?.scrollTo({ top: 0 }); }}>{t("botPrompts.restore")}</button>
-                  <button type="button" className="ui-button ui-button-sm ui-button-primary ui-button-pill"
-                    disabled={saving || override === field.override || bytes > BOT_PROFILE_LIMITS.soul}
-                    onClick={() => void save()}>{t(saving ? "common.saving" : "common.save")}</button>
-                </div>
-              </div>
-            </>}
+            {field && <PromptTextEditor field={field} draft={drafts[field.id]} input={input} saving={saving}
+              update={(next) => setDrafts({ ...drafts, [field.id]: next })} save={save} />}
             {section && <>
-              <h3 className="text-[17px] font-semibold">{section.label}</h3>
+              <h3 className="text-[17px] font-semibold">{section.id === prefixId ? fieldName(prefixId) : section.label}</h3>
               <pre tabIndex={0} aria-label={section.label} dir="auto" className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset p-3 text-[13px] leading-relaxed focus-visible:outline-focus">{section.text}</pre>
               <p className="text-[12px] text-ink-secondary">{t("botPrompts.previewHint")}</p>
             </>}
@@ -136,13 +123,64 @@ function Editor({ bot, onClose }: { bot: Bot; onClose: () => void }) {
   );
 }
 
-function PromptPicker({ catalog, selection, saving, choose }: {
-  catalog: Catalog; selection: string; saving: boolean; choose: (id: string) => void;
+function PromptTextEditor({ field, draft, input, saving, update, save }: {
+  field: Field; draft?: Draft; input: RefObject<HTMLTextAreaElement | null>; saving: boolean;
+  update: (draft: Draft) => void; save: () => Promise<void>;
+}) {
+  const id = useId();
+  const base = draft?.base ?? field;
+  const override = draft ? draft.value : field.override;
+  const value = override ?? base.defaultText;
+  const bytes = utf8Bytes(value);
+  const prefix = base.id === prefixId ? base : undefined;
+  const mode = draft?.mode ?? modeForOverride(override);
+  const readOnly = Boolean(prefix && mode !== "custom");
+  const invalid = bytes > BOT_PROFILE_LIMITS.soul || Boolean(prefix && mode === "custom" && !value.trim());
+  const edit = (next: string | null, mode?: PrefixMode) => {
+    const customText = mode === "custom" ? next ?? "" : draft?.customText;
+    update({ base, value: next, mode, customText });
+  };
+  return <>
+    <div className="flex items-baseline justify-between gap-2">
+      <label htmlFor={id} className="text-[17px] font-semibold">{fieldName(field.id)}</label>
+      {!prefix && <span className="text-[12px] text-ink-secondary">{t(override == null ? "botPrompts.default" : "botPrompts.custom")}</span>}
+    </div>
+    {prefix && <PrefixModeSelect setting={prefix} mode={mode} disabled={saving} onChange={(next) => {
+      const custom = draft?.customText ?? (prefix.override || prefix.defaultText);
+      edit(next === "inherit" ? null : next === "off" ? "" : custom, next);
+    }} />}
+    <textarea key={field.id} ref={input} id={id} dir="auto" value={value} disabled={saving} readOnly={readOnly}
+      placeholder={readOnly ? t("botPrompts.prefixEmpty") : undefined}
+      onChange={(e) => edit(e.target.value, prefix ? "custom" : undefined)}
+      aria-invalid={invalid}
+      className={`${SETTINGS_INPUT} min-h-0 flex-1 resize-none p-3 font-mono leading-relaxed`} />
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <span className="text-[12px] tabular-nums text-ink-secondary">
+        {t("botIdentity.soul.bytes", { bytes, limit: BOT_PROFILE_LIMITS.soul })} · {count(bytes)}
+      </span>
+      <div className="flex gap-2">
+        <button type="button" className="ui-button ui-button-sm ui-button-pill" disabled={saving || override == null}
+          onClick={() => { edit(null); input.current?.scrollTo({ top: 0 }); }}>{t("botPrompts.restore")}</button>
+        <button type="button" className="ui-button ui-button-sm ui-button-primary ui-button-pill"
+          disabled={saving || override === field.override || invalid}
+          onClick={() => void save()}>{t(saving ? "common.saving" : "common.save")}</button>
+      </div>
+    </div>
+  </>;
+}
+
+function modeForOverride(override: string | null): PrefixMode {
+  if (override === null) return "inherit";
+  return override === "" ? "off" : "custom";
+}
+
+function PromptPicker({ catalog, fields, selection, saving, choose }: {
+  catalog: Catalog; fields: Field[]; selection: string; saving: boolean; choose: (id: string) => void;
 }) {
   const groups = [
-    { label: t("botPrompts.editable"), rows: catalog.editable.map(({ id }) => ({ id, label: fieldName(id), tokens: "" })) },
+    { label: t("botPrompts.editable"), rows: fields.map(({ id }) => ({ id, label: fieldName(id), tokens: "" })) },
     { label: t("botPrompts.preview"), rows: catalog.sections.map((part) => ({
-      id: `preview/${part.id}`, label: part.label, tokens: count(part.bytes),
+      id: `preview/${part.id}`, label: part.id === prefixId ? fieldName(prefixId) : part.label, tokens: count(part.bytes),
     })) },
   ];
 

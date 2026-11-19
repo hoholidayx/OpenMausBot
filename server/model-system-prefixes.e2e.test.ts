@@ -3,6 +3,7 @@ import { closeSync, openSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { BotModelPrefixSetting } from "../shared/bot-prompts.ts";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb, verificationServerEnvironment } from "../scripts/control-omb.ts";
 import { waitForExit } from "./testing/cleanup.ts";
@@ -66,20 +67,26 @@ it("sends the selected API model's current prefix, including in rooms and after 
     evidence.push({ command: args, result });
     return result;
   };
-  const api = async (method: string, path: string, data?: unknown) => {
+  const api = async (method: string, path: string, data?: unknown, status?: number) => {
     const res = await fetch(fixture.info.url + path, {
       method,
       headers: { "content-type": "application/json", origin: fixture.info.url },
       ...(data === undefined ? {} : { body: JSON.stringify(data) }),
     });
     const body = await res.json() as any;
-    expect(res.ok, `${method} ${path}: ${res.status}`).toBe(true);
+    expect(status === undefined ? res.ok : res.status === status, `${method} ${path}: ${res.status} ${body.error ?? ""}`).toBe(true);
     return body;
   };
   const prefixPath = (instanceId: string, model = MODEL) => PATH + "?" + new URLSearchParams({ instanceId, model });
   const save = (instanceId: string, text: string, model?: string) => api("PUT", prefixPath(instanceId, model), { text });
+  const editor = (bot: string, thread?: string) => `/api/bots/${bot}/system-prompt?editor=1${thread ? "&threadId=" + thread : ""}`;
+  const edit = (path: string, setting: BotModelPrefixSetting, value: string | null, status = 200) => {
+    const { override: expected, ...binding } = setting;
+    return api("PUT", path, { ...binding, expected, value }, status);
+  };
   const makeBot = async (instance: string, name: string) => {
     const { bot } = await control(["new-bot", "--name", name]);
+    expect((await api("GET", editor(bot.id))).modelPrefix).toBeNull();
     await control(["set-model", "--bot", bot.id, "--instance", instance, "--model", MODEL]);
     return { id: bot.id as string, threadId: bot.activeTaskId as string, target: ["--bot", bot.id, "--task", bot.activeTaskId] };
   };
@@ -146,6 +153,12 @@ it("sends the selected API model's current prefix, including in rooms and after 
     expect(system(afterTool!)).toMatch(/^Fixture prefix after the tool\.\n\nYou are/);
     await save("openaiCompat", "");
 
+    const roomEditor = editor(secondBot.id);
+    const inherited = (await api("GET", roomEditor)).modelPrefix;
+    expect(inherited).toMatchObject({ instanceId: "groq", model: MODEL, override: null });
+    const custom = (await edit(roomEditor, inherited, "Room bot only.")).modelPrefix;
+    await edit(roomEditor, inherited, "Stale fixture.", 409);
+    await edit(roomEditor, custom, "汉".repeat(8001), 400);
     const { group } = await api("POST", "/api/groups", {
       name: "Prefix test room", memberIds: [secondBot.id],
       setup: { bulletin: "", defaultResponder: { kind: "member", botId: secondBot.id } },
@@ -153,14 +166,49 @@ it("sends the selected API model's current prefix, including in rooms and after 
     await control(["send-channel", "--channel", group.id, "--text", "Greet this room."]);
     expect((await control(["wait", "--channel", group.id, "--timeout", "20"])).status).toBe("settled");
     await control(["messages", "--channel", group.id, "--limit", "10"]);
-    expect(system(requests.at(-1)!)).toMatch(/^Fixture model prefix on connection two\.\n\nYou are/);
+    expect(system(requests.at(-1)!)).toMatch(/^Room bot only\.\n\nYou are/);
+    expect(system(requests.at(-1)!)).not.toContain(inherited.defaultText);
 
     const quickBot = await makeBot("groq", "Quick prefix fixture");
+    const quickEditor = editor(quickBot.id);
+    expect((await api("GET", quickEditor)).modelPrefix).toEqual(inherited);
+    const [otherBot] = await direct(quickBot.target, "Check the shared default.");
+    expect(system(otherBot!)).toMatch(/^Fixture model prefix on connection two\.\n\nYou are/);
+    const disabled = await edit(quickEditor, inherited, "");
+    expect(disabled.sections.some((s: { id: string }) => s.id === "model-system-prefix")).toBe(false);
+    const [off] = await direct(quickBot.target, "Check the disabled prefix.");
+    expect(system(off!)).toMatch(/^You are/);
+    await save("groq", "Updated shared default.");
+    await edit(quickEditor, disabled.modelPrefix, null, 409);
+    const restored = await edit(quickEditor, (await api("GET", quickEditor)).modelPrefix, null);
+    expect(restored.sections[0].text).toBe("Updated shared default.\n\n");
+    expect(restored.modelPrefix.override).toBeNull();
+    await save("groq", inherited.defaultText);
+    await edit(quickEditor, inherited, "Quick bot regular prefix.");
     await api("PATCH", `/api/bots/${quickBot.id}`, { replyStyle: "conversational" });
     await save("groq", "Fixture fast prefix.", FAST);
     const quick = await direct(quickBot.target, "Hello there.");
     expect(quick.map((call) => call.model)).toEqual([FAST, MODEL]);
     for (const call of quick) expect(system(call)).toMatch(/^You are/);
+
+    const threadEditor = editor(secondBot.id, secondBot.threadId);
+    const switchThread = (instance: string, model = MODEL) =>
+      control(["set-model", ...secondBot.target, "--instance", instance, "--model", model]);
+    await switchThread("openaiCompat");
+    expect((await api("GET", threadEditor)).modelPrefix.override).toBeNull();
+    await edit(threadEditor, custom, "Stale connection.", 409);
+    const alternate = await edit(threadEditor, (await api("GET", threadEditor)).modelPrefix, "Pinned connection only.");
+    const [pinned] = await direct(secondBot.target, "Check pinned connection.");
+    expect(system(pinned!)).toMatch(/^Pinned connection only\.\n\nYou are/);
+    expect((await api("GET", roomEditor)).modelPrefix).toEqual(custom);
+    await switchThread("groq", FAST);
+    expect((await api("GET", threadEditor)).modelPrefix.override).toBeNull();
+    await edit(threadEditor, (await api("GET", threadEditor)).modelPrefix, "");
+    await switchThread("groq");
+    expect((await api("GET", threadEditor)).modelPrefix).toEqual(custom);
+    await switchThread("openaiCompat");
+    expect((await api("GET", threadEditor)).modelPrefix).toEqual(alternate.modelPrefix);
+    expect((await api("GET", "/api/bots")).bots.some((bot: object) => "modelPrefixOverrides" in bot)).toBe(false);
 
     const { url, dataDir, logPath } = fixture.info;
     await waitForExit(fixture.child, { signal: "SIGTERM" });
@@ -180,6 +228,10 @@ it("sends the selected API model's current prefix, including in rooms and after 
     }, { timeout: hostTimeout(20_000) }).toBe(true);
     expect(await api("GET", prefixPath("groq"))).toEqual({ text: "Fixture model prefix on connection two." });
     expect(await api("GET", prefixPath("openaiCompat"))).toEqual({ text: "" });
+    expect((await api("GET", roomEditor)).modelPrefix).toEqual(custom);
+    expect((await api("GET", threadEditor)).modelPrefix).toEqual(alternate.modelPrefix);
+    await switchThread("groq", FAST);
+    expect((await api("GET", threadEditor)).modelPrefix.override).toBe("");
   } finally {
     const evidencePath = join(dirname(fixture.info.logPath), `model-system-prefixes-${fixture.info.pid}.json`);
     writeFileSync(evidencePath, JSON.stringify({

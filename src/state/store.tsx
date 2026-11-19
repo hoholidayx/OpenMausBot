@@ -452,6 +452,7 @@ export interface InstanceInfo extends InstanceEndpointInfo {
     backgroundText?: boolean;
     contextCompactionOwner?: "provider";
     roomChat?: boolean;
+    modelSystemPrefix?: boolean;
   };
   access?: "subscription" | "custom" | "api";
   authentication?: { method: "device-code" | "paste-code" | "browser" | "browser-pkce" | "callback-url"; signOut?: boolean };
@@ -3254,8 +3255,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [refreshInstances]);
 
   const flushBotPatches = useCallback(
-    (botId: string) => botPatchQueue.flush(botId),
-    [botPatchQueue],
+    async (botId: string, modelScope?: { threadId?: string }) => {
+      const writes = modelScope ? [...taskWrites].filter(([id, write]) =>
+        write.botId === botId && (write.updatesDefault || id === modelScope.threadId)) : [];
+      const [bot] = await Promise.all([botPatchQueue.flush(botId), ...writes.map(([, write]) => write.execution)] as const);
+      return bot;
+    },
+    [botPatchQueue, taskWrites],
   );
   const value = useMemo(
     () => ({ state, dispatch, flushBotPatches, refreshInstances, refreshModels }),

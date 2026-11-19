@@ -6,6 +6,7 @@ import type { TaskRecord } from "./store.ts";
 
 export interface BotRecord extends Omit<WireBot, "avatarUrl" | "tasks"> {
   promptOverrides?: BotPromptOverrides;
+  modelPrefixOverrides?: Record<string, string>;
   tasks?: TaskRecord[];
   avatarUrl?: string;
   resumeCursors: Record<string, unknown>;

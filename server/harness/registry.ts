@@ -560,6 +560,7 @@ export class ProviderRegistry {
             localComputerMcp: inst.adapter.capabilities.localComputerMcp === true,
             approvalReview: inst.reviewPermission !== undefined,
             backgroundText: inst.generateText !== undefined || inst.generateMemoryText !== undefined,
+            modelSystemPrefix: replaysTranscriptNatively(inst.driverKind),
             roomChat,
             contextCompactionOwner,
           },

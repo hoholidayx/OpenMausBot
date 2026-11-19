@@ -8,3 +8,12 @@ export interface BotPromptSetting {
   /** Null follows the built-in default. An empty override suppresses that section. */
   override: string | null;
 }
+
+export interface BotModelPrefixSetting {
+  id: "model-system-prefix";
+  instanceId: string;
+  model: string;
+  defaultText: string;
+  /** Null follows this connection and model. An empty string disables injection for this bot. */
+  override: string | null;
+}

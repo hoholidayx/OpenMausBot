@@ -2742,7 +2742,7 @@ const wireTask = (task: TaskRecord, botModel: ModelSelection, awaiting = threads
 
 /** Strips provider session ids (resumeCursors) here, not at call sites, so no broadcast or paired phone ever gets them. */
 const wireBot = (bot: BotRecord, onlyThreadId?: string): WireBot => {
-  const { promptOverrides: _promptOverrides, resumeCursors: _resumeCursors, tasks, approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, mainThreadChoice: _mainThreadChoice , ...rest } = bot;
+  const { promptOverrides: _promptOverrides, modelPrefixOverrides: _modelPrefixOverrides, resumeCursors: _resumeCursors, tasks, approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, mainThreadChoice: _mainThreadChoice , ...rest } = bot;
   // Clients see Ask while an elevated grant awaits the desktop's confirmation, never a grant that may still roll back.
   const visible = approvalGrant && !approvalGrant.threadOnly
     ? { ...rest, approvalMode: "ask" as const, autoApprove: false }
@@ -2762,7 +2762,7 @@ function toolScopeForTurn(botId: string) {
 }
 
 const wireTrustedApprovalBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
-  const { promptOverrides: _promptOverrides, resumeCursors: _resumeCursors, tasks, approvalGrant: _approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, mainThreadChoice: _mainThreadChoice , ...rest } = bot;
+  const { promptOverrides: _promptOverrides, modelPrefixOverrides: _modelPrefixOverrides, resumeCursors: _resumeCursors, tasks, approvalGrant: _approvalGrant, lastProfileRequestId: _lastProfileRequestId, lastTeamSetupReceipt: _lastTeamSetupReceipt, packageBase: _packageBase, assignedSkills: _assignedSkills, mainThreadChoice: _mainThreadChoice , ...rest } = bot;
   const awaiting = threadsAwaitingTeammates();
   return { ...rest, approvalMode: approvalModeFor(rest), mainThreadId: botMainThread(bot.id), avatarUrl: rest.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection, awaiting)) } : {}) };
 };
@@ -2822,7 +2822,7 @@ function previewSystemPrompt(bot: BotRecord) {
     { id: "memory", label: "Maintainer notes (MEMORY.md)", text: readOnlyMemoryPrompt([bot.id]) },
     { id: "skills", label: "Skills index", text: privateWorkspace ? skillsHost.skillsIndex(bot, undefined, instance) : "" },
   ], agentsMounted ? { env: agentsToolBridgeEnv(cfg, bot, instance && turnEngine(instance, providerConfigs(), registry.lastSnapshot(instance.instanceId), bot.cwd ?? undefined)) } : undefined, { replyStyle: bot.replyStyle, rules: cfg.everyBotRules, overrides: bot.promptOverrides });
-  const built = modelSystemPrefixes.apply(basePrompt, instance, bot.modelSelection.model);
+  const built = modelSystemPrefixes.apply(basePrompt, instance, bot.modelSelection.model, { overrides: bot.modelPrefixOverrides });
   const totalBytes = built.sections.reduce((n, s) => n + s.bytes, 0);
   return {
     sections: built.sections,
@@ -7913,7 +7913,7 @@ async function beginTurn(
         { id: "automation-reply", label: "Automation reply", text: opts?.automationSource && automationReports.reportsElsewhere(threadId) ? AUTOMATION_REPLY_PROMPT : "" },
         { id: "mentions", label: "Mentions", text: (tagged.length ? `The user named these existing teammates: ${tagged.map(b => `${peerName(b.name)} (${b.id})`).join(", ")}. Use coordinate_bots when their contribution is needed; do not substitute native helper agents for these bots.` : "") },
       ].filter((part) => (apiFenced ? BOT_API_PARTS.has(part.id) : !confined || READ_AND_DRAFT_PARTS.has(part.id))), integrations.agents, { replyStyle: promptBot.replyStyle, rules: cfg.everyBotRules, overrides: promptBot.promptOverrides });
-      const prompt = modelSystemPrefixes.apply(basePrompt, instance, model, route.quickModel);
+      const prompt = modelSystemPrefixes.apply(basePrompt, instance, model, { quickModel: route.quickModel, overrides: promptBot.modelPrefixOverrides });
       turnPromptBytes.set(threadId, { stable: Buffer.byteLength(prompt.stable), volatile: Buffer.byteLength(prompt.volatile) });
       if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) {
         throw new DirectTurnSetupCancelled("turn stopped before dispatch");
@@ -9706,7 +9706,7 @@ async function runClaimedGroupMemberTurn(
     const roomModelSelection = instance.instanceId === readyBot.modelSelection.instanceId
       ? memberTurnSelection(readyBot.modelSelection)
       : { model: instance.models.default };
-    const roomSystem = modelSystemPrefixes.apply(basePrompt, instance, roomModelSelection.model);
+    const roomSystem = modelSystemPrefixes.apply(basePrompt, instance, roomModelSelection.model, { overrides: readyBot.modelPrefixOverrides });
     turnPromptBytes.set(threadId, { stable: Buffer.byteLength(roomSystem.stable), volatile: Buffer.byteLength(roomSystem.volatile) });
     runningTurnEngines.set(threadId, instance);
     const turnApprovalMode = roomTurnApprovalMode(readyBot, threadId, orchestration);
@@ -11475,6 +11475,7 @@ ROUTES.push(createBotCreateRoutes({
   profileOf: (email) => teamHost.people.profile(personKey({ id: "", email })) }));
 ROUTES.push(createBotPromptRoutes({
   store, preview: previewSystemPrompt,
+  prefix: (bot) => modelSystemPrefixes.setting(bot, registry.get(bot.modelSelection.instanceId)),
   mayEdit: (auth, id) => !CLOUD_HOME || cloudOwnerSession(auth) || levelOf(auth, id) === "edit",
   changed: (bot) => broadcast({ kind: "bot", bot: wireBot(bot) }),
 }));

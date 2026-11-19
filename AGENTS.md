@@ -7,7 +7,9 @@ isolated fixture; never verify mutations against the user's live app or data.
 UI changes follow [`DESIGN.md`](DESIGN.md).
 
 The [documentation index](docs/README.md) lists current guides and the upstream
-archive. Keep plans for this fork in [`docs/plans/`](docs/plans/).
+archive. Keep active plans for this fork in [`docs/plans/`](docs/plans/).
+When a plan's work and verification are complete, move it to
+`docs/finished_plans/` and update the plans index and links to its new location.
 
 ## Upstream synchronization
 

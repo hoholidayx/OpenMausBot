@@ -45138,7 +45138,12 @@
       "devices.computers.title": "700633b6d9e8d3cebf611ff7642fd356d5febbf3d625fa63691063bc87bdf5f5",
       "serverError.chat.providerManagedContext": "fbcccc35b4f24fd80b770d6530f706f9ddbd7415d73978dcea9bc150a7f0994a",
       "serverError.chat.requiredContextTooLarge": "d6cc768858884aae20f69a7614a788bad89d7a62e1153c3570ce6da43004c928",
-      "serverError.room.apiBotRequired": "ad958814a5ac03b70c591950d0b8d3d95745b3dc4ea739d449d23b8c688fdb3c"
+      "serverError.room.apiBotRequired": "ad958814a5ac03b70c591950d0b8d3d95745b3dc4ea739d449d23b8c688fdb3c",
+      "botPrompts.prefixInherit": "f4b67cf175d8716a4c236818170eabad043caa2b4b0c8a4439dda6b1cb9508bc",
+      "botPrompts.prefixOff": "b48e050dc5ae30ae5ed5a039e40f544a5aea8e9927d5450aa574677350cd3b13",
+      "botPrompts.prefixCustom": "4d49323fca5b432b164bb15baf8ac69bb250952ae62d974f7a88a9780a7f963e",
+      "botPrompts.prefixHint": "a2034d600cc706142938b96790398b4d95de8b30096169f9813940ac5a664984",
+      "botPrompts.prefixEmpty": "af74aeea386b8d861834b0d331e819f7d3832e29b43f07da19d6f904d2868be6"
     },
     "zh-tw": {
       "whop.description": "1a07cf04ef17029448d3781415cbac16d54e66b821907a40d94e0e6349710e70",
@@ -55054,7 +55059,13 @@
       "devices.computers.title": "700633b6d9e8d3cebf611ff7642fd356d5febbf3d625fa63691063bc87bdf5f5",
       "serverError.chat.providerManagedContext": "fbcccc35b4f24fd80b770d6530f706f9ddbd7415d73978dcea9bc150a7f0994a",
       "serverError.chat.requiredContextTooLarge": "d6cc768858884aae20f69a7614a788bad89d7a62e1153c3570ce6da43004c928",
-      "serverError.room.apiBotRequired": "ad958814a5ac03b70c591950d0b8d3d95745b3dc4ea739d449d23b8c688fdb3c"
+      "serverError.room.apiBotRequired": "ad958814a5ac03b70c591950d0b8d3d95745b3dc4ea739d449d23b8c688fdb3c",
+      "botPrompts.prefixInherit": "f4b67cf175d8716a4c236818170eabad043caa2b4b0c8a4439dda6b1cb9508bc",
+      "botPrompts.prefixOff": "b48e050dc5ae30ae5ed5a039e40f544a5aea8e9927d5450aa574677350cd3b13",
+      "botPrompts.prefixCustom": "4d49323fca5b432b164bb15baf8ac69bb250952ae62d974f7a88a9780a7f963e",
+      "botPrompts.prefixHint": "a2034d600cc706142938b96790398b4d95de8b30096169f9813940ac5a664984",
+      "botPrompts.prefixEmpty": "af74aeea386b8d861834b0d331e819f7d3832e29b43f07da19d6f904d2868be6",
+      "settings.modelSystemPrefix.title": "788daed7a210b3db5b7cb040061e67b095d9e9ed6ee72a3b1a9ad2cb6e09373e"
     },
     "uk": {
       "pro.openCloudSettings": "6b1afdfdd9ef9ec94b370d3d7216d22ce8665e3918843666334e0e221f83f660",

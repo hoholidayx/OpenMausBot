@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
+import type { BotModelPrefixSetting } from "../shared/bot-prompts.ts";
+import type { BotRecord } from "./bot-record.ts";
 import { writeFileAtomic } from "./atomic.ts";
 import type { ProviderInstance } from "./contracts.ts";
 import { replaysTranscriptNatively } from "./runtime/capabilities.ts";
@@ -12,7 +14,7 @@ export const supportsModelSystemPrefix = replaysTranscriptNatively;
 type Prompt = ReturnType<typeof buildSystemPrompt>;
 type Connection = Pick<ProviderInstance, "instanceId" | "driverKind">;
 const storedPrefixes = z.record(z.string(), z.string());
-const key = (instanceId: string, model: string) => JSON.stringify([instanceId, model]);
+export const modelPrefixKey = (instanceId: string, model: string) => JSON.stringify([instanceId, model]);
 
 export function createModelSystemPrefixes(file: string) {
   let values = new Map<string, string>();
@@ -26,12 +28,21 @@ export function createModelSystemPrefixes(file: string) {
     }
   }
 
-  const get = (instanceId: string, model: string) => values.get(key(instanceId, model)) ?? "";
+  const get = (instanceId: string, model: string) => values.get(modelPrefixKey(instanceId, model)) ?? "";
 
   return {
     read(instanceId: string, model: string) {
       if (loadFailed) throw new Error("Model system prefixes could not be loaded.");
       return get(instanceId, model);
+    },
+    setting(bot: Pick<BotRecord, "modelSelection" | "modelPrefixOverrides">, connection: Connection | null): BotModelPrefixSetting | null {
+      const { instanceId, model } = bot.modelSelection;
+      if (!connection || !model || !supportsModelSystemPrefix(connection.driverKind)) return null;
+      return {
+        id: "model-system-prefix", instanceId, model,
+        defaultText: get(instanceId, model),
+        override: bot.modelPrefixOverrides?.[modelPrefixKey(instanceId, model)] ?? null,
+      };
     },
     save(instanceId: string, model: string, text: string) {
       if (loadFailed) throw new Error("Model system prefixes could not be loaded.");
@@ -41,15 +52,15 @@ export function createModelSystemPrefixes(file: string) {
       }
       if (value === get(instanceId, model)) return value;
       const next = new Map(values);
-      if (value) next.set(key(instanceId, model), value);
-      else next.delete(key(instanceId, model));
+      if (value) next.set(modelPrefixKey(instanceId, model), value);
+      else next.delete(modelPrefixKey(instanceId, model));
       writeFileAtomic(file, JSON.stringify(Object.fromEntries(next)), { mode: 0o600 });
       values = next;
       return value;
     },
-    apply(prompt: Prompt, connection: Connection | null, model: string, quickModel?: string): Prompt {
-      if (quickModel || !connection || !supportsModelSystemPrefix(connection.driverKind)) return prompt;
-      const prefix = get(connection.instanceId, model);
+    apply(prompt: Prompt, connection: Connection | null, model: string, options: { quickModel?: string; overrides?: BotRecord["modelPrefixOverrides"] } = {}): Prompt {
+      if (options.quickModel || !connection || !supportsModelSystemPrefix(connection.driverKind)) return prompt;
+      const prefix = options.overrides?.[modelPrefixKey(connection.instanceId, model)] ?? get(connection.instanceId, model);
       if (!prefix) return prompt;
       const text = prefix + "\n\n";
       const section = { id: "model-system-prefix", label: "Model system prefix", text, bytes: Buffer.byteLength(text) };
