@@ -178,3 +178,26 @@ Fetched the official `main` and confirmed the remote `HEAD` at 23:52 China Stand
 - Exercised Chinese composition through Chromium’s IME protocol in the real chat composer at 390 and 1,280 CSS pixels, in both Midnight and Daylight. The native field showed the composing text, and the mention overlay resumed after committing the characters. Settings Enter and translated-panel transitions were checked in DOM tests.
 - Built the original fork and the three-file startup adaptation with `pnpm exec vite build --manifest`. For the ordinary chat route, summed each JS chunk once from `index.html`, its boot-time `App` import and their static imports. Totals were 3,647,353 → 3,551,299 bytes and 1,108,604 → 1,066,442 bytes with per-file gzip at level 9. The login and sign-in-card suites passed all 58 tests. This measurement covers JavaScript size. Startup timing requires a separate browser measurement.
 - The fixture launcher’s new bundled-catalog case failed on the fork and passed with the one-line adaptation. A separately launched HTTP fixture returned 200. With the added test, the launcher suite went from 8/10 to 9/10. Its remaining failure reproduced on both checkouts: `scripts/control-omb.ts` forwards `FAKE_CODEX_MODE` while the existing test expects it to be absent.
+
+### Adopted on November 21, 2026
+
+The two batches were applied to fork `main` at `ea37fc3459b0832fcccf1f8624060266f8ac2b9e`. The next upstream review starts at `a90bf36551c257b09ab326ba228cc796f5d4fdd1`.
+
+| Batch | Workflow | Upstream | Fork commits in order |
+| --- | --- | --- | --- |
+| 1 | Delegated assignments and routine question copies | `27333c386`, `2d8ef3312`, `298bbc1c8` | `0425ae3ab8f5e3484e715de757240aa07ba4c6b6`, `ea5cc25f0d317470537f07bc50daa6d79d1ed09b`, `c33f660513e81c5ee146c01d6b7d99cdcc7dd537` |
+| 1 | Result attachments and literal filenames | `0379ca060`, `4881327aa`, `213ccc236`, `842a1f8b1` | `b7dfb93eb5d10db3b24b3b93be86e75139ee56a1`, `03e9880dfc71cf9362be42430c3367a2b214943b`, `ea736aa325ef74b1d2d13959b226baec70dc649b`, `d6be05861508b5cafbd2bd06ac55cc85cf54e81e` |
+| 1 | Chinese composition, computer names and translated MCP settings | `c517e27cd`, `ebb9089c6`, `00c436dae`, `779ac78e9` | `2fbaa7c408f5d24ae5b5a68606c7cc77cc70e52f`, `b6b7145c9e50024d8b7784197c6bb078068b2590`, `6cc6198c8494faaf0b5ce189c74f78cd3c459e14`, `6d9238df4077a989caa12d0a184875f34e3c1e60` |
+| 1 | Quota holds for the model acknowledged by OpenCode | `2f22a2b6b` | `8a3dcbf3271b5f20682d04847b9112b7eb64ab03` |
+| 2 | Bounded chat history, selection and scroll anchoring | `3824568a8`, `e5b9ae8f9`, `f7b4ff145` | `2c9fe1cf6ebab85b06e59cefdcfa9a4fe589fcca`, `88ee283f6d63dcb0c7fed3ea0b9aaef3d04a2423`, `1d9177fda063faceb5dd50cff841d550f1cb9924` |
+| 2 | Initial chat JavaScript, three-file sign-in card change | `2dedbf5ff` | `7506dccad910ed9402b572536f594de8c5cfb958` |
+
+The fork keeps its existing first paint and steps the chat window in groups of 20. The login card imports the shared-browser lookup directly. Review also covered a saved reading position that coincides with a distant pin or branch leaf, spacing before punctuation in a no-input marker, and conversation visibility before an attachment message is looked up. A bare `NEEDS INPUT:` followed by `Default:` still requests review. Follow-up commits are `e3799423015193cbdf47474f4f226234ead495ad`, `74a12adfcc0ad1d58ae8f9acd33827fb4adb2047`.
+
+#### Verification
+
+- Isolated Vitest runs passed 896 functional and component tests across 28 files, five file-download cases on an HTTP server, and 41 end-to-end cases for routines, partner work, Dots and asynchronous images. OpenCode limit cases used a scripted ACP process. An initial parallel end-to-end run saw one intermittent mismatch between two simulated failure strings. That case passed alone and the end-to-end suites passed together with one worker.
+- Chrome at 390 × 844 opened a fixture chat with 3,000 SQLite-backed messages. Scrolling unmounted and remounted both an asynchronous image and an attributed partner reply. Ordinary rendering peaked at 240 rows. The original image opened from the keyboard and downloaded at 17,051 bytes. Search reached message ID `r-501`, selected text survived further scrolling, and Jump to latest returned to `r-2999`.
+- Chrome composition events in Midnight and Daylight showed the composing Chinese text in the native field and restored the mention overlay on commit at 390 and 1,280 CSS pixels.
+- Two production builds of the integrated changes differed only in the sign-in extraction. The ordinary chat entry and its boot-time `App` import loaded five JavaScript chunks in each build. Their total fell from 3,655,092 to 3,559,038 bytes, or from 1,111,270 to 1,068,805 bytes with per-file level-9 gzip. The savings were 96,054 and 42,465 bytes respectively.
+- The packaged server started in a temporary home and completed its startup, MCP and shutdown smoke checks. TypeScript, lint, locale validation, the contrast baseline, diff whitespace and the repository’s changed-code complexity checks passed.
