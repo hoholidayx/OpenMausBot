@@ -579,6 +579,10 @@ posixOnly("per-bot visibility on a shared workspace", () => {
       .findLast((message) => message.role === "bot" && message.kind === "text" && message.text)!;
     const react = (as: string, emoji: string) =>
       api("POST", `/api/threads/${ids.pubThread}/messages/${answer.id}/reactions`, { emoji, on: true }, as);
+    expect(await waitFor(async () => {
+      const { body } = await api("GET", "/api/bots?messages=0", undefined, BOSS);
+      return body.bots.find((bot: { id: string }) => bot.id === ids.pub)?.busy === false;
+    })).toBe(true);
     const ada = await react(ADA, "👍");
     expect(ada.status, JSON.stringify(ada.body)).toBe(200);
     expect(ada.body.delivery).toBe("started");
