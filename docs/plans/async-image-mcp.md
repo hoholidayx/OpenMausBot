@@ -1,67 +1,65 @@
-# 私聊复用 Aion MCP 异步生图
+# Maus 私聊接入 ComfyImageBridge 异步生图
 
-状态为待实施。首版面向用户主动发起的 bot 私聊，接入一个已有的 Aion 生图 MCP profile。用户看到「图片已排队」即可继续聊，图片完成后出现在原请求下。供应商接入、密钥、出图与远端任务记录继续由 Aion 的独立服务管理。
+状态为待实施。首版面向用户主动发起的 bot 私聊。用户发「画一张雨夜车站」，Maus 持久保存请求并立即回「图片已排队」。生成期间用户可以在同一私聊问车次，图片完成后更新第一条请求下的卡片。
 
-## 可行性与证据
+## 系统分工与验证结论
 
-| 已验证的环节 | 结果 |
+| 项目 | 职责与复用方式 |
 | --- | --- |
-| Maus 连接 Aion 生图服务 | 在隔离环境用 Maus 的 `RemoteMcpClient` 连接实际的 `aion-openai-image-mcp` 和模拟供应商。首次提交收到 `pending`，关闭客户端，重新连接并用原 UUID 重放，随后取回 3 × 2 PNG，SHA-256 一致。供应商只收到一次生成请求。[Maus MCP 客户端](../../server/mcp-http.ts) |
-| 后台工作期间继续私聊 | 在 Maus 隔离服务中让工作搭档等待测试信号。发起 bot 已结束当轮回复，同一私聊的第二个问题先得到回答，放行后台工作后，结果仍引用第一条请求。另两个用例验证了切换分支后的原处交付，以及纯附件结果进入后续会话。三项定向用例均通过。[私聊异步用例](../../server/work-partner.e2e.test.ts) |
-| 当前生图基线 | 内置 `generate_image` 等待供应商返回，核对活动轮次，暂存附件，轮次结算时交付。现有隔离生图套件的两项私聊用例通过。两项群聊用例在创建房间时收到 HTTP 400，当前 fork 只接受 API bot 入群，夹具使用了原生 bot。[工具路由](../../server/routes/image-tools.ts) · [生图用例](../../server/image-generation.e2e.test.ts) |
+| ComfyImageBridge | 生图 MCP 服务端。Ubuntu 包提供 Streamable HTTP `/mcp`，保存远端任务、向 ComfyUI 派发工作、跟踪状态并返回结果。服务契约以这个项目为准。[工具契约](https://github.com/hoholidayx/ComfyImageBridge/blob/375a3b65f3de23d8b905c248b35a4641bf2fb95c/docs/mcp.md) · [服务入口](https://github.com/hoholidayx/ComfyImageBridge/blob/375a3b65f3de23d8b905c248b35a4641bf2fb95c/ubuntu/src/comfy_workflow_api/mcp_server.py) |
+| Aion | 已有的 MCP 客户端。可参考它如何受理会话请求、后台跟踪、校验图片和交付给原会话。Maus 可独立运行。[Aion 会话任务](https://github.com/hoholidayx/AionCore/blob/ca864ba7ec790fe58ab0430ac6521a3b2ea78205/crates/aionui-conversation/src/image_jobs.rs) · [客户端协议实现](https://github.com/hoholidayx/AionCore/blob/ca864ba7ec790fe58ab0430ac6521a3b2ea78205/crates/aionui-conversation/src/image_jobs/protocol.rs) |
+| Maus | 作为另一个 MCP 客户端直连 Bridge。Maus 负责聊天授权、本地受理、轮次结束后的恢复、原分支定位及附件可见性。现有 HTTP 客户端、消息存储、消息更新事件和附件保存可复用。[MCP 客户端](../../server/mcp-http.ts) · [消息更新](../../server/store.ts) · [附件](../../server/attachments.ts) |
 
-这两段实测分别证明了协议互通和 Maus 私聊能并行处理后续消息。本功能还需要把一次工具受理、一条可恢复的任务和原会话的一张图片卡连起来。群聊需要用符合本 fork 约束的夹具另行验证。评估基线为 Maus `bd335937e`、Aion 生图 MCP `4d9607a`。
+2026-11-20，分别验证了以下两段。Maus 代码基线为 `bd335937e`，Bridge 为 `375a3b6`。
 
-私聊宿主基线可在本仓库用固定版本 pnpm 重跑。该用例自行启动隔离服务和模拟引擎。
+- **Maus → Bridge 已互通。** 用 Maus 的 `RemoteMcpClient` 直连回环端口上的真实 Bridge `create_app`、`ImageJobs` 和临时任务库，底层使用 Bridge 自带的 `FakeComfyUI`。发现三个工具，提交得到 `pending`。关闭客户端后重连，用原 UUID 和参数重放，底层 `/prompt` 总共收到一次提交。同号改提示词得到 `request_conflict`，排队时取图得到 `result_not_ready`。放行后查到 `completed`，取回 320 × 256 PNG（2002 字节），任务号、尺寸及 SHA-256 均与夹具相符。[任务夹具](https://github.com/hoholidayx/ComfyImageBridge/blob/375a3b65f3de23d8b905c248b35a4641bf2fb95c/ubuntu/tests/test_image_jobs.py)
+- **Maus 私聊可在后台工作期间继续。** 隔离服务中，工作搭档被暂停时，同一私聊的第二个问题先得到回答。另两个用例覆盖切换分支后投回原分支、纯附件交付且能进入后续对话。三项定向用例均通过。[私聊异步用例](../../server/work-partner.e2e.test.ts)
+
+现有 `generate_image` 仍会等图片生成，并要求原轮次保持活动才能挂载附件。需要新增的是把**一次本地受理、一个 Bridge 任务、一张原消息卡**连起来的 Maus 客户端流程。完整私聊生图以阶段 1 的端到端用例验收。本次 Bridge 互通未使用真实 GPU。此前 3 × 2 PNG 的测试连接的是另一个服务 `aion-openai-image-mcp`，上面的 Bridge 结论来自单独的直连测试。[现有生图路由](../../server/routes/image-tools.ts)
+
+## 一次请求如何交付
+
+1. **配置连接。** 在图片设置里选择「异步 MCP」和一个 Maus 宿主可达的 Bridge 连接。复用 MCP 注册表和 bot 授权，将该连接标为生图专用，从通用工具透传和已预热的引擎会话中排除。连接测试只握手和 `tools/list`，检查以下三项及输入 schema。Bridge 默认部署在可信内网，端点使用 HTTP、无凭据，持任务号即可取图。由 Maus 宿主访问该连接，网页通过既有消息与附件授权读取结果。[图片设置](../../src/components/ImageGenerationSettings.tsx) · [注册表](../../server/mcp-registry.ts) · [按 bot 解析连接](../../server/host/mcp-servers-host.ts)
+2. **受理后结束当轮。** 建议异步模式仅向模型提供 `generate_image_async(prompt, size?, image_index?)`。直接调用和 `use_tool` 共用处理器。Maus 从已授权轮次解析 bot、所有者、线程和来源消息，以 `(threadId, botId, sourceMessageId, image_index)` 去重。单图默认序号 1，批量请求按每轮上限拆为每图一项。同键同参返回原卡，异参返回冲突。在 `messages.db` 一次事务内创建任务、原分支卡片并预占额度。提交成功即向模型返回本地受理回执，模型可以完成当轮回复。后续问答按普通私聊调度。[工具目录](../../server/drivers/agents-catalog.ts) · [调用上下文](../../server/drivers/agents-call.ts) · [消息库](../../server/message-db.ts)
+3. **后台调用 Bridge。** Maus 为每张图生成一次小写标准 UUID，持久化为 `jobId`，同时用作远端 `request_id`。worker 按下表提交和轮询。用户关闭网页、切换会话或停止下一轮对话，已受理的生图继续。聊天的停止按钮只结束当前聊天轮次，Bridge 此版本提供的三项工具均无取消语义。[到期任务调度](../../server/due-timer.ts)
+4. **按卡片交付。** 出图后按原 `threadId` 和 `cardMessageId` 更新附件，以 `replyToId` 引用原请求。前端复用附件预览和下载，推送 `message.patch`，断线重连时从历史补读。用户正在另一条分支或下一轮已开始也按原卡更新。交付本身需要的额外模型调用为零。首版做私聊文生图，参考图编辑和群聊可另行扩展。[聊天渲染](../../src/components/ChatView.tsx) · [消息补丁](../../src/state/store.tsx) · [原分支交付先例](../verification/async-bot-partner.md)
+
+### Bridge 的现有工具契约
+
+| 工具 | Maus 发送 | Maus 处理 |
+| --- | --- | --- |
+| `image_submit` | 原 `request_id`、`prompt`，可选 `size`。首版沿用 Bridge 默认 `preset=fast`。文生图 `auto` 为 1024 × 1024，也可传支持的比例或每边为 32 的倍数、64–2048 的 `宽x高`。 | 在 `structuredContent` 检查 `task_id == request_id` 和 `state`。同号同参可重放。同号异参是 `request_conflict`。`queue_full` 和 `backend_unavailable` 是可识别的受理错误。 |
+| `image_status` | 原 `task_id` | `pending`、`submitting`、`queued`、`running` 继续跟踪，`completed` 触发取图。`failed` 在原卡显示安全错误原因，`expired` 标记过期。`submission_uncertain` 显示「结果待确认」，继续用原号查证。 |
+| `image_result` | 原 `task_id` | 成功返回一个 `ImageContent`，类型为 `image/png`。读取 `structuredContent.task_id/width/height/sha256/seed_used`，seed 保留十进制字符串。核验任务号、PNG 字节、实际尺寸、SHA-256 和 Maus 的 10 MiB 限额，再保存附件。`result_not_ready` 回到查状态，`result_expired` 结束取图。 |
+
+三项调用都先检查 `isError`，业务错误从 `structuredContent.error_code` 读取。Bridge 按 `retention.max_tasks` 保留已结束任务的结果。过期后保留请求 ID 防止重提，Maus 应在查到完成后尽快取图，成功交付后从本地附件存储读取。[Bridge 任务存储与保留实现](https://github.com/hoholidayx/ComfyImageBridge/blob/375a3b65f3de23d8b905c248b35a4641bf2fb95c/ubuntu/src/comfy_workflow_api/image_jobs.py) · [Maus 有界解码](../../server/generated-image.ts)
+
+## 持久化与故障恢复
+
+任务记录保存本地唯一键、UUID、来源用户/轮次、卡片 ID、连接注册名及配置指纹、规范化参数与摘要、阶段、下次查询时间和额度归属日。轮次标识用于追溯，后台授权按任务归属检查。事务提交后再广播和唤醒 worker，重启时扫描到期记录，按阶段条件认领并回收过期认领。
+
+| Maus 阶段 | 恢复规则 |
+| --- | --- |
+| `queued` 本地已受理 | 复核权限与原卡存在，先将阶段持久化为 `submitting`，再发网络请求。已知 Bridge 队列满时用原号有限退避，卡片显示正在等候。 |
+| `submitting` 回执未知 | 先向已绑定的 Bridge 查原 UUID。查到任务即接续。首次提交回执丢失、原连接配置一致且返回 `task_not_found` 时可原号原参重放。已有远端回执后任务消失、连接被替换或怀疑任务库已重置时，转入待确认。 |
+| `polling` 跟踪远端 | 只查询原号。网络故障逐步退避。Bridge 自行在其 `wait_timeout` 内查证 `submission_uncertain`，Maus 保留卡片并允许恢复查询。约定本地重试预算后可暂停自动查证，用户点「重新查询」仍查原号。 |
+| `fetching` 已完成待交付 | 以 `saveImage(bytes, "image/png", jobId)` 幂等写附件，用事务补齐原卡和额度结算。若附件落盘后崩溃，重启先按已记录的摘要校验本地文件，再补交。临时磁盘故障重试，永久超限、摘要错误或无本地副本且远端结果过期时在原卡提示原因。 |
+| `done / failed / needs_review` | 成功保留附件引用，确定失败保留安全原因，待确认保留原号。用户明确发起新图时才生成新 UUID。 |
+
+建议首版最多同时执行两次 MCP 调用，活动任务初始每 2 秒查一次，通信异常按 5 至 60 秒退避。这些是 Maus 可调整的参数。取图时先记录结果摘要，交付中保留附件以免被清理，终态清除请求正文。首次受理和实际派发分别核验权限，派发后绑定原连接。交付前按原会话、来源消息、卡片和当前受众复核，删除来源或撤权则停止交付。跨线程分叉及跨工作区备份恢复时，运行中的任务只归原目标所有。[幂等保存附件](../../server/attachments.ts) · [线程分叉](../../server/store-forks.ts)
+
+额度沿用 Maus 每轮限制及每日 50 张。将同步、异步入口的在途预占纳入同一持久账本，迁移当天原计数。按受理日和任务唯一键结算一次，明确未出图时释放。已生成但交付失败或仍在查证时保留用量。卡片通过本地化文字及 `role="status"` 表达阶段，模型上下文只需简短状态与附件引用。[每日额度](../../server/image-daily-cap.ts) · [现有生图设置](../image-generation.md) · [界面规范](../../DESIGN.md)
+
+## 实施顺序与验收
+
+| 阶段 | 交付与通过条件 |
+| --- | --- |
+| 1 · 私聊可续聊 | 接通专用连接、受理事务、worker 和原卡。隔离 Maus 使用模拟聊天引擎，连接真实 Bridge 和可暂停的模拟 ComfyUI。先提交图片，暂停出图，确认同一私聊第二问已得到答案。放行后，第一问的卡片出现可下载的正确 PNG，第二问保持原样，模型调用记录显示交付未触发额外轮次。 |
+| 2 · 重启与去重 | 分别在本地受理后、远端接单但回执丢失、文件落盘但卡片未更新时重启隔离 Maus。每案断言一次底层 `/prompt`、一个附件、一张原卡、一次额度结算。覆盖同键异参、多图乱序、跨午夜与额度用尽。 |
+| 3 · 分支、权限与异常 | 切分支、换会话、断网重连、删来源、撤权、换连接，逐项核对原卡及附件可见性。模拟 Bridge 队列满、待确认转完成、结果过期和摘要不符。桌面与窄屏验收续聊、预览、下载及键盘操作，并回归同步生图与头像入口。 |
+
+在本仓库可用以下命令复跑现有宿主异步基线，测试会启动隔离 Maus。阶段 1 需另加上述图片专用端到端用例。[隔离验证入口](../verification/README.md) · [聊天 UI 验证](../verification/chat-ui.md)
 
 ```sh
 pnpm exec vitest run server/work-partner.e2e.test.ts -t 'continues the original chat while a bound worker runs|delivers a requested relay to its original branch|delivers an attachment-only result'
 ```
-
-## 一次实际交互
-
-| 时刻 | 用户看到的内容 | Maus 做的事 |
-| --- | --- | --- |
-| 用户发「画一张雨夜车站」 | 原请求下出现「图片已排队」 | 校验本轮权限，持久化任务和卡片，立即向模型返回已受理。 |
-| 图片仍在生成，用户问「刚才推荐的车次是哪班？」 | 同一私聊正常回答车次 | 生图由后台 worker 跟踪。第一轮正常结束，第二轮按普通消息调度。 |
-| 用户在另一会话时出图 | 回到原会话，原卡片显示可预览、下载的图片 | 服务端定点更新原卡并推送消息变更，完成交付所需的新增模型调用为零。 |
-| 供应商拒绝请求或结果无法确认 | 原卡片显示具体原因。可能已计费时显示「结果待确认」 | 对确定失败和可能已受理分别结算，保留原任务号供查证。 |
-
-建议以**本地受理事务提交**为界。提交前显式停止原轮次则拒绝排队。提交后，聊天的停止按钮只结束当轮回复，关闭页面、停止下一轮或切换会话都允许已受理的图片继续交付。若后续增加单图撤回，排队中可撤回本地派发。Aion 当前协议只有提交、查询和取图，已发出的付费任务没有远端取消回执。
-
-## 接入位置与工具契约
-
-1. **配置一个生图专用连接。** 在「设置 → AI → 图片」增加聊天生图方式「异步 MCP」，使用现有 MCP 连接与凭据设施选择或添加一个由 Maus 服务端可达的 Streamable HTTP profile。保存其注册名及专用用途，密钥按当前 bot 和凭据归属解析。连接测试执行握手和 `tools/list`，校验三个工具及必要参数，测试本身产生零次出图。专用连接在创建时即按用途排除于普通模型工具挂载、发现和透传路径，防止模型直接提交或取回大块图片。导入旧连接时，切换用途要覆盖已经预热的引擎会话。[MCP 配置](../../server/mcp-registry.ts) · [按 bot 解析连接](../../server/host/mcp-servers-host.ts) · [图片设置](../../src/components/ImageGenerationSettings.tsx)
-2. **模型只做一次受理调用。** 建议为异步模式注册 `generate_image_async(prompt, size?, image_index?)`，从现有图片工具组开放，直接调用和 `use_tool` 走同一处理器。Maus 在符合范围的私聊按生图方式列出对应的内置工具。同步模式继续使用 `generate_image`。异步模式的就绪条件取自专用连接和本轮权限。已选 MCP 无法使用时提示检查连接，自动改走付费同步供应商会违背用户选择。头像设置及 Codex 自有生图继续走各自入口。工具说明明确本次回执是「已排队」，模型可回答同轮的其他问题并结束本轮，状态查询由服务端负责。[工具定义](../../server/drivers/agents-image-tools.ts) · [工具目录](../../server/drivers/agents-catalog.ts) · [统一调用入口](../../server/drivers/agents-mcp.ts)
-3. **固定原请求和每张图的身份。** bot、线程、用户消息、轮次和所有者取自活动 capability 与该轮的直接请求记录。入口复核本人发起、原消息仍在该私聊及分支、图片工具与 MCP 均获准。建议用 `(threadId, botId, sourceMessageId, image_index)` 唯一定位一次用户请求中的一张图。单图缺省为 1，多图按用户请求的顺序编号，服务端只接受 1 到当前每轮上限之间的整数。宿主用此键和规范化参数摘要去重，同键同参返回原回执，异参返回冲突。用户发一条新的相同请求可正常再画。这样也覆盖工具桥接未传引擎调用 ID、MCP 重连后 JSON-RPC 序号重用的情况。新任务的 `jobId` 由 Maus 生成一次 UUID，同时用作远端 `request_id`。[工具调用上下文](../../server/drivers/agents-call.ts) · [受理路由现有校验](../../server/routes/image-tools.ts)
-4. **严格按已有 MCP 协议调用。** 发送 `image_submit({request_id, prompt, size?})`，以同一个 UUID 调 `image_status({task_id})` 和 `image_result({task_id})`。先检查 `isError`。成功回执必须带匹配的 `task_id`，错误回执按 `structuredContent.error_code` 处理，允许它只返回错误码和说明。首版提交一段文字生成单图，尺寸缺省交给 profile，显式尺寸使用其支持的 `WIDTHxHEIGHT`。参考图编辑、多 profile 选择和群聊作为后续扩展。实施时的协议参考为 Aion 仓库的 `AionUi/docs/guides/acp-image-output.zh-CN.md` 与 `aion-openai-image-mcp/src/aion_openai_image_mcp/server.py`。
-
-## 持久化、恢复与原位交付
-
-**受理事务。** 在现有 `messages.db` 增加图片任务表，以便任务、额度预占、原分支上的图片卡和受理回执同事务提交。任务至少保存 UUID、上述唯一键、来源轮次与用户、卡片消息 ID、后端注册名和配置指纹、规范化请求及摘要、阶段、下次检查时间、额度归属日和安全错误码。注册名是逻辑引用，敏感 header 留在凭据存储。为未完成任务的下次检查时间建索引。复用 Store 的数据库写入部分，事务成功后再更新内存、广播卡片并唤醒 worker。[消息数据库](../../server/message-db.ts) · [事务回执语义](../../server/commands.ts) · [Store 消息更新](../../server/store.ts)
-
-| 持久阶段 | 下一步与重启规则 |
-| --- | --- |
-| `queued` 本地已受理 | worker 启动时及被唤醒时认领到期任务，按状态条件更新到 `submitting`，提交事务后才发送网络请求。原请求已删除或授权已撤销时终止派发。 |
-| `submitting` 回执可能丢失 | 重启或超时后先向原 profile 查 UUID。已存在就接着处理。只有同一幂等后端明确返回 `task_not_found` 且仍可确认其身份时，才按原 UUID、原参数重放。遇到身份变化或任务库被替换的迹象，转待确认。 |
-| `polling` 已有远端回执 | `pending/submitting` 等活动状态继续查。远端 `completed` 进入取图。网络抖动按有上限的退避重查。超过恢复窗口显示待确认，卡片的「重新查询」只查原任务。已经确认存在的任务后来查不到，也进入待确认。 |
-| `fetching` 远端已完成 | 可重复获取原结果。校验一个 PNG、任务号、实际尺寸、SHA-256 和 Maus 的 10 MiB 限额。用 `saveImage(bytes, "image/png", jobId)` 幂等落盘，再在同一数据库事务内把附件写入原卡并结算任务。磁盘短暂故障可重试交付。永久超限或远端结果过期显示原因。 |
-| `done / failed / needs_review` | 已完成卡直接读取 Maus 附件。确定失败写入原因。`submission_uncertain` 表示供应商可能已执行，进入待确认。重试查询始终使用原后端原号。只有用户明确发起一张新图才创建新的付费请求。 |
-
-worker 随 Maus 服务进程启停，复用现有到期定时器，每个任务同一时刻只执行一个步骤。建议首版最多同时发出两个 MCP 请求，活动任务每 2 秒查询一次。连续通信错误按 5 至 60 秒退避，满 20 分钟转待确认。每次带上预期阶段和认领标识提交结果，关闭服务时释放本机资源，重启后接管过期认领。接口断线只终止本次网络调用。已写文件但尚未更新卡片时，重启以同一文件 ID 再取或校验后补交。处于交付中的附件纳入现有附件清理的保留范围，终态清除持久请求正文。Aion 的远端结果保留七天，已交付图片的读取由 Maus 管理。[到期定时器](../../server/due-timer.ts) · [MCP 传输](../../server/mcp-http.ts) · [有界图片解码](../../server/generated-image.ts) · [幂等保存附件](../../server/attachments.ts)
-
-**权限、分支和额度。** 首次受理和实际派发都核对 bot、用户与专用连接。派发后绑定原 profile。连接被移除、替换或权限撤销时停止使用它。发布前按原线程、来源消息、卡片 ID 和当前受众再校验，原目标删除后结束本地交付。同一线程切换分支，仍按原卡 ID 更新。跨线程分叉按来源归属排除任务卡，并修复复制历史的父子引用。备份恢复到另一个工作区时保留可读历史，待执行任务需重新确认归属才恢复。附件下载沿用消息可见性校验。[分叉实现](../../server/store-forks.ts) · [原分支交付先例](../verification/async-bot-partner.md)
-
-额度沿用当前每轮设置及每日 50 张。现有每日已完成数落盘，在途预占在内存。实施时让同步与异步入口共用持久额度记账。升级导入当天旧计数一次。异步任务按受理日预占，同一任务结算一次，明确未出图时释放，已出图但交付失败或可能已计费的任务保守计入该日。按本地日切分，避免跨午夜重启重复扣减。保留每轮对已有图片、引擎原生产物和在途任务的上限检查。[每日计数](../../server/image-daily-cap.ts) · [现有生图限额](../image-generation.md)
-
-**前端交付。** 给聊天消息增加图片任务状态，来源使用 `replyToId`。先显示轻量状态行，出图后在同一消息复用 `AttachmentGallery`。只有可见状态改变才推送 `message.patch`。客户端重连按线程历史补读，后台回填保留用户选中的分支和输入焦点。状态用本地化文字和 `role="status"` 表达。模型上下文可读简短状态与附件引用，base64、远端凭据和轮询日志留在服务端。[聊天渲染](../../src/components/ChatView.tsx) · [消息补丁](../../src/state/store.tsx) · [界面规范](../../DESIGN.md)
-
-## 实施顺序与发布验收
-
-| 阶段 | 实施内容 | 通过条件 |
-| --- | --- | --- |
-| 1 · 走通用户交互 | 专用连接、协议适配、受理事务、最小 worker 和私聊卡片。用现有 Aion 服务加可暂停的模拟供应商。 | 发第一条请求，在模拟供应商被暂停期间拿到受理回执。同一私聊发第二问并收到回答，随后放行出图。只更新第一问的卡，下载 PNG 校验一致，出图完成触发的额外模型调用数为零。 |
-| 2 · 重启与幂等 | 实现按阶段恢复、额度迁移、重复提交与幂等交付。 | 分别在本地受理后、远端已接单但回执丢失、附件已写但卡片未更新时杀掉隔离 Maus，用同一临时数据目录重启。每案检查一份供应商请求、一张原卡、一个附件、一次额度结算。并发多图乱序返回仍各归原卡。同键异参明确失败。测试跨午夜和额度耗尽。 |
-| 3 · 访问控制与界面 | 权限复核、历史补读、分支与删除、设置切换和错误文案。 | 断开 WebSocket、切会话和切分支后能看到原卡终态。跨线程分叉无悬空卡，删除来源或撤权后其他会话收不到图。模拟图片超限、SHA-256 校验失败、结果过期、换后端与 `submission_uncertain`，核对无额外出图。桌面与窄屏验收续聊、预览、下载和键盘操作。 |
-
-首个实现交付以阶段 1 的完整私聊演示验收，开放给日常使用以三个阶段全部通过为准。验证使用项目隔离启动器、临时 MCP 数据库和模拟供应商，记录线程 ID、卡 ID、供应商调用次数与测试图摘要。同步生图、头像与未选择专用 MCP 的 bot 纳入兼容性回归。[隔离验证入口](../verification/README.md) · [聊天 UI 验证方式](../verification/chat-ui.md)

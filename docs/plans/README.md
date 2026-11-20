@@ -2,7 +2,7 @@
 
 This directory contains plans maintained for this fork.
 
-- [私聊复用 Aion MCP 异步生图](async-image-mcp.md)
+- [Maus 私聊接入 ComfyImageBridge 异步生图](async-image-mcp.md)
 - [单聊与群聊的会话上下文策略](context-compaction.md)
 - [MEMORY.md 只读注入与旧记忆退役](read-only-memory.md)
 
