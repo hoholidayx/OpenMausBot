@@ -24,7 +24,7 @@ it("exposes one local owner across paired devices and closes the email sign-in p
         expect((await api("/api/auth/pairing", {}, paired.body.token)).status).toBe(403);
       }
     }
-    for (const action of ["start", "verify"]) expect((await api(`/api/auth/email/${action}`, { email: "someone@example.test" })).status).toBe(410);
-    expect((await api("/api/config", { signIn: { admins: ["someone@example.test"] } }, undefined, "PATCH")).status).toBe(410);
+    for (const action of ["start", "verify"]) expect((await api(`/api/auth/email/${action}`, { email: "someone@example.test" })).status).toBe(404);
+    expect((await api("/api/config", { signIn: { admins: ["someone@example.test"] } }, undefined, "PATCH")).status).toBe(400);
   } finally { await fixture.close(); }
 }, 60_000);

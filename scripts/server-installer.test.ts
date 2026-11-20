@@ -394,7 +394,7 @@ describe.skipIf(!posix)("deploy/install.sh", () => {
     const first = run(["--domain", "maus.example.com"]);
     expect(first.status).toBe(0);
     const env = join(first.install, ".env");
-    writeFileSync(env, `${readFileSync(env, "utf8")}OMB_SIGNIN_SMTP_URL=smtps://mail.example.com\n`);
+    writeFileSync(env, `${readFileSync(env, "utf8")}OMB_SERVER_NAME=fixture\n`);
     writeFileSync(join(first.install, "data", "messages.db"), "chats");
     writeFileSync(join(first.install, "compose.yaml"), "broken");
     const before = statSync(join(first.install, "data"));
@@ -403,7 +403,7 @@ describe.skipIf(!posix)("deploy/install.sh", () => {
     expect(second.all).toContain("MausBot is running at https://maus.example.com");
     expect(second.status).toBe(0);
     expect(readFileSync(env, "utf8").split("\n").filter((line) => /^[A-Z_]+=/.test(line))).toEqual([
-      "OMB_SIGNIN_SMTP_URL=smtps://mail.example.com", "DOMAIN=maus.example.com", "OMB_IMAGE=ghcr.io/milind-soni/openmausbot:v0.1.152", "COMPOSE_FILE=compose.yaml:compose.box.yaml",
+      "OMB_SERVER_NAME=fixture", "DOMAIN=maus.example.com", "OMB_IMAGE=ghcr.io/milind-soni/openmausbot:v0.1.152", "COMPOSE_FILE=compose.yaml:compose.box.yaml",
     ]);
     expect(readFileSync(join(first.install, "compose.yaml"), "utf8")).toContain("name: openmausbot");
     expect(readFileSync(join(first.install, "data", "messages.db"), "utf8")).toBe("chats");
@@ -639,7 +639,7 @@ describe.skipIf(!posix)("deploy/install.sh", () => {
     const written = readFileSync(join(result.install, "compose.yaml"), "utf8");
     const settings = (text: string) => [...text.matchAll(/^ {6}(OMB_[A-Z_]+:.*)$/gm)].map((match) => match[1]);
     expect(settings(written)).toEqual(settings(manual));
-    for (const name of ["OMB_SIGNIN_EMAILS", "OMB_SIGNIN_MEMBER_EMAILS", "OMB_PHONE_RELAY"]) expect(settings(written)).toContain(`${name}:`);
+    expect(settings(written)).toContain("OMB_PHONE_RELAY:");
     for (const line of ['test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8799/api/health | grep -q openmausbot"]', "init: true", "shm_size: 512m", '- "80:80"', '- "443:443"',
       "- edge:/run/openmausbot", "type: tmpfs"]) {
       expect(written).toContain(line);

@@ -42,13 +42,6 @@ services:
       # pairing links for remote clients point here (docs/self-hosting.md)
       OMB_PUBLIC_URL: https://${DOMAIN}
       OMB_SERVER_NAME: ${OMB_SERVER_NAME:-${DOMAIN}}
-      # Who may sign in with an emailed code at /pair (docs/self-hosting.md,
-      # "Sign in with your email"), and your own mail server for the codes.
-      # With no value here, each is passed only when .env sets it. A list
-      # .env leaves empty is Settings → Remote access's to manage; one that
-      # names someone decides that list, and Settings refuses to change it.
-      OMB_SIGNIN_EMAILS:
-      OMB_SIGNIN_MEMBER_EMAILS:
       # "1": phones pair by QR through MausBot Relay (docs/phone-relay-server.md). Sign the
       # container in once first: docker compose exec omb openmausbot login --relay
       OMB_PHONE_RELAY:

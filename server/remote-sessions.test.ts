@@ -190,10 +190,7 @@ describe("before pairing", () => {
       selfUpdate: "operator",
       // How it was installed, so a client's update note offers the command that fits.
       install: expect.any(String),
-      emailSignIn: false,
       jobs: true,
-      // A server nobody else signs in to can be its owner's bots' home: it takes their move once they pair.
-      move: 1,
     });
     const refused = await call("/api/bots", { headers: remote("10.0.0.1") });
     expect(refused.status).toBe(403);

@@ -659,15 +659,14 @@ Like `opencode` in a terminal, it reads provider keys from its environment
 `KIMI_API_KEY`, `MOONSHOT_API_KEY`, `MINIMAX_API_KEY`) and offers those
 providers' models, billed to that key. It does so only where the server's
 environment is one person's own: never on MausBot Cloud, a hosted team
-workspace, an organisation-managed desktop, or a server whose sign-in list
-lets other people in (users, more than one admin, or a whole domain).
+workspace, an organisation-managed desktop, or a server with an active chat-only device or pairing code.
 Providers added with `opencode auth login` work everywhere.
 
 ## Many client workspaces on one server
 
 `openmausbot fleet` runs one workspace per client on a single Linux server,
 each as its own OS user, its own `openmausbot@<name>` service on its own
-loopback ports, its own data folder, brand, sign-in list and provider key,
+loopback ports, its own data folder, brand and provider key,
 reached at `<name>.<your domain>` through the system Caddy. Bots of one
 workspace cannot read another's files or reach its API: the data lives in a
 private home, the unit runs with a private `/tmp`, no new privileges and a
@@ -686,10 +685,9 @@ and adds `import /etc/caddy/omb.d/*.caddy` to `/etc/caddy/Caddyfile`. Then per
 client:
 
 ```sh
-openmausbot fleet create acme --admin owner@acme.test --member @acme.test \
+openmausbot fleet create acme \
   --brand /root/acme-brand.json --anthropic-key-file /root/acme-anthropic.key \
   --memory 1G
-openmausbot fleet users acme add bob@acme.test --chat-only
 openmausbot fleet list
 openmausbot fleet suspend acme      # 503 page, service stopped; resume undoes it
 openmausbot fleet upgrade           # new release, then every running workspace restarted in turn
@@ -697,7 +695,7 @@ openmausbot fleet delete acme --yes # add --keep-data to keep the home folder
 ```
 
 The fleet commands manage the installations from the server. When `create`
-returns, the first admin signs in to the workspace with an emailed code.
+returns, run the pairing command it prints on the fleet host. Open the link on the device you want to connect.
 Pass `--dry-run` to print the steps.
 
 ## Signing the engines in without a terminal
@@ -934,12 +932,9 @@ its own revocable session. Chat-only devices and script tokens retain their
 own scopes. Use `openmausbot pair` to connect another device and
 `openmausbot devices` to review or revoke sessions.
 
-When upgrading from email sign-in, email sessions expire. On an installation
-whose old access list included members, multiple admins, or a whole domain, or whose stored sessions show a former member,
-all previously issued devices and script tokens must be paired or issued
-again. Shared sign-in history also keeps automatic computer lending, owner-mode API keys and Dots inbox adoption disabled across restarts. Personal installations keep existing device pairings. Historical chats
-and approval records retain their original attribution. Email invitations and
-`openmausbot access` are retired.
+Only current device sessions bound to this installation survive a restart.
+After upgrading from the multi-user session format, run `openmausbot pair`
+again on the server. Reissue any scripts' access tokens separately.
 
 ### Who can see a bot
 
@@ -1080,8 +1075,7 @@ For the proxy boundary and offline regression checks, see the
 
 ## Using it from your phone
 
-Signed in on a hosted server as an admin (with a pairing code or your
-email)? Settings → Remote access → **Pair a phone or another computer**
+Signed in on a hosted server with an owner pairing code? Settings → Remote access → **Pair a phone or another computer**
 creates a one-time code with a QR right in the browser, and lists every
 paired device with a sign-out button. Nobody needs the command line.
 

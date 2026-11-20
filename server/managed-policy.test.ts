@@ -105,7 +105,7 @@ describe("organisation desktop policy overlay", () => {
 
   it("covers device pairing and email sign-in when remote access is restricted", () => {
     expect([...REMOTE_ACCESS_PATHS].sort()).toEqual([
-      "/api/auth/email/start", "/api/auth/email/verify", "/api/auth/pair", "/api/auth/pairing", "/api/pair",
+      "/api/auth/pair", "/api/auth/pairing", "/api/pair",
     ]);
   });
 

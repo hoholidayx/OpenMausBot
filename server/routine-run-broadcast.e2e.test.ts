@@ -14,7 +14,6 @@ const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_CLI = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
 const PORT = workerPort(28800, 10_000);
 const BASE = `http://127.0.0.1:${PORT}`;
-const OWNER = "owner@example.test";
 const posixOnly = describe.skipIf(process.platform === "win32");
 
 let child: ChildProcess;
@@ -80,7 +79,6 @@ posixOnly("a routine run's task on the event stream", () => {
     const data = join(home, ".openmausbot");
     mkdirSync(data, { recursive: true });
     writeFileSync(join(data, "config.json"), JSON.stringify({
-      signIn: { admins: [OWNER], members: [] },
       instances: { grok: { driver: "grokAgent", config: { cli: FAKE_CLI, fullAuto: false } } },
     }));
     const registry = new SessionRegistry({ file: join(data, "sessions.json") });

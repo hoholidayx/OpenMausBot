@@ -34,7 +34,7 @@ const io = () => {
 };
 
 const base: FleetInput = {
-  action: "list", admins: [], members: [], dryRun: false, yes: false, keepData: false,
+  action: "list", dryRun: false, yes: false, keepData: false,
   node: "/usr/bin/node", script: "/usr/lib/node_modules/openmausbot/cli.js", root: "/",
 };
 const registryFile = "/etc/openmausbot/fleet.json";
@@ -81,7 +81,7 @@ describe("openmausbot fleet", () => {
 
     const rooted = machine({ root: true, files: withRegistry() });
     const dry = io();
-    expect(await runFleetCommand({ ...base, action: "create", slug: "acme", admins: ["ada@example.test"], dryRun: true }, dry.io, rooted.deps)).toBe(0);
+    expect(await runFleetCommand({ ...base, action: "create", slug: "acme", dryRun: true }, dry.io, rooted.deps)).toBe(0);
     expect(dry.out[0]).toBe("dry run; inspect this plan, then rerun the fleet command as root without --dry-run (with --yes where required):");
     expect(dry.out.join("\n")).toContain("useradd --system --create-home --home-dir /var/lib/openmausbot/acme");
     expect(rooted.calls).toEqual([]);
@@ -100,7 +100,7 @@ describe("openmausbot fleet", () => {
   it("creates a workspace as root in order, and stops at the first failed step without repeating secrets", async () => {
     const { deps, calls, files } = machine({ root: true, files: { ...withRegistry(), "/srv/brand.json": '{"name":"Acme"}', "/srv/key.txt": "sk-ant-fixture\n" } });
     const { io: log, out } = io();
-    const code = await runFleetCommand({ ...base, action: "create", slug: "acme", admins: ["ada@example.test"], members: ["@acme.test"], brandFile: "/srv/brand.json", anthropicKeyFile: "/srv/key.txt" }, log, deps);
+    const code = await runFleetCommand({ ...base, action: "create", slug: "acme", brandFile: "/srv/brand.json", anthropicKeyFile: "/srv/key.txt" }, log, deps);
     expect(code).toBe(0);
     expect(calls.slice(0, 5)).toEqual([
       `write ${registryFile} 600`,
@@ -110,7 +110,7 @@ describe("openmausbot fleet", () => {
       "write /var/lib/openmausbot/acme/.openmausbot/config.json 600 as omb-acme",
     ]);
     expect(JSON.parse(files.get("/var/lib/openmausbot/acme/.openmausbot/config.json")!)).toEqual({
-      signIn: { admins: ["ada@example.test"], members: ["@acme.test"] }, anthropic: { key: "sk-ant-fixture" },
+      anthropic: { key: "sk-ant-fixture" },
     });
     expect(files.get("/var/lib/openmausbot/acme/.openmausbot/brand.json")).toBe('{"name":"Acme"}');
     expect(calls).toContain("health http://127.0.0.1:8810/api/health");
@@ -120,7 +120,7 @@ describe("openmausbot fleet", () => {
 
     const broken = machine({ root: true, files: withRegistry(), failing: ["systemctl enable"] });
     const failed = io();
-    expect(await runFleetCommand({ ...base, action: "create", slug: "beta", admins: ["b@example.test"] }, failed.io, broken.deps)).toBe(1);
+    expect(await runFleetCommand({ ...base, action: "create", slug: "beta" }, failed.io, broken.deps)).toBe(1);
     expect(failed.err[0]).toContain("could not start the workspace now and at boot");
     expect(failed.err.join("\n")).toContain("boom");
     expect(broken.calls.some((call) => call.startsWith("health"))).toBe(false);
@@ -130,7 +130,7 @@ describe("openmausbot fleet", () => {
   it("needs an initialised fleet, a known workspace, and --yes before deleting", async () => {
     const { deps } = machine({ root: true });
     const none = io();
-    expect(await runFleetCommand({ ...base, action: "create", slug: "acme", admins: ["a@b.test"] }, none.io, deps)).toBe(2);
+    expect(await runFleetCommand({ ...base, action: "create", slug: "acme" }, none.io, deps)).toBe(2);
     expect(none.err[0]).toContain("fleet init");
     const ready = machine({ root: true, files: withRegistry({ acme: { slug: "acme", host: "acme.agentada.cc", port: 8810, webhookPort: 8811, status: "running", createdAt: "" } }) });
     const unknown = io();
@@ -146,16 +146,8 @@ describe("openmausbot fleet", () => {
     expect(JSON.parse(ready.files.get(registryFile)!).workspaces.acme).toMatchObject({ status: "retained" });
   });
 
-  it("edits a workspace's sign-in list in place, owned by the workspace, and lists what runs", async () => {
-    const dataFile = "/var/lib/openmausbot/acme/.openmausbot/config.json";
-    const ready = machine({ root: true, files: { ...withRegistry({ acme: { slug: "acme", host: "acme.agentada.cc", port: 8810, webhookPort: 8811, status: "running", createdAt: "" } }), [dataFile]: '{"signIn":{"admins":["ada@example.test"]}}' } });
-    const added = io();
-    expect(await runFleetCommand({ ...base, action: "users", slug: "acme", userAction: "add", email: "Bob@Acme.test", chatOnly: true }, added.io, ready.deps)).toBe(0);
-    expect(JSON.parse(ready.files.get(dataFile)!).signIn).toEqual({ admins: ["ada@example.test"], members: ["bob@acme.test"] });
-    expect(ready.calls).toContain(`read ${dataFile} as omb-acme`);
-    expect(ready.calls).toContain(`write ${dataFile} 600 as omb-acme`);
-    expect(ready.calls.some((call) => call.startsWith("run chown"))).toBe(false);
-    expect(added.out.at(-1)).toContain("bob@acme.test can sign in");
+  it("lists the running workspace", async () => {
+    const ready = machine({ root: true, files: withRegistry({ acme: { slug: "acme", host: "acme.agentada.cc", port: 8810, webhookPort: 8811, status: "running", createdAt: "" } }) });
     const listed = io();
     expect(await runFleetCommand({ ...base, action: "list" }, listed.io, ready.deps)).toBe(0);
     expect(listed.out[0]).toMatch(/^acme\s+https:\/\/acme\.agentada\.cc\s+:8810\s+active$/);
@@ -182,7 +174,7 @@ describe("openmausbot fleet", () => {
   it.each(["/var/lib/openmausbot/acme", "/etc/openmausbot/instances/acme.env", "/etc/caddy/omb.d/acme.caddy", "/etc/systemd/system/openmausbot@acme.service.d"])("refuses residual customer path %s before taking action", async (path) => {
     const ready = machine({ root: true, files: { ...withRegistry(), [path]: "retained data" } });
     const result = io();
-    expect(await runFleetCommand({ ...base, action: "create", slug: "acme", admins: ["a@example.test"] }, result.io, ready.deps)).toBe(2);
+    expect(await runFleetCommand({ ...base, action: "create", slug: "acme" }, result.io, ready.deps)).toBe(2);
     expect(result.err.join("\n")).toContain("workspace path already exists");
     expect(ready.calls).toEqual([]);
     expect(ready.files.get(path)).toBe("retained data");
@@ -205,7 +197,7 @@ describe("openmausbot fleet", () => {
     expect(await runFleetCommand(base, listed.io, ready.deps)).toBe(0);
     expect(listed.out[0]).toContain(status);
     const duplicate = io();
-    expect(await runFleetCommand({ ...base, action: "create", slug: "acme", admins: ["a@example.test"] }, duplicate.io, ready.deps)).toBe(2);
+    expect(await runFleetCommand({ ...base, action: "create", slug: "acme" }, duplicate.io, ready.deps)).toBe(2);
     expect(duplicate.err.join("\n")).toContain('workspace "acme" already exists');
     expect(ready.calls).toEqual([]);
   });

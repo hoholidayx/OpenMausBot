@@ -523,7 +523,7 @@ describe("resolveRequestAuth", () => {
     const token = pairedToken();
     const session = sessions.authenticate(token);
     if (!session) throw new Error("fixture did not pair");
-    session.cookieOnly = true;
+    Object.assign(session, { cookieOnly: true });
     const cookie = `${cookieName}=${token}`;
     const cloud = { host: "omb-u-0123456789ab.fly.dev", "x-forwarded-proto": "https", cookie };
     expect(resolve(cloud).auth?.kind).toBe("session");

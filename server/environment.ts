@@ -125,7 +125,7 @@ export function serverInstall(env: NodeJS.ProcessEnv = process.env, script = pro
  * /api/auth/session answer, never in the description anyone may read before pairing. */
 export const OWNER_LENDING = Object.freeze({ sharedComputers: true, lendingDetails: true, commandTimeouts: true, longCommands: true, fileEdits: true, lentMcp: true, mcpCaller: true } as const);
 
-export function environmentDescriptor(input: { environmentId: string; desktopManaged: boolean; emailSignIn?: boolean; sharedComputers?: boolean; cloudHome?: boolean; cloudTeam?: boolean; label?: string }): EnvironmentDescriptor {
+export function environmentDescriptor(input: { environmentId: string; desktopManaged: boolean; sharedComputers?: boolean; cloudHome?: boolean; cloudTeam?: boolean; label?: string }): EnvironmentDescriptor {
   return {
     environmentId: input.environmentId,
     label: input.label?.trim() || process.env.OMB_ENVIRONMENT_LABEL?.trim() || process.env.OMB_SERVER_NAME?.trim() || hostname(),
@@ -143,7 +143,6 @@ export function environmentDescriptor(input: { environmentId: string; desktopMan
       ...(input.cloudHome === true && input.cloudTeam === true ? { cloudTeam: true as const } : {}),
       selfUpdate: input.desktopManaged ? "desktop-managed" : "operator",
       ...(input.desktopManaged ? {} : { install: serverInstall() }),
-      emailSignIn: input.emailSignIn === true,
       jobs: true,
     },
   };

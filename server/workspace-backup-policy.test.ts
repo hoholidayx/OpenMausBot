@@ -15,7 +15,7 @@ describe("workspace backup data boundary", () => {
       mcpServers: { source: { command: "mcp", args: ["arg-secret"], env: { ORDINARY: "env-secret" }, headers: { Authorization: "Bearer header-secret" } } },
       futureConnection: { unrecognizedField: "future-secret" }, apiKey: "legacy-secret",
       defaultModelSelection: { instanceId: "source", model: "source" },
-      signIn: { admins: ["source@example.com"] }, customDomain: "source.example", vps: { sshAlias: "source" },
+      customDomain: "source.example", vps: { sshAlias: "source" },
       cliStartup: { access: "public-url", publicUrl: "https://source.example" },
     };
     const portable = portableWorkspaceConfig({ ...connections, language: "ja", features: { browser: true }, profile: { name: "Example" } });

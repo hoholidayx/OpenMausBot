@@ -102,7 +102,6 @@ posixOnly("admin activity log", () => {
     home = mkdtempSync(join(tmpdir(), "omb-admin-activity-"));
     data = join(home, ".openmausbot");
     mkdirSync(join(data, "decisions"), { recursive: true });
-    writeFileSync(join(data, "config.json"), JSON.stringify({ signIn: { admins: [BOSS], members: [ADA] } }));
     // One card Ada answered earlier, as the decision log recorded it.
     writeFileSync(join(data, "decisions", `${month()}.ndjson`), [
       { at: new Date(Date.now() - 60_000).toISOString(), threadId: "t1", requestId: "r1", botName: "Ops", tool: "Bash", summary: "echo hi",
@@ -130,7 +129,7 @@ posixOnly("admin activity log", () => {
   });
 
   it("records settings, keys and budgets with who changed them, never a secret", async () => {
-    expect((await api("PUT", "/api/config", { signIn: { admins: [BOSS], members: [ADA, "carol@example.test"] } }, BOSS)).status).toBe(410);
+    expect((await api("PUT", "/api/config", { signIn: { admins: [BOSS], members: [ADA, "carol@example.test"] } }, BOSS)).status).toBe(400);
     expect((await api("PUT", "/api/config", { anthropic: { key: SECRET } }, BOSS)).status).toBe(200);
     expect((await api("PUT", "/api/config", { budgets: { monthlyUsd: 75 } }, BOSS)).status).toBe(200);
     expect((await api("PUT", "/api/config", { decisions: { retentionDays: 400 } })).status).toBe(200); // the owner, on this machine

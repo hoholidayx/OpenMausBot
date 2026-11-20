@@ -80,7 +80,7 @@ export function createStatusRoutes(deps: StatusRouteDeps): RouteHandler {
       return json(res, 202, { installing: true });
     }
     // Admin scope plus the `admin` entitlement; the socket's own permissions decide whether this workspace may drive the agent.
-    const fleetRoute = /^\/api\/fleet(?:\/(workspaces(?:\/([a-z0-9-]+)(?:\/(users|suspend|resume))?)?|upgrade))?$/.exec(path);
+    const fleetRoute = /^\/api\/fleet(?:\/(workspaces(?:\/([a-z0-9-]+)(?:\/(suspend|resume))?)?|upgrade))?$/.exec(path);
     if (fleetRoute) {
       if (!entitled("admin")) return json(res, 403, { error: "Workspaces need an enterprise licence with the admin feature." });
       const socket = fleetSocketPath();
@@ -90,7 +90,7 @@ export function createStatusRoutes(deps: StatusRouteDeps): RouteHandler {
       if (method === "GET" && !resource) forward = { method: "GET", path: "/workspaces" };
       else if (method === "POST" && resource === "workspaces") forward = { method: "POST", path: "/workspaces", body: await readBody(req, 256 * 1024) };
       else if (method === "POST" && resource === "upgrade") forward = { method: "POST", path: "/upgrade" };
-      else if (slug && method === "POST" && (sub === "users" || sub === "suspend" || sub === "resume")) forward = { method: "POST", path: `/workspaces/${slug}/${sub}`, ...(sub === "users" ? { body: await readBody(req, 8192) } : {}) };
+      else if (slug && method === "POST" && (sub === "suspend" || sub === "resume")) forward = { method: "POST", path: `/workspaces/${slug}/${sub}` };
       else if (slug && method === "DELETE" && !sub) forward = { method: "DELETE", path: `/workspaces/${slug}`, body: await readBody(req, 8192) };
       if (!forward) return json(res, 405, { error: "no such fleet operation" });
       res.setHeader("cache-control", "no-store");

@@ -311,21 +311,21 @@ export function resetOpenCodeModelCache() {
 export const resetOpenCodeGoModelCache = resetOpenCodeModelCache;
 
 /** Provider keys come from the server's env only when it is the person's own shell: never on a Cloud
- * home, hosted team, managed desktop or open sign-in list, where every bot would bill the operator's key. */
+ * home, hosted team, managed desktop or active chat-only pairing or session, where every bot would bill the operator's key. */
 export function openCodeProviderKeysAllowed(state: {
   cloudHome: boolean;
   hostedWorkspace: boolean;
   organisationManaged: boolean;
-  sharedSignIn: boolean;
+  restrictedDevices: boolean;
 }): boolean {
-  return !state.cloudHome && !state.hostedWorkspace && !state.organisationManaged && !state.sharedSignIn;
+  return !state.cloudHome && !state.hostedWorkspace && !state.organisationManaged && !state.restrictedDevices;
 }
 
 let providerKeysAllowed = (): boolean => openCodeProviderKeysAllowed({
   cloudHome: cloudHomeConfigured(),
   hostedWorkspace: hostedWorkspaceConfigured(),
   organisationManaged: false,
-  sharedSignIn: false,
+  restrictedDevices: false,
 });
 
 export function setOpenCodeProviderKeyPolicy(allowed: () => boolean): void {

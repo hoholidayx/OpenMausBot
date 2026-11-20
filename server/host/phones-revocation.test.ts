@@ -26,7 +26,7 @@ async function fixture() {
   const session = sessions.authenticate(paired.token)!;
   const bot = { id: "helper", name: "Helper", phoneApps: { calendar: "write" } } as BotRecord;
   const phones = createPhones({
-    dataDir: dir, shared: false, cloudHome: true, cloudOwnerKey: "owner", loopbackTrust: "owner", sharedMembership: () => false,
+    dataDir: dir, shared: false, cloudHome: true, cloudOwnerKey: "owner", loopbackTrust: "owner",
     store: { bot: () => bot, groupByThread: () => undefined, messagesFor: () => [], appendMessage: (_thread, message) => ({ ...message, id: "message-1", at: message.at ?? Date.now() }) },
     sessions, routines: () => null, ownerOrAdmin: () => true, cloudOwnerSession: () => true,
     cloudLendingRefusal: () => null, cloudLendingTurn: () => { throw new Error("unused on Cloud home"); },

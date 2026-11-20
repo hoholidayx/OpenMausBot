@@ -486,7 +486,7 @@ describe("OpenCode catalog", () => {
   });
 
   it("allows provider keys only where the server's environment is one person's own", () => {
-    const own = { cloudHome: false, hostedWorkspace: false, organisationManaged: false, sharedSignIn: false };
+    const own = { cloudHome: false, hostedWorkspace: false, organisationManaged: false, restrictedDevices: false };
     expect(openCodeProviderKeysAllowed(own)).toBe(true);
     for (const key of Object.keys(own) as Array<keyof typeof own>) {
       expect(openCodeProviderKeysAllowed({ ...own, [key]: true }), key).toBe(false);
@@ -501,7 +501,7 @@ describe("OpenCode catalog", () => {
     expect(firstLoad).toBeGreaterThan(wired);
     expect(source.match(/setOpenCodeProviderKeyPolicy\(/g)).toHaveLength(1);
     const policy = source.slice(source.indexOf("const openCodeKeysAllowed = "), wired);
-    expect(policy).toContain("sharedSignIn: wasShared");
+    expect(policy).toContain("restrictedDevices: sessions.hasChatOnlyAccess()");
     expect(policy).toContain("cloudHome: false");
     expect(policy).toContain("hostedWorkspace: false");
     expect(policy).toContain("organisationManaged: false");

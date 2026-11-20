@@ -100,7 +100,7 @@ export interface DevsReportsDeps {
   automated(threadId: string): boolean;
   engine(instanceId: string): { name: string; snapshot?: ProviderSnapshot } | null;
   appsReady(): boolean;
-  sessions(): PublicSession[];
+  sessions(): Array<PublicSession & { email?: string }>;
   /** My Cloud's owner key: the owner's lines carry it instead of their session's person key. */
   ownerKey: string | null;
   /** On a Team Cloud the server's profile is nobody's, so only a session's address counts. */

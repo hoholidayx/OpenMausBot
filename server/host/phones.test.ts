@@ -36,7 +36,7 @@ function world(overrides: Partial<PhonesDeps> = {}) {
   const lines: Array<{ id: string; role: string; sendId?: string; sender?: { id: string } }> = [];
   const requests = new Map<string, { messageId?: string; automation?: unknown; origin?: { kind: string } }>();
   const phones = createPhones({
-    dataDir: dir, shared: false, cloudHome: false, cloudOwnerKey: null, loopbackTrust: "owner", sharedMembership: () => false,
+    dataDir: dir, shared: false, cloudHome: false, cloudOwnerKey: null, loopbackTrust: "owner",
     store: { messagesFor: () => lines, bot: () => chief, groupByThread: () => undefined, appendMessage: () => {} } as unknown as PhonesDeps["store"],
     sessions: { userId: "test-owner", list: () => [], isLive: () => true, onSessionRevoked: () => () => {} }, routines: () => null, ownerOrAdmin: (auth) => auth.scopes.includes("admin"), cloudOwnerSession: () => false,
     cloudLendingRefusal: () => null,
@@ -124,7 +124,7 @@ describe("whose phones", () => {
   });
 
   it("a Team Cloud or hosted workspace, a server several people sign in to, and a service-trust machine get no phone", () => {
-    for (const overrides of [{ shared: true }, { sharedMembership: () => true }, { loopbackTrust: "service" as const }]) {
+    for (const overrides of [{ shared: true }, { loopbackTrust: "service" as const }]) {
       const { phones, send } = world(overrides);
       send(phones.sendIdFor(loopback));
       expect(phones.fromPhone(session(PHONE_SESSION))).toBe(true);

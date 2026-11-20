@@ -193,7 +193,6 @@ const pick = (source: unknown, paths: readonly string[]) =>
   Object.fromEntries(paths.map((path) => [path, valueAt(source, path) ?? null]));
 
 const CONFIG_CATEGORY: Record<string, AdminActivityCategory> = {
-  signIn: "people",
   budgets: "budget",
   usageCaps: "budget",
   billing: "budget",

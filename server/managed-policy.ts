@@ -3,7 +3,7 @@ import { serviceSlugFor, serviceSlugForCandidates } from "./connector-verdict.ts
 import { appLabel } from "./team-connections.ts";
 
 export const REMOTE_ACCESS_PATHS: ReadonlySet<string> = new Set([
-  "/api/auth/pair", "/api/pair", "/api/auth/pairing", "/api/auth/email/start", "/api/auth/email/verify",
+  "/api/auth/pair", "/api/pair", "/api/auth/pairing",
 ]);
 
 const policySchema = z.object({

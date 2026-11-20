@@ -34,9 +34,8 @@ function loadEnvironmentIdInChild(dataDir: string): Promise<string> {
 }
 
 function importComputerProvidersInChild(dataDir: string): Promise<void> {
-  const boatUrl = new URL("./boat.ts", import.meta.url).href;
   const vpsUrl = new URL("./vps-computer.ts", import.meta.url).href;
-  const source = `await import(${JSON.stringify(boatUrl)}); await import(${JSON.stringify(vpsUrl)});`;
+  const source = `await import(${JSON.stringify(vpsUrl)});`;
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
@@ -123,7 +122,7 @@ describe("environment identity", () => {
       label: "cab mini",
       platform: process.platform,
       version: "0.1.99",
-      capabilities: { remoteSessions: true, selfUpdate: "desktop-managed", emailSignIn: false, jobs: true },
+      capabilities: { remoteSessions: true, selfUpdate: "desktop-managed", jobs: true },
     });
     expect(environmentDescriptor({ environmentId: "abc", desktopManaged: false }).capabilities.selfUpdate).toBe("operator");
     expect(environmentDescriptor({ environmentId: "abc", desktopManaged: true }).capabilities, "the desktop updates its own server").not.toHaveProperty("install");
@@ -136,14 +135,14 @@ describe("environment identity", () => {
     expect(environmentDescriptor({ environmentId: "abc", desktopManaged: true, sharedComputers: false }).capabilities)
       .not.toHaveProperty("sharedComputers");
     expect(environmentDescriptor({ environmentId: "abc", desktopManaged: true, sharedComputers: true }).capabilities)
-      .toEqual({ remoteSessions: true, sharedComputers: true, lendingDetails: true, commandTimeouts: true, longCommands: true, fileEdits: true, lentMcp: true, mcpCaller: true, selfUpdate: "desktop-managed", emailSignIn: false, jobs: true });
+      .toEqual({ remoteSessions: true, sharedComputers: true, lendingDetails: true, commandTimeouts: true, longCommands: true, fileEdits: true, lentMcp: true, mcpCaller: true, selfUpdate: "desktop-managed", jobs: true });
     expect(environmentDescriptor({ environmentId: "abc", desktopManaged: false, cloudHome: true }).capabilities)
-      .toEqual({ remoteSessions: true, cloudHome: true, selfUpdate: "operator", install: expect.any(String), emailSignIn: false, jobs: true });
+      .toEqual({ remoteSessions: true, cloudHome: true, selfUpdate: "operator", install: expect.any(String), jobs: true });
     expect(environmentDescriptor({ environmentId: "abc", desktopManaged: false, cloudHome: false }).capabilities).not.toHaveProperty("cloudHome");
     expect(environmentDescriptor({ environmentId: "abc", desktopManaged: true }).capabilities).not.toHaveProperty("move");
     // A lent computer may lend its internet connection only to a Cloud home that lends at all.
     expect(environmentDescriptor({ environmentId: "abc", desktopManaged: false, cloudHome: true, sharedComputers: true }).capabilities)
-      .toEqual({ remoteSessions: true, sharedComputers: true, lendingDetails: true, commandTimeouts: true, longCommands: true, fileEdits: true, deviceLink: true, lentMcp: true, mcpCaller: true, myChromeLink: true, computerAsks: true, cloudHome: true, selfUpdate: "operator", install: expect.any(String), emailSignIn: false, jobs: true });
+      .toEqual({ remoteSessions: true, sharedComputers: true, lendingDetails: true, commandTimeouts: true, longCommands: true, fileEdits: true, deviceLink: true, lentMcp: true, mcpCaller: true, myChromeLink: true, computerAsks: true, cloudHome: true, selfUpdate: "operator", install: expect.any(String), jobs: true });
     expect(environmentDescriptor({ environmentId: "abc", desktopManaged: true, sharedComputers: true }).capabilities).not.toHaveProperty("deviceLink");
   });
 

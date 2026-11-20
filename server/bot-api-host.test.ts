@@ -73,7 +73,7 @@ async function harness(script: Script, options: { waitMs?: number; full?: boolea
   const fake = fakeStore();
   const turns: Array<{ botId: string; prompt: string; opts: BotApiTurnOptions }> = [];
   const recorded: unknown[] = [];
-  const manager = new BotApiManager({ file: join(dir, "bot-api.json") });
+  const manager = new BotApiManager({ ownerId: "p_fixture", file: join(dir, "bot-api.json") });
   const host = createBotApiHost({
     store: fake.store,
     manager,
@@ -294,7 +294,7 @@ describe("the Bot API door on the webhook receiver", () => {
     const dir = mkdtempSync(join(tmpdir(), "omb-bot-api-claim-"));
     dirs.push(dir);
     const host = createBotApiHost({
-      store: fake.store, manager: new BotApiManager({ file: join(dir, "bot-api.json") }), waitMs: 5_000,
+      store: fake.store, manager: new BotApiManager({ ownerId: "p_fixture", file: join(dir, "bot-api.json") }), waitMs: 5_000,
       startTurn: async (_botId, _prompt, opts) => { held = release.count; setTimeout(() => { expect(release.count).toBe(1); opts.onSettled({ ok: true, text: "" }); }, 60); },
       threadBusy: () => false, canStart: () => true, canConfine: () => true, hooksBaseUrl: () => "https://x", manageRefusal: () => null,
       claimRequest: () => { if (refuse) throw Object.assign(new Error("This Cloud moved"), { status: 409 }); return () => { release.count += 1; }; },
@@ -321,7 +321,7 @@ describe("the Bot API door on the webhook receiver", () => {
     await appendUsage(dir, { botId: "b1", botName: "b1", threadId: "t", instanceId: "claude", driverKind: "claudeAgent", model: "m", input: 1, output: 1, costUsd: 2, trigger: { kind: "owner" } });
     const caps = createUsageCapGate({ dataDir: dir, caps: () => ({ server: { monthlyUsd: 1 } }), botName: () => "Scout", notice: () => {}, log: () => {}, env: {} });
     const host = createBotApiHost({
-      store: fake.store, manager: new BotApiManager({ file: join(dir, "bot-api.json") }), waitMs: 5_000,
+      store: fake.store, manager: new BotApiManager({ ownerId: "p_fixture", file: join(dir, "bot-api.json") }), waitMs: 5_000,
       startTurn: async () => caps.assertTurn("b1", false),
       threadBusy: () => false, canStart: () => true, canConfine: () => true, hooksBaseUrl: () => "https://x", manageRefusal: () => null,
     });
@@ -415,7 +415,7 @@ describe("the Bot API door on the webhook receiver", () => {
     const dir = mkdtempSync(join(tmpdir(), "omb-bot-api-raw-"));
     dirs.push(dir);
     const fake = fakeStore();
-    const manager = new BotApiManager({ file: join(dir, "bot-api.json") });
+    const manager = new BotApiManager({ ownerId: "p_fixture", file: join(dir, "bot-api.json") });
     const removed: string[] = [];
     let thrown: Error = Object.assign(new Error("/home/me/.secrets/token.json: EACCES"), { status: 500 });
     const host = createBotApiHost({

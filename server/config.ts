@@ -1,7 +1,6 @@
 // ~/.openmausbot/config.json, with env vars overriding its credentials.
 import { readFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
 import { dataHome } from "./data-dir.ts";
-import { legacyOwnerKey } from "./sign-in-env.ts";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
@@ -303,8 +302,6 @@ const threadsPatchSchema = threadsConfigSchema.extend({
 const appConfigSchema = z.object({
   /** Set only by the verified domain endpoint, never by a config patch. */
   customDomain: z.string().optional(),
-  /** Who may sign in with an emailed code: addresses or `@domain` entries; admins get every scope, members chat only. */
-  signIn: z.object({ admins: z.array(z.string().max(320)).max(500).optional(), members: z.array(z.string().max(320)).max(5000).optional() }).optional(),
   defaultModelSelection: defaultModelSelectionSchema.optional(),
   automaticRecovery: automaticRecoverySchema.optional(),
   cacheKeepWarm: cacheKeepWarmSchema.optional(),
@@ -431,7 +428,6 @@ const jsonObjectSchema = z.record(z.string(), z.json());
 
 export interface AppConfig {
   customDomain?: string;
-  signIn?: { admins?: string[]; members?: string[] };
   /** Preferred selection for newly created bots; existing bots keep theirs. */
   defaultModelSelection?: ModelSelection;
   /** Off by default; one backup attempt only before any work starts. */
@@ -691,11 +687,6 @@ export function ensureDirs() {
 let lastIgnoredConfigWarning = "";
 const storedConfig = settledFileCache(() => join(DATA_DIR, "config.json"), () => parseStoredConfig(parseJson(readFileSync(join(DATA_DIR, "config.json"), "utf8"))));
 
-export function legacySignInOwner(): string | null {
-  try { return legacyOwnerKey(storedConfig.read().signIn); }
-  catch (error) { return (error as NodeJS.ErrnoException)?.code === "ENOENT" ? legacyOwnerKey() : null; }
-}
-
 export function loadConfig(): AppConfig {
   let cfg: AppConfig = {};
   try {
@@ -904,7 +895,6 @@ export function saveConfig(
   if (checkedPatch.vps !== undefined) disk.vps = normalizeVpsConfig(checkedPatch.vps);
   for (const key of ["language", "computerName", "everyBotRules"] as const) if (checkedPatch[key] !== undefined) disk[key] = checkedPatch[key];
   if (checkedPatch.customDomain !== undefined) disk.customDomain = checkedPatch.customDomain;
-  if (checkedPatch.signIn !== undefined) disk.signIn = checkedPatch.signIn;
   // Replace the section so clearing a backup cannot revive the old selection.
   if (checkedPatch.automaticRecovery !== undefined) disk.automaticRecovery = checkedPatch.automaticRecovery;
   if (checkedPatch.cacheKeepWarm !== undefined) disk.cacheKeepWarm = checkedPatch.cacheKeepWarm; if (checkedPatch.usageCaps !== undefined) disk.usageCaps = checkedPatch.usageCaps;

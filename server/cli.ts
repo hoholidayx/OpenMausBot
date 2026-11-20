@@ -66,7 +66,7 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 export interface CliOptions {
-  command: "setup" | "start" | "serve" | "pair" | "sessions" | "status" | "login" | "logout" | "access" | "service" | "browser" | "fleet" | "help" | "version";
+  command: "setup" | "start" | "serve" | "pair" | "sessions" | "status" | "login" | "logout" | "service" | "browser" | "fleet" | "help" | "version";
   port: number;
   dataDir: string;
   label?: string;
@@ -81,30 +81,24 @@ export interface CliOptions {
   client: boolean;
   pair: boolean;
   revoke?: string;
-  /** `access list|add|remove` */
-  accessAction?: "list" | "add" | "remove";
-  chatOnly?: boolean;
   /** `service install|uninstall` */
   serviceAction?: "install" | "uninstall";
   sentinel?: boolean;
   email?: string;
   /** `browser install [--with-deps]` */
   browserAction?: "install" | "status";
-  /** `fleet init|create|list|users|suspend|resume|delete|upgrade|agent` */
+  /** `fleet init|create|list|suspend|resume|delete|upgrade|agent` */
   fleetAction?: FleetInput["action"] | "agent";
   operator?: string;
   socket?: string;
   group?: string;
   slug?: string;
-  admins?: string[];
-  members?: string[];
   brandFile?: string;
   anthropicKeyFile?: string;
   memory?: string;
   dryRun?: boolean;
   yes?: boolean;
   keepData?: boolean;
-  fleetUserAction?: "add" | "remove";
   withDeps?: boolean;
   json: boolean;
   /** Explicitly ignore saved remote access for this launch. */
@@ -116,7 +110,7 @@ export interface CliOptions {
   pairTtlMs?: number;
 }
 
-const COMMANDS = ["setup", "start", "serve", "pair", "sessions", "devices", "status", "login", "logout", "access", "service", "browser", "fleet", "help", "--help", "-h", "--version", "-v", "version"];
+const COMMANDS = ["setup", "start", "serve", "pair", "sessions", "devices", "status", "login", "logout", "service", "browser", "fleet", "help", "--help", "-h", "--version", "-v", "version"];
 
 export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): CliOptions | { error: string } {
   const implicitStart = !argv.length || (argv[0]!.startsWith("--") && argv[0] !== "--help" && argv[0] !== "--version");
@@ -134,7 +128,6 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     pair: true,
     withDeps: false,
     json: false,
-    chatOnly: false,
   };
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
@@ -171,31 +164,23 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
       else if (arg === "--no-open") options.open = false;
       else if (arg === "--local") options.local = true;
       else if (arg === "--json") options.json = true;
-      else if (arg === "--email") options.email = value();
+      else if (options.command === "login" && arg === "--email") options.email = value();
       else if (options.command === "sessions" && (arg === "revoke" || arg === "list")) { if (arg === "revoke") options.revoke = value(); }
-      else if (options.command === "access" && !options.accessAction && (arg === "list" || arg === "add" || arg === "remove")) {
-        options.accessAction = arg;
-        if (arg !== "list") options.email = value();
-      } else if (options.command === "access" && arg === "--chat-only") options.chatOnly = true;
       else if (options.command === "service" && !options.serviceAction && (arg === "install" || arg === "uninstall")) options.serviceAction = arg;
       else if (options.command === "service" && arg === "--sentinel") options.sentinel = true;
       else if (options.command === "browser" && (arg === "install" || arg === "status")) options.browserAction = arg;
       else if (options.command === "browser" && arg === "--with-deps") options.withDeps = true;
-      else if (options.command === "fleet" && !options.fleetAction && ["init", "create", "list", "users", "suspend", "resume", "delete", "upgrade", "agent"].includes(arg)) options.fleetAction = arg as FleetInput["action"] | "agent";
+      else if (options.command === "fleet" && !options.fleetAction && ["init", "create", "list", "suspend", "resume", "delete", "upgrade", "agent"].includes(arg)) options.fleetAction = arg as FleetInput["action"] | "agent";
       else if (options.command === "fleet" && options.fleetAction && !["init", "list", "upgrade", "agent"].includes(options.fleetAction) && !options.slug && !arg.startsWith("--")) options.slug = arg;
       else if (options.command === "fleet" && arg === "--operator") options.operator = value();
       else if (options.command === "fleet" && arg === "--socket") options.socket = value();
       else if (options.command === "fleet" && arg === "--group") options.group = value();
-      else if (options.command === "fleet" && options.fleetAction === "users" && options.slug && !options.fleetUserAction && (arg === "add" || arg === "remove")) { options.fleetUserAction = arg; options.email = value(); }
-      else if (options.command === "fleet" && arg === "--admin") options.admins = [...(options.admins ?? []), value()];
-      else if (options.command === "fleet" && arg === "--member") options.members = [...(options.members ?? []), value()];
       else if (options.command === "fleet" && arg === "--brand") options.brandFile = resolve(value());
       else if (options.command === "fleet" && arg === "--anthropic-key-file") options.anthropicKeyFile = resolve(value());
       else if (options.command === "fleet" && arg === "--memory") options.memory = value();
       else if (options.command === "fleet" && arg === "--dry-run") options.dryRun = true;
       else if (options.command === "fleet" && arg === "--yes") options.yes = true;
       else if (options.command === "fleet" && arg === "--keep-data") options.keepData = true;
-      else if (options.command === "fleet" && arg === "--chat-only") options.chatOnly = true;
       else return { error: `unknown argument "${arg}"` };
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) };
@@ -205,15 +190,13 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
   const publicUrlRefusal = options.publicUrl ? publicUrlProblem(options.publicUrl) : null;
   if (publicUrlRefusal) return { error: publicUrlRefusal };
   if (options.tunnel && (options.tailscale || options.relay)) return { error: options.relay ? "choose one of --relay (phones through MausBot Relay) and --tunnel (a public address)" : "choose one of --tailscale (your tailnet) and --tunnel (a public address)" };
-  if (options.command === "access" && !options.accessAction) return { error: "access needs one of: list, add EMAIL [--chat-only], remove EMAIL" };
   if (options.command === "service" && !options.serviceAction) return { error: "service needs one of: install [the same options as serve], uninstall" };
   if (options.domain && (options.tailscale || options.tunnel || options.publicUrl)) return { error: "--domain already gives the server its address; drop --tailscale, --tunnel and --public-url" };
   if (options.local && (options.tailscale || options.tunnel || options.publicUrl || options.lan || options.relay)) return { error: "--local cannot be combined with a remote-access option" };
   if (options.command === "browser" && !options.browserAction) return { error: "browser needs an action: install or status" };
   if (options.command === "fleet") {
-    if (!options.fleetAction) return { error: "fleet needs one of: init --domain HOST [--operator USER], create NAME --admin EMAIL, list, users NAME add|remove EMAIL, suspend NAME, resume NAME, delete NAME --yes, upgrade, agent" };
-    if (["create", "users", "suspend", "resume", "delete"].includes(options.fleetAction) && !options.slug) return { error: `fleet ${options.fleetAction} needs a workspace name` };
-    if (options.fleetAction === "users" && !options.fleetUserAction) return { error: "fleet users needs: NAME add|remove EMAIL [--chat-only]" };
+    if (!options.fleetAction) return { error: "fleet needs one of: init --domain HOST [--operator USER], create NAME, list, suspend NAME, resume NAME, delete NAME --yes, upgrade, agent" };
+    if (["create", "suspend", "resume", "delete"].includes(options.fleetAction) && !options.slug) return { error: `fleet ${options.fleetAction} needs a workspace name` };
   }
   return options;
 }
@@ -423,11 +406,6 @@ export async function runStatus(options: CliOptions, io: CliIo = defaultIo()): P
   if (!options.json && fleetCredential()) io.log(`MausBot web address: managed by the fleet (${FLEET_CREDENTIAL_ENV} is set)`);
   else if (account?.address) io.log(`MausBot web address: ${account.address} (signed in as ${account.email ?? "?"}; serve it with ${cliCommand("serve --tunnel")})`);
   return body ? 0 : 1;
-}
-
-export async function runAccess(_options: CliOptions, io: CliIo = defaultIo()): Promise<number> {
-  io.error(`This server has one owner. Use ${cliCommand("pair")} to connect a device.`);
-  return 1;
 }
 
 export async function runLogin(options: CliOptions, io: CliIo = defaultIo()): Promise<number> {
@@ -927,8 +905,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return runStatus(options);
     case "login":
       return runLogin(options);
-    case "access":
-      return runAccess(options);
     case "service":
       return runServiceCommand({
         action: options.serviceAction ?? "install", dataDir: options.dataDir, port: options.port, domain: options.domain, tunnel: options.tunnel,
@@ -953,17 +929,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         slug: options.slug,
         domain: options.domain,
         operator: options.operator ?? process.env.SUDO_USER,
-        admins: options.admins ?? [],
-        members: options.members ?? [],
         brandFile: options.brandFile,
         anthropicKeyFile: options.anthropicKeyFile,
         memory: options.memory,
         dryRun: options.dryRun ?? false,
         yes: options.yes ?? false,
         keepData: options.keepData ?? false,
-        userAction: options.fleetUserAction,
-        email: options.email,
-        chatOnly: options.chatOnly,
         node: process.execPath,
         script: process.argv[1] ?? "",
       }, { log: (line) => console.log(line), error: (line) => console.error(line) });

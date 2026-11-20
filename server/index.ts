@@ -155,7 +155,6 @@ import {
   ensureDirs,
   instanceConfigs,
   loadConfig,
-  legacySignInOwner,
   changedInstanceIds,
   engineLaunches,
   localVmIdleTimeoutMinutes,
@@ -658,13 +657,11 @@ const workspaceMaintenance = new WorkspaceBackupMaintenance(), retiredCopy = ret
 // Only after ensureDirs(), whose one-time legacy data-dir rename must not find ~/.openmausbot already there.
 const ENVIRONMENT_ID = loadEnvironmentId(DATA_DIR);
 const cfg = loadConfig();
-const legacyOwner = legacySignInOwner();
-const sessions = new SessionRegistry({ file: join(DATA_DIR, "sessions.json"), legacyOwner });
+const sessions = new SessionRegistry({ file: join(DATA_DIR, "sessions.json") });
 const ownerId = sessions.userId;
-const wasShared = sessions.wasShared;
 const deviceLinks = new DeviceLinks(); const sharedComputers = new SharedComputers(id => sessions.isLive(id), new LentComputers(join(DATA_DIR, "lent-computers.json")), deviceLinks, createLentCopies({ dataDir: DATA_DIR }));
 const appLanguage = (): string | undefined => cfg.language; const personLanguages = createPersonLanguages({ dataDir: DATA_DIR, configured: appLanguage, privateTo: (threadId) => teamHost.privateTo(threadId) }); const threadLanguage = personLanguages.forThread; setConversationLanguage(threadLanguage);
-const lendingEnabled = () => sharedComputersEnabled(cfg); const ownerLends = () => ownerLendingEnabled(cfg) && !wasShared; const botLending = () => lendingEnabled() || (ownerLends() && sharedComputers.anyLent());
+const lendingEnabled = () => sharedComputersEnabled(cfg); const ownerLends = () => ownerLendingEnabled(cfg); const botLending = () => lendingEnabled() || (ownerLends() && sharedComputers.anyLent());
 const CLOUD_HOME_LENDER = "cloud-home";
 const ownerStartedRoutineRuns = new Set<string>();
 for (const key of CLOUD_HOME_SECRET_KEYS) delete process.env[key];
@@ -995,10 +992,7 @@ function memberFrameContext(visible: VisibleSet): FrameContext {
 }
 
 function adminActivityRecording(): boolean {
-  if (DESKTOP_MANAGED) return false;
-  const chatOnly = (scopes: readonly string[]) => !scopes.includes("admin");
-  return sessions.list().some((session) => chatOnly(session.scopes)) ||
-    sessions.openPairings().some((pairing) => chatOnly(pairing.scopes));
+  return !DESKTOP_MANAGED && sessions.hasChatOnlyAccess();
 }
 
 function adminActorFor(auth: RequestAuth, req: IncomingMessage): AdminActor {
@@ -1104,8 +1098,8 @@ function adminAuditRows(
   }
   if (before.session && !sessions.list().some((session) => session.id === before.session!.id)) {
     const session = before.session;
-    rows.push({ category: "session", action: "session.revoke", target: { kind: "session", id: session.id, name: session.email ?? session.label },
-      before: { label: session.label, ...(session.email ? { email: session.email } : {}), scopes: session.scopes } });
+    rows.push({ category: "session", action: "session.revoke", target: { kind: "session", id: session.id, name: session.label },
+      before: { label: session.label, scopes: session.scopes } });
   }
   if (plan.pairing) {
     const pairing = sessions.openPairings().find((candidate) => candidate.id === reply.id);
@@ -1152,7 +1146,7 @@ const openCodeKeysAllowed = (): boolean => openCodeProviderKeysAllowed({
   cloudHome: false,
   hostedWorkspace: false,
   organisationManaged: false,
-  sharedSignIn: wasShared,
+  restrictedDevices: sessions.hasChatOnlyAccess(),
 });
 setOpenCodeProviderKeyPolicy(openCodeKeysAllowed);
 const firstEngineRead = holdUntilFirstEngineRead();
@@ -2467,7 +2461,7 @@ const outsideLineage = createOutsideLineage({
   writer: () => undefined, starters: (threadId) => cloudThreadStarters(threadId), guestOpened: () => false, ownerPerson: cloudOwnerDevice,
   node: (id) => coordinator.node(id), active: () => coordinator.active(), language: (threadId) => threadLanguage(threadId),
 });
-const { outsideDrivenThread, cloudGuestDriven, cloudGuestDrivenHandoff, outsideWorkStaysHere, confinedWhy, guestEngineRefusal } = outsideLineage; const botApiManager = new BotApiManager(), botApiAsOwnerAvailable = () => !wasShared; /** Fenced unless its key acts as the owner now (bot-api-host.ts). */ function botApiThread(id: string): boolean { const owner = store.botByThread(id), task = owner && store.taskByThread(owner.id, id); return Boolean(owner && task?.botApi && !(task.botApiAsOwner && botApiManager.actsAsOwner(owner.id) && botApiAsOwnerAvailable())); }
+const { outsideDrivenThread, cloudGuestDriven, cloudGuestDrivenHandoff, outsideWorkStaysHere, confinedWhy, guestEngineRefusal } = outsideLineage; const botApiManager = new BotApiManager({ ownerId }), botApiAsOwnerAvailable = () => !sessions.hasChatOnlyAccess(); /** Fenced unless its key acts as the owner now (bot-api-host.ts). */ function botApiThread(id: string): boolean { const owner = store.botByThread(id), task = owner && store.taskByThread(owner.id, id); return Boolean(owner && task?.botApi && !(task.botApiAsOwner && botApiManager.actsAsOwner(owner.id) && botApiAsOwnerAvailable())); }
 const { messagePage, messagePageBefore, messageWindow } = messagePages(store);
 const replyVoiceNotes = createReplyVoiceNotes({ store, config: () => cfg, voiceReady: tts.voiceReady, speak: tts.speak, save: saveAudio, remove: deleteAttachment, redact: redactSecretsInText, language: threadLanguage });
 const { cloudLendingTurn, cloudLendingRefusal, cloudThreadStarters, handsOnLending, handedInUnproven, cloudOwnTurnRefusal, roomTurnStarted, roomTurnEnded, roomRun } = createCloudLendingTurns({
@@ -2500,7 +2494,7 @@ const lentMcp = createLentMcp({ cfg: () => cfg, keys: mcpKeys, computers: shared
 const emailHost = createEmailHost({ service: emailService, dataDir: DATA_DIR, bot: (id) => store.bot(id), inRoom: (threadId) => Boolean(store.groupByThread(threadId)), appendMessage: (threadId, message) => { store.appendMessage(threadId, message as Parameters<typeof store.appendMessage>[1]); }, appAllowed: () => managedPolicy.appAllowed("email"), onChange: (listener) => store.onChange(listener as never), markOutside: (threadId) => outsideLineage.mark(threadId) });
 const phones = createPhones({
   dataDir: DATA_DIR, shared: false, cloudHome: false, cloudOwnerKey: null,
-  loopbackTrust: LOOPBACK.trust, sharedMembership: () => wasShared, store, sessions, routines: () => routines, ownerOrAdmin: localOwnerRequest, cloudOwnerSession,
+  loopbackTrust: LOOPBACK.trust, store, sessions, routines: () => routines, ownerOrAdmin: localOwnerRequest, cloudOwnerSession,
   cloudLendingRefusal: cloudOwnTurnRefusal, cloudLendingTurn, originIsUser: (turn) => turnOrigin(turn).kind === "user", request: (threadId) => directRequestOwners.get(threadId),
   nudge: (frame) => broadcast(frame, { adminOnly: true }), harnessUrl: `http://127.0.0.1:${PORT}`,
   mint: (botId, turn) => mintInternalCapability({ botId, ...turn, kind: "device", depth: 0, skillAuthoring: false, createdBots: 0, openedThreads: 0 }),
@@ -2527,7 +2521,7 @@ for (const pending of startupCatalogs) {
   }, () => {});
 }
 testedAi.seed({ defaultBot: true }); if (!retiredCopy.frozen()) ensureDefaultBot(store, { dataDir: DATA_DIR });
-const dots = dotsHost && !retiredCopy.frozen() ? connectDots(dotsHost, store, () => !wasShared && dotsHost.inbox.ownerMatches(ownerId, legacyOwner), thread => coordinator.progress(thread), turn => {
+const dots = dotsHost && !retiredCopy.frozen() ? connectDots(dotsHost, store, () => dotsHost.inbox.ownerMatches(ownerId), thread => coordinator.progress(thread), turn => {
   const child = coordinator.node(turn.id);
   if (!child) return undefined;
   const parent = child.parentId ? coordinator.node(child.parentId) : undefined;
@@ -8298,8 +8292,8 @@ routines = new RoutineManager({
     notify(buildNotification("routine-deferred", routineSourceOwner(run)?.bot ?? bot, routineSourceThread(run) ?? bot.threadId, detail));
   },
 });
-function routinesReadable() { phones.adoptRoutines(); outsideLineage.settle(routines!.listRuns(), automationDestinations.eventChat); tellTurnedBackOn(store, routines!.takeTurnedBackOn()); routines!.clearFrozenResultsThreads(); broadcast({ kind: "config", ...configStatus() }); }
-phones.adoptRoutines(); outsideLineage.settle(routines.listRuns(), automationDestinations.eventChat); tellTurnedBackOn(store, routines.takeTurnedBackOn());
+function routinesReadable() { outsideLineage.settle(routines!.listRuns(), automationDestinations.eventChat); tellTurnedBackOn(store, routines!.takeTurnedBackOn()); routines!.clearFrozenResultsThreads(); broadcast({ kind: "config", ...configStatus() }); }
+outsideLineage.settle(routines.listRuns(), automationDestinations.eventChat); tellTurnedBackOn(store, routines.takeTurnedBackOn());
 routines.clearFrozenResultsThreads(); proactive.ensureWatch();
 orgLibrary = new OrgLibrary({
   dataDir: DATA_DIR,
@@ -8799,7 +8793,7 @@ const webhooks = new WebhookManager({
     if (!forceNew && trigger.resultsThreadId && store.taskByThread(trigger.botId, trigger.resultsThreadId)) return trigger.resultsThreadId;
     return store.createTask(trigger.botId, "Updates", false)?.threadId;
   }, ...createWebhookRoomPost({ store, cfg, roomTalks }) });
-const webhookRequests = new WebhookRequestService({ store, webhooks, botName: (botId) => store.bot(botId)?.name ?? "the bot" }); const botApi = createBotApiHost({ store, manager: botApiManager, actsAsOwner: { available: botApiAsOwnerAvailable, refusal: (auth) => !botApiAsOwnerAvailable() ? "Owner access for API keys is unavailable on an installation with a shared sign-in history." : localOwnerRequest(auth) ? null : "Only this server's owner can let a key act as them." }, startTurn, threadBusy, canStart: canAdmitDirectTurn, canConfine: (botId) => registry.get(store.bot(botId)?.modelSelection.instanceId ?? "")?.adapter.capabilities.guestTurns === "confined", discard: (botId, threadId) => { store.deleteTask(botId, threadId); }, included: () => !cloudPlanTier.starter(), opened: () => { }, hooksBaseUrl: () => webhookIngressStatus().baseUrl, manageRefusal: (auth, botId) => auth.scopes.includes("admin") ? null : refusalFor(store.bot(botId)?.name ?? "this bot", "edit").error, claimRequest: () => { retiredCopy.assertTurns(); return workspaceMaintenance.request(); }, record: (auth, row) => appendAdminAction(DATA_DIR, { ...row, actor: decisionActorFor(auth) }) });
+const webhookRequests = new WebhookRequestService({ store, webhooks, botName: (botId) => store.bot(botId)?.name ?? "the bot" }); const botApi = createBotApiHost({ store, manager: botApiManager, actsAsOwner: { available: botApiAsOwnerAvailable, refusal: (auth) => !botApiAsOwnerAvailable() ? "Owner access for API keys is unavailable while a chat-only session or pairing code is active." : localOwnerRequest(auth) ? null : "Only this server's owner can let a key act as them." }, startTurn, threadBusy, canStart: canAdmitDirectTurn, canConfine: (botId) => registry.get(store.bot(botId)?.modelSelection.instanceId ?? "")?.adapter.capabilities.guestTurns === "confined", discard: (botId, threadId) => { store.deleteTask(botId, threadId); }, included: () => !cloudPlanTier.starter(), opened: () => { }, hooksBaseUrl: () => webhookIngressStatus().baseUrl, manageRefusal: (auth, botId) => auth.scopes.includes("admin") ? null : refusalFor(store.bot(botId)?.name ?? "this bot", "edit").error, claimRequest: () => { retiredCopy.assertTurns(); return workspaceMaintenance.request(); }, record: (auth, row) => appendAdminAction(DATA_DIR, { ...row, actor: decisionActorFor(auth) }) });
 const appTriggers = createAppTriggerHost({ store, webhooks, webhookBase: () => webhookIngressStatus().baseUrl, routines: () => routines!, botState: unattendedDispatchState, timeZone: routineTimeZone, emit: broadcast, connectionMode: () => composio.connectionMode(cfg),
   access: composio.brokerAccess, connectedApps: () => composio.connectedServices(cfg), visibleBot: (auth, botId) => visibleTo(viewerFor(auth)).bot(botId),
   audit: (row) => appendDecision(DATA_DIR, { ...row, decision: "auto-approved", source: "routine" }) });
@@ -11116,7 +11110,7 @@ function configStatus() {
 function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean) {
   const profile: MemberProfile = status.profile;
   if (admin) return status;
-  // Client sessions get configured-or-not only: no SSH alias, email, browser partition id or sign-in list.
+  // Client sessions get configured-or-not only: no SSH alias, email or browser partition id.
   return {
     ...withoutKeyHints(status),
     edition: { edition: status.edition.edition, features: status.edition.features },
@@ -11568,7 +11562,7 @@ const persistAnnouncedMcpServers = (next: Record<string, unknown>) => { persistM
 const postiz = createPostiz({ cfg: () => cfg, mcpOAuth, persistMcpServers: persistAnnouncedMcpServers, mcpConfigBusy: mcpConfig.busy, mcpPolicyRefusal, appCatalog: chatAppsMcp, team: teamConnections, loopback: true }); const configRoutes = createConfigRoutes({
   store, cfg, registry, browserCleanup, browserLive, browserRuntime, usedBrowserSessions, decider,
   sharedComputers, sharedComputerControl, closeBrowser, browserEngineSwitched,
-  sharedMembership: () => wasShared,
+  hasChatOnlyAccess: () => sessions.hasChatOnlyAccess(),
   lendingEnabled: () => lendingEnabled() || ownerLends(), providerConfigs, localVmIdleMs, localVmIdles, localVmActiveThreads, localVmLifecycleBusy,
   localVmImageBusy: { get: () => localVmImageBusy },
   localVmModeChangeBusy: { set: (busy) => { localVmModeChangeBusy = busy; } },
@@ -11694,7 +11688,7 @@ function liveCallTitle(botId: string, threadId: string, excerpt: string): Promis
   const gate = threadTitleGate(bot);
   return gate.ok ? generateThreadTitle(gate.instance, excerpt, "call") : null;
 }
-const othersOnLoopback = () => wasShared || adminActivityRecording();
+const othersOnLoopback = adminActivityRecording;
 const liveWiring = liveSessionWiring({ bot: liveBotFor, history: liveHistoryFor, cloudHome: false, othersOnLoopback, saveAgent: (agent) => { saveConfig({ live: agent }); Object.assign(cfg, loadConfig()); }, language: appLanguage, fishAgentLanguage: () => cfg.live?.fishAgentLanguage });
 const liveCalls = new LiveCallController({
   store,
@@ -11815,9 +11809,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const challenge = customDomainVerifier.challenge(domainCheck[1]);
       return json(res, challenge ? 200 : 404, challenge ?? { error: "No active domain check." });
     }
-    if (method === "POST" && (path === "/api/auth/email/start" || path === "/api/auth/email/verify")) {
-      return json(res, 410, { error: "Use a device pairing code for this server." });
-    }
     if (chatApps.serveFile(req, res, path, method)) return;
     if (method === "POST" && path === "/api/auth/pair") {
       // JSON only: a cross-site HTML form cannot send this content type without a preflight, so no unused code is planted as a session.
@@ -11934,7 +11925,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               via: auth.via,
               environmentId: ENVIRONMENT_ID,
               ...(!isOwnerDevice(auth) ? { reactor: actorKey(auth) } : {}),
-              ...(isOwnerDevice(auth) ? { userId: ownerId, ...(!wasShared ? { own: true as const } : {}), ...(ownerLends() ? { lending: OWNER_LENDING } : {}) } : {}),
+              ...(isOwnerDevice(auth) ? { userId: ownerId, own: true as const, ...(ownerLends() ? { lending: OWNER_LENDING } : {}) } : {}),
             } satisfies SignedInSessionResponse,
       );
     }

@@ -103,9 +103,9 @@ session is created):
 | My Cloud: the owner's session | yes |
 | Team Cloud: Super admin, Admin | yes |
 | Shared company workspace: admin | yes |
-| Self-hosted with a sign-in list: admin session | yes |
+| Self-hosted with an open chat-only pairing: admin session | yes |
 | Team Cloud User, on the app or their phone; a workspace non-admin; a chat-only device | no, plain sentence |
-| A local request where others use the server (a bot's shell): Team Cloud, shared workspace, sign-in list, a chat-only device or code | no |
+| A local request where others use the server (a bot's shell): Team Cloud, shared workspace, a chat-only device or code | no |
 | A sign-in that only moves a bot in | no |
 | A published or inline page, with or without an admin's cookie | no |
 

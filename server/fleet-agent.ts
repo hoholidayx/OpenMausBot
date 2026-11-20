@@ -57,7 +57,6 @@ export function readBody(req: IncomingMessage): Promise<Record<string, unknown>>
   });
 }
 
-const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : []);
 const text = (value: unknown): string | undefined => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 const models = (value: unknown): string[] => {
   try { return openRouterModelIds(value); }
@@ -78,7 +77,7 @@ export function createFleetAgent(options: FleetAgentOptions): Server {
   const auditFile = options.auditFile ?? layout.auditFile;
   const base = (): FleetInput => ({
     node: options.node, script: options.script, root: options.root,
-    action: "list", admins: [], members: [], dryRun: false, yes: false, keepData: false,
+    action: "list", dryRun: false, yes: false, keepData: false,
   });
 
   const audit = (entry: Record<string, unknown>) => {
@@ -113,7 +112,7 @@ export function createFleetAgent(options: FleetAgentOptions): Server {
         errors.push("could not record the failed provisioning; inspect the reserved workspace before recovery");
       }
     }
-    audit({ action: input.action, slug: input.slug, ok: code === 0, ...(input.email ? { email: input.email } : {}) });
+    audit({ action: input.action, slug: input.slug, ok: code === 0 });
     return code === 0 ? { status: 200, body: { ok: true, log } } : { status: 500, body: { error: errors[0] ?? "the step failed", log: [...log, ...errors] } };
   };
 
@@ -149,7 +148,7 @@ export function createFleetAgent(options: FleetAgentOptions): Server {
       if (method === "POST" && url.pathname === "/workspaces") {
         const body = await readBody(req);
         const result = await act({
-          ...base(), action: "create", slug: text(body.slug), admins: strings(body.admins), members: strings(body.members),
+          ...base(), action: "create", slug: text(body.slug),
           memory: text(body.memory), brandJson: text(body.brandJson), anthropicKey: text(body.anthropicKey),
           portalUrl: text(body.portalUrl), anthropicUrl: text(body.anthropicUrl),
           openrouterKey: text(body.openrouterKey), openrouterUrl: text(body.openrouterUrl),
@@ -161,7 +160,7 @@ export function createFleetAgent(options: FleetAgentOptions): Server {
         const result = await act({ ...base(), action: "upgrade" });
         return send(result.status, result.body);
       }
-      const match = /^\/workspaces\/([a-z0-9-]+)(?:\/(users|providers|suspend|resume))?$/.exec(url.pathname);
+      const match = /^\/workspaces\/([a-z0-9-]+)(?:\/(providers|suspend|resume))?$/.exec(url.pathname);
       if (match) {
         const slug = match[1]!;
         assertSlug(slug);
@@ -169,12 +168,6 @@ export function createFleetAgent(options: FleetAgentOptions): Server {
         if (method === "POST" && sub === "providers") {
           const body = await readBody(req);
           const result = await act({ ...base(), action: "providers", slug, openrouterModels: models(body.models) });
-          return send(result.status, result.body);
-        }
-        if (method === "POST" && sub === "users") {
-          const body = await readBody(req);
-          const action = body.action === "remove" ? "remove" : body.action === "add" ? "add" : undefined;
-          const result = await act({ ...base(), action: "users", slug, userAction: action, email: text(body.email), chatOnly: body.chatOnly === true });
           return send(result.status, result.body);
         }
         if (method === "POST" && (sub === "suspend" || sub === "resume")) {

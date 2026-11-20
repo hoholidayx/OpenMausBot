@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { applyStartupPreferences, parseArgs, runAccess, runLogin, runOnboardingCommand, serverEntry, type CliOptions, verifyPhoneEndpoint } from "./cli.ts";
+import { applyStartupPreferences, parseArgs, runLogin, runOnboardingCommand, serverEntry, type CliOptions, verifyPhoneEndpoint } from "./cli.ts";
 import { browserSignInLines, formatSessions, pairingBlock, qrToString, untilText } from "./cli-pairing.ts";
 import { reachableAddresses } from "./lan-address.ts";
 import { SetupCancelled } from "./cli-prompts.ts";
@@ -29,16 +29,15 @@ describe("openmausbot command line", () => {
     expect(parseArgs(["pair", "--ttl", "2d"], {})).toEqual({ error: "--ttl must be a duration from 1m to 24h, such as 90, 90s, 5m or 2h" });
     expect(parseArgs(["pair", "--ttl", "30s"], {})).toMatchObject({ error: expect.stringContaining("from 1m to 24h") });
     expect(parseArgs(["serve", "--ttl", "1h"], {})).toEqual({ error: 'unknown argument "--ttl"' });
-    expect(parseArgs(["fleet", "create", "acme", "--admin", "ada@example.test", "--member", "@acme.test", "--member", "bob@acme.test", "--memory", "1G", "--dry-run"], {})).toMatchObject({
-      command: "fleet", fleetAction: "create", slug: "acme", admins: ["ada@example.test"], members: ["@acme.test", "bob@acme.test"], memory: "1G", dryRun: true,
+    expect(parseArgs(["fleet", "create", "acme", "--memory", "1G", "--dry-run"], {})).toMatchObject({
+      command: "fleet", fleetAction: "create", slug: "acme", memory: "1G", dryRun: true,
     });
-    expect(parseArgs(["fleet", "users", "acme", "add", "bob@acme.test", "--chat-only"], {})).toMatchObject({ command: "fleet", fleetAction: "users", slug: "acme", fleetUserAction: "add", email: "bob@acme.test", chatOnly: true });
+    expect(parseArgs(["fleet", "users", "acme", "add", "bob@acme.test", "--chat-only"], {})).toMatchObject({ error: 'unknown argument "users"' });
     expect(parseArgs(["fleet", "delete", "acme", "--yes", "--keep-data"], {})).toMatchObject({ fleetAction: "delete", slug: "acme", yes: true, keepData: true });
     expect(parseArgs(["fleet", "init", "--domain", "AgentAda.cc", "--operator", "maus"], {})).toMatchObject({ fleetAction: "init", domain: "agentada.cc", operator: "maus" });
     expect(parseArgs(["fleet", "agent", "--socket", "/run/x.sock", "--group", "maus"], {})).toMatchObject({ fleetAction: "agent", socket: "/run/x.sock", group: "maus" });
     expect(parseArgs(["fleet"], {})).toMatchObject({ error: expect.stringContaining("fleet needs one of") });
     expect(parseArgs(["fleet", "create"], {})).toMatchObject({ error: "fleet create needs a workspace name" });
-    expect(parseArgs(["fleet", "users", "acme"], {})).toMatchObject({ error: expect.stringContaining("add|remove") });
     expect(parseArgs(["fleet", "create", "acme", "--cap", "-5"], {})).toMatchObject({ error: expect.stringContaining("--cap") });
     expect(parseArgs([], { OMB_PORT: "8123" })).toMatchObject({ command: "start", port: 8123 });
     expect(parseArgs(["--port", "8125", "--no-open", "--local"], {})).toMatchObject({ command: "start", port: 8125, open: false, local: true });
@@ -59,10 +58,7 @@ describe("openmausbot command line", () => {
     expect(parseArgs(["browser", "status"], {})).toMatchObject({ command: "browser", browserAction: "status" });
     expect(parseArgs(["browser"], {})).toEqual({ error: "browser needs an action: install or status" });
     expect(parseArgs(["serve", "--tailscale", "--tunnel"], {})).toEqual({ error: "choose one of --tailscale (your tailnet) and --tunnel (a public address)" });
-    expect(parseArgs(["access", "add", "her@example.test", "--chat-only"], {})).toMatchObject({ command: "access", accessAction: "add", email: "her@example.test", chatOnly: true });
-    expect(parseArgs(["access", "list"], {})).toMatchObject({ command: "access", accessAction: "list" });
-    expect(parseArgs(["access"], {})).toEqual({ error: "access needs one of: list, add EMAIL [--chat-only], remove EMAIL" });
-    expect(parseArgs(["access", "add"], {})).toEqual({ error: "add needs a value" });
+    expect(parseArgs(["access"], {})).toEqual({ error: "unknown command \"access\"" });
     expect(parseArgs(["service", "install", "--domain", "maus.example.com", "--port", "8799"], {})).toMatchObject({ command: "service", serviceAction: "install", domain: "maus.example.com", port: 8799 });
     expect(parseArgs(["service", "uninstall"], {})).toMatchObject({ command: "service", serviceAction: "uninstall" });
     expect(parseArgs(["service", "install", "--sentinel"], {})).toMatchObject({ command: "service", serviceAction: "install", sentinel: true });
@@ -614,16 +610,6 @@ describe.skipIf(process.platform === "win32")("serve --tunnel", () => {
       expect(dead, url).toBe(true);
     }
   }, 120_000);
-});
-
-it("directs old access commands to pairing without writing a membership list", async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "omb-retired-access-"));
-  try {
-    const io = { log: vi.fn(), error: vi.fn(), ask: vi.fn() };
-    expect(await runAccess(parseArgs(["access", "add", "other@example.test", "--data-dir", dataDir], {}) as CliOptions, io)).toBe(1);
-    expect(io.error).toHaveBeenCalledWith(expect.stringContaining("pair"));
-    expect(existsSync(join(dataDir, "config.json"))).toBe(false);
-  } finally { await removeTempDir(dataDir); }
 });
 
 describe.skipIf(process.platform === "win32")("serve --domain", () => {

@@ -127,10 +127,6 @@ export function assertDomain(domain: string): void {
   if (!/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(domain)) throw new Error(`"${domain}" is not a domain name`);
 }
 
-export function assertEmailOrDomain(entry: string): void {
-  if (!entry || /\s/.test(entry) || (!entry.startsWith("@") && !entry.includes("@"))) throw new Error(`"${entry}" is not an email address or @domain`);
-}
-
 /** One thing the CLI does as root, or prints for the operator to do. */
 export type FleetStep =
   | { kind: "mkdir"; path: string; mode: number; owner?: string }
@@ -244,8 +240,6 @@ export function instanceEnv(input: { workspace: FleetWorkspace; dataDir: string;
 }
 
 export interface WorkspaceSeed {
-  admins: string[];
-  members: string[];
   anthropicKey?: string;
   anthropicUrl?: string;
   openrouterKey?: string;
@@ -272,7 +266,7 @@ export function managedOpenRouterModels(models: unknown): Record<string, { name:
 }
 
 export function initialConfig(seed: WorkspaceSeed): string {
-  const config: Record<string, unknown> = { signIn: { admins: seed.admins, members: seed.members } };
+  const config: Record<string, unknown> = {};
   if (seed.anthropicKey) config.anthropic = { key: seed.anthropicKey, ...(seed.anthropicUrl ? { url: seed.anthropicUrl } : {}) };
   if (seed.openrouterDefault && seed.openrouterModels?.length) config.defaultModelSelection = { instanceId: "opencodeGo", model: `${MANAGED_OPENROUTER}/${seed.openrouterModels[0]}` };
   return `${JSON.stringify(config, null, 2)}\n`;
@@ -340,8 +334,6 @@ export function createPlan(input: {
     if (input.seed.openrouterDefault && !models.length) throw new Error("a default OpenRouter model requires a model assignment");
   }
   if (input.registry.workspaces[input.slug]) throw new Error(`workspace "${input.slug}" already exists`);
-  if (!input.seed.admins.length) throw new Error("a workspace needs at least one admin email (--admin)");
-  for (const entry of [...input.seed.admins, ...input.seed.members]) assertEmailOrDomain(entry);
   if (input.memoryMax !== undefined && !/^\d+[MG]$/.test(input.memoryMax)) throw new Error("--memory takes a size like 1G or 512M");
   const layout = input.layout ?? fleetLayout();
   const { port, next } = allocatePort(input.registry);
@@ -393,7 +385,7 @@ export function createPlan(input: {
     { kind: "write", path: join(layout.caddyDir, `${workspace.slug}.caddy`), content: caddySite(workspace), mode: 0o644 },
     { kind: "run", argv: ["systemctl", "reload", "caddy"], why: `serve https://${workspace.host} and fetch its certificate` },
     { kind: "write", path: layout.registryFile, content: `${JSON.stringify(registry, null, 2)}\n`, mode: 0o600 },
-    { kind: "note", text: `https://${workspace.host} is ready; ${input.seed.admins[0]} signs in with an emailed code` },
+    { kind: "note", text: `https://${workspace.host} is ready; pair a device on the fleet host with openmausbot pair --port ${workspace.port} --data-dir ${dataDir}` },
   ];
   return { steps, registry, workspace };
 }
@@ -476,28 +468,6 @@ export function upgradePlan(input: { registry: FleetRegistry }): FleetStep[] {
     ...running.map((workspace) => ({ kind: "run" as const, argv: ["systemctl", "restart", `openmausbot@${workspace.slug}.service`], why: `restart ${workspace.slug} on the new release` })),
     ...running.map((workspace) => ({ kind: "health" as const, url: `http://127.0.0.1:${workspace.port}/api/health`, why: `wait for ${workspace.slug}` })),
   ];
-}
-
-/** The same shape `openmausbot access` writes; the server reads it live. */
-export function applySignIn(configText: string, action: "add" | "remove", email: string, chatOnly: boolean): { config: string; summary: string } {
-  const entry = email.trim().toLowerCase();
-  assertEmailOrDomain(entry);
-  let raw: Record<string, unknown> = {};
-  const parsed: unknown = JSON.parse(configText || "{}");
-  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) raw = { ...(parsed as Record<string, unknown>) };
-  const current = raw.signIn && typeof raw.signIn === "object" ? (raw.signIn as { admins?: unknown; members?: unknown }) : {};
-  const list = (value: unknown) => (Array.isArray(value) ? value.map((item) => String(item).trim().toLowerCase()).filter(Boolean) : []);
-  const without = (items: string[]) => items.filter((item) => item !== entry);
-  const admins = without(list(current.admins));
-  const members = without(list(current.members));
-  if (action === "remove") {
-    if (admins.length + members.length === list(current.admins).length + list(current.members).length) throw new Error(`${entry} is not on the list`);
-    if (!admins.length) throw new Error("a workspace needs at least one admin; add another admin first");
-    return { config: `${JSON.stringify({ ...raw, signIn: { admins, members } }, null, 2)}\n`, summary: `${entry} was removed from the allow-list; existing email sessions are rechecked against the remaining entries` };
-  }
-  const next = chatOnly ? { admins, members: [...members, entry] } : { admins: [...admins, entry], members };
-  if (!next.admins.length) throw new Error("a workspace needs at least one admin; add another admin first");
-  return { config: `${JSON.stringify({ ...raw, signIn: next }, null, 2)}\n`, summary: `${entry} can sign in with an emailed code (${chatOnly ? "chat and approvals" : "full access"})` };
 }
 
 function shellQuote(value: string): string {

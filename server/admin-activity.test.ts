@@ -54,19 +54,15 @@ describe("what a row records", () => {
     expect(auditValues(rows[1]!.before!)).toEqual({ "decisions.retentionDays": null, "features.browser": true });
   });
 
-  it("files people, budgets and MCP servers under their own heading, headers and env hidden", () => {
+  it("files budgets and MCP servers under their own heading, headers and env hidden", () => {
     const rows = configChangeRows(
-      { signIn: { admins: ["boss@example.test"], members: [] }, budgets: { monthlyUsd: 100 } },
+      { budgets: { monthlyUsd: 100 } },
       {
-        signIn: { admins: ["boss@example.test"], members: ["ada@example.test"] },
         budgets: { monthlyUsd: 250 },
         mcpServers: { github: { url: "https://mcp.example.test", headers: { Authorization: "Bearer ghp_abcdefghijklmnopqrstuvwxyz0123456789" }, env: { TEAM: "ops" } } },
       },
     );
-    expect(rows.map((row) => row.category).sort()).toEqual(["budget", "mcp", "people"]);
-    const people = rows.find((row) => row.category === "people")!;
-    expect(people.changed).toEqual(["signIn.members"]);
-    expect(auditValues(people.after!)).toEqual({ "signIn.members": ["ada@example.test"] });
+    expect(rows.map((row) => row.category).sort()).toEqual(["budget", "mcp"]);
     const mcp = auditValues(rows.find((row) => row.category === "mcp")!.after!);
     expect(mcp).toEqual({ "mcpServers.github.env": { TEAM: "[hidden]" }, "mcpServers.github.headers": { Authorization: "[hidden]" }, "mcpServers.github.url": "https://mcp.example.test" });
     expect(auditValues({ "instances.grok.environment": { KEY: "x" }, "box.token": "t", "rooms.maxTokens": 9 }))

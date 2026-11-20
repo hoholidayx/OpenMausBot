@@ -52,6 +52,7 @@ describe("workspaces section", () => {
     expect(html).toContain("$3.50");
     expect(html).toContain("$7.00");
     expect(html).toContain("Suspended");
+    expect(html).not.toContain(">Users<");
     expect(html).toContain(">Suspend<");
     expect(html).toContain(">Resume<");
     expect(html).toContain(">Delete<");

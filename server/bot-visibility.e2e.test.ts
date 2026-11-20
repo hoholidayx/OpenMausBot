@@ -147,7 +147,6 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     const data = join(home, ".openmausbot");
     mkdirSync(data, { recursive: true });
     writeFileSync(join(data, "config.json"), JSON.stringify({
-      signIn: { admins: [BOSS], members: [ADA, BOB] },
       openaiCompat: roomApi.config,
       instances: {
         grok: { driver: "grokAgent", config: { cli: FAKE_CLI, fullAuto: false } },

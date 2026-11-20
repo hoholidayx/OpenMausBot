@@ -103,15 +103,10 @@ own access level, not this bot's. Treat it like the owner's own password.
 
 Who and where:
 
-- Only the owner marks a key: on a server one person uses (no members on its
-  sign-in list and at most one admin, named by address), the app on that
-  computer or the one admin's session; on a personal Cloud, its owner. If a
-  second admin or a whole-domain admin is added later, the key stops acting as
-  the owner at once.
-  Anyone who may manage the key can take the mark off.
-- Never on a team's Cloud or a shared or hosted workspace (one with members on
-  its sign-in list), except a hosted workspace whose operator set the
-  dedicated policy `OMB_SHARED_WORKSPACE_FULL_ACCESS=1`, where an admin may.
+- On a self-hosted server the owner can mark a key from the local app or a
+  paired owner device. The grant belongs to this installation's user ID. A
+  key with an older, unbound grant requires the owner to mark it again.
+- Owner mode pauses while a chat-only device session or pairing code is active.
 - Never for guest links or webhooks: only a Bot API key carries it.
 - **New key** starts without the mark, and switching the API off forgets it.
   Marking and unmarking, including the mark a new key or switching the API off

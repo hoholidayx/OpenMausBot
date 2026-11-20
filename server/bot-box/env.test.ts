@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { BOX_ENV_NAMES, BOX_ENV_NEVER, BOX_ENV_OMB_NAMES, BOX_ENV_OMB_PREFIXES, boxEnvironment, boxEnvironmentAllows, instanceEnvNames } from "./env.ts";
@@ -48,8 +48,8 @@ const SERVER_ONLY_OMB: ReadonlySet<string> = new Set([
   "OMB_REPLAY_TOOL_HISTORY", "OMB_SAFETY_FLOOR", "OMB_SERVER_COMPILE_CACHE", "OMB_SERVER_NAME",
   "OMB_SERVER_UPDATE_DIR",
   "OMB_SESSION_IDLE_MIN_MS", "OMB_SESSION_IDLE_MS", "OMB_SESSION_MAX_DAYS", "OMB_SESSION_TTL_DAYS",
-  "OMB_SHARED_WORKSPACE_FULL_ACCESS", "OMB_SIGNIN_EMAILS", "OMB_SIGNIN_MEMBER_EMAILS", "OMB_SIGNIN_SMTP_FROM",
-  "OMB_SIGNIN_SMTP_URL", "OMB_SKILLS_DIR", "OMB_SMOKE_BUNDLED_CUA", "OMB_SMOKE_CUA", "OMB_SMOKE_KEEP_OPEN",
+  "OMB_SHARED_WORKSPACE_FULL_ACCESS",
+  "OMB_SKILLS_DIR", "OMB_SMOKE_BUNDLED_CUA", "OMB_SMOKE_CUA", "OMB_SMOKE_KEEP_OPEN",
   "OMB_SMOKE_TEST", "OMB_SSE_HEARTBEAT_MS", "OMB_STATIC_DIR", "OMB_SYNC_ROOT", "OMB_TAILNET_ADDRESSES", "OMB_TAILNET_NAME", "OMB_TAILNET_SERVED", "OMB_TEAM_AWAY_WINDOW_MS",
   "OMB_TEAM_PRESENCE_GRACE_MS", "OMB_TEST_INTERNAL_CAPABILITY_KEY", "OMB_TEST_ORG_LIBRARY_KEY",
   "OMB_TEST_PLAN_USAGE_FILE", "OMB_TEST_TAILNET_STAND_IN", "OMB_THREAD_CACHE_MB", "OMB_TOOL_STALL_MS", "OMB_TREG_KEY", "OMB_TREG_URL", "OMB_TTS_DEFAULT_VOICE",
@@ -66,7 +66,7 @@ const ROOT = new URL("../../", import.meta.url);
 /** The `OMB_` names in the code the server runs, and in what starts it (the desktop app). */
 function knownOmbNames(): string[] {
   const files = execFileSync("git", ["ls-files", "server", "shared", "packages", "enterprise/server", "electron"], { cwd: ROOT, encoding: "utf8" })
-    .split("\n").filter((file) => /\.(?:ts|mts|mjs|cjs|js)$/.test(file) && !/\.test\.|\/testing\/|node-test/.test(file));
+    .split("\n").filter((file) => /\.(?:ts|mts|mjs|cjs|js)$/.test(file) && !/\.test\.|\/testing\/|node-test/.test(file) && existsSync(new URL(file, ROOT)));
   const names = new Set<string>();
   for (const file of files) for (const match of readFileSync(new URL(file, ROOT), "utf8").matchAll(/\bOMB_[A-Z0-9_]+\b/g)) names.add(match[0]);
   return [...names].sort();
@@ -130,7 +130,7 @@ describe("the box's environment allow-list", () => {
 
   it("passes only the OMB_ names a boxed process reads; an operator's own settings stay on the server", () => {
     const kept = boxEnvironment({
-      OMB_SIGNIN_SMTP_URL: "smtp://user:pass@mail.example.com", OMB_SIGNIN_EMAILS: "a@example.com", OMB_PHONE_SECRET_PUBLIC_KEY: "k",
+      OMB_PHONE_SECRET_PUBLIC_KEY: "k",
       OMB_TEST_INTERNAL_CAPABILITY_KEY: "k", OMB_PUBLIC_URL: "https://x", OMB_SOMETHING_NEW: "x", OMB_EXTRA_PATH: "/opt/tools/bin",
       OMB_MCP_TOKEN_BROWSER: "t", OMB_GATE_CONFIG_ab12: "{}", OMB_REMOTE_MCP_CONFIG_cd34: "{}", OMB_HARNESS_URL: "http://127.0.0.1:8799",
     });

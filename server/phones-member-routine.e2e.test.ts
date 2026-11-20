@@ -1,7 +1,7 @@
 // Off a Cloud home a client-scope device (the front desk's iPad) may write, edit and run routines on the Chief, but no
 // such routine reaches the owner's phone: its run mounts no device server, a device call made in that run is refused
 // before any job is queued, so the phone never hears of it, and the desk editing the owner's own routine takes the phone
-// away from that routine until the owner rewrites it. Where sign-in lets several people in, the desktop offers no phone.
+// away from that routine until the owner rewrites it.
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -177,7 +177,7 @@ it("the desk editing the owner's routine takes the phone away from it until the 
   await settle();
 }, 120_000);
 
-it("where sign-in lets several people in, the desktop offers no phone, even to the owner's own turn", async () => {
+it("an owner keeps their phone across a restart with a chat-only device paired", async () => {
   // A turn of the owner's own at this machine, in a conversation of their own (the Chief's main chat now holds the
   // desk's routine reports), has the phone until then.
   const threadId = (await api("POST", `/api/bots/${chief.id}/tasks`, { title: "My morning" })).body.task.threadId as string;
@@ -188,11 +188,9 @@ it("where sign-in lets several people in, the desktop offers no phone, even to t
   expect(await ask("What is on my calendar this morning?")).toContain(PHONE_MCP_SERVER);
   await settle();
   await waitForExit(child, { signal: "SIGTERM" });
-  const config = join(fixture.info.dataDir, "config.json");
-  writeFileSync(config, JSON.stringify({ ...JSON.parse(readFileSync(config, "utf8")), signIn: { members: ["teammate@example.com"] } }));
   await start();
   expect(await phone("PUT", "/api/phones/self", { installId: "install-0001", name: PHONE_NAME, platform: "ios", appVersion: "1.6.0", timeZone: "Asia/Kolkata", capabilities: { calendar: "full" } }))
-    .toMatchObject({ status: 403 });
-  expect(await ask("What is on my calendar this afternoon?")).not.toContain(PHONE_MCP_SERVER);
+    .toMatchObject({ status: 200 });
+  expect(await ask("What is on my calendar this afternoon?")).toContain(PHONE_MCP_SERVER);
   await settle();
 }, 90_000);

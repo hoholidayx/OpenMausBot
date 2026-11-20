@@ -2282,10 +2282,10 @@ describe("loadConfig with an unusable config.json", () => {
 
 describe("a value derived from config.json", () => {
   const path = join(DATA_DIR, "config.json");
-  const members = (config: AppConfig) => config.signIn?.members ?? [];
+  const name = (config: AppConfig) => config.profile?.name ?? "";
   /** Written a minute ago: a running server's file, not one mid-save. */
-  const writeSettled = (signIn: AppConfig["signIn"], minutesAgo = 1) => {
-    writeFileSync(path, JSON.stringify({ signIn }));
+  const writeSettled = (profile: AppConfig["profile"], minutesAgo = 1) => {
+    writeFileSync(path, JSON.stringify({ profile }));
     const when = new Date(Date.now() - minutesAgo * 60_000);
     utimesSync(path, when, when);
   };
@@ -2293,55 +2293,55 @@ describe("a value derived from config.json", () => {
   afterEach(() => { rmSync(path, { force: true }); });
 
   it("reads config.json once while the file is unchanged", () => {
-    writeSettled({ members: ["one@example.test"] });
-    const derive = vi.fn(members);
+    writeSettled({ name: "one" });
+    const derive = vi.fn(name);
     const read = cacheUntilConfigChanges(derive);
-    for (let i = 0; i < 5; i++) expect(read()).toEqual(["one@example.test"]);
+    for (let i = 0; i < 5; i++) expect(read()).toEqual("one");
     expect(derive).toHaveBeenCalledTimes(1);
   });
 
   it("sees an outside edit on the next call, in place or renamed over the file", () => {
-    writeSettled({ members: ["one@example.test", "two@example.test"] });
-    const read = cacheUntilConfigChanges(members);
-    expect(read()).toEqual(["one@example.test", "two@example.test"]);
+    writeSettled({ name: "two names" });
+    const read = cacheUntilConfigChanges(name);
+    expect(read()).toEqual("two names");
     // In place, as a hand edit does: the size and the time change.
-    writeSettled({ members: ["one@example.test"] }, 2);
-    expect(read()).toEqual(["one@example.test"]);
+    writeSettled({ name: "one" }, 2);
+    expect(read()).toEqual("one");
     // Renamed over the file, as the CLI and the fleet agent write it: same size and time, only the file identity differs.
     const before = statSync(path);
-    writeFileSync(`${path}.next`, JSON.stringify({ signIn: { members: ["two@example.test"] } }));
+    writeFileSync(`${path}.next`, JSON.stringify({ profile: { name: "two" } }));
     utimesSync(`${path}.next`, before.atime, before.mtime);
     renameSync(`${path}.next`, path);
     expect(statSync(path).size).toBe(before.size);
-    expect(read()).toEqual(["two@example.test"]);
+    expect(read()).toEqual("two");
   });
 
   it("sees this process's own save at once", () => {
-    writeSettled({ members: ["one@example.test"] });
-    const read = cacheUntilConfigChanges(members);
-    expect(read()).toEqual(["one@example.test"]);
-    saveConfig({ signIn: { members: [] } });
-    expect(read()).toEqual([]);
+    writeSettled({ name: "one" });
+    const read = cacheUntilConfigChanges(name);
+    expect(read()).toEqual("one");
+    saveConfig({ profile: { name: "" } });
+    expect(read()).toEqual("");
   });
 
   it("reads a file saved in the last moments every time, so a second save in the same clock tick is not missed", () => {
     const tick = new Date();
-    writeFileSync(path, JSON.stringify({ signIn: { members: ["one@example.test"] } }));
+    writeFileSync(path, JSON.stringify({ profile: { name: "one" } }));
     utimesSync(path, tick, tick);
-    const read = cacheUntilConfigChanges(members);
-    expect(read()).toEqual(["one@example.test"]);
+    const read = cacheUntilConfigChanges(name);
+    expect(read()).toEqual("one");
     // Same size, same file, same modification time: nothing in stat changed.
-    writeFileSync(path, JSON.stringify({ signIn: { members: ["two@example.test"] } }));
+    writeFileSync(path, JSON.stringify({ profile: { name: "two" } }));
     utimesSync(path, tick, tick);
-    expect(read()).toEqual(["two@example.test"]);
+    expect(read()).toEqual("two");
   });
 
   it("never keeps the old value once the file is gone", () => {
-    writeSettled({ members: ["one@example.test"] });
-    const read = cacheUntilConfigChanges(members);
-    expect(read()).toEqual(["one@example.test"]);
+    writeSettled({ name: "one" });
+    const read = cacheUntilConfigChanges(name);
+    expect(read()).toEqual("one");
     rmSync(path);
-    expect(read()).toEqual([]);
+    expect(read()).toEqual("");
   });
 
   it("reads a file loadConfig() could not use on every call, never keeping its defaults", () => {
@@ -2350,10 +2350,10 @@ describe("a value derived from config.json", () => {
       writeFileSync(path, "{ not json");
       const when = new Date(Date.now() - 60_000);
       utimesSync(path, when, when);
-      const derive = vi.fn(members);
+      const derive = vi.fn(name);
       const read = cacheUntilConfigChanges(derive);
-      expect(read()).toEqual([]);
-      expect(read()).toEqual([]);
+      expect(read()).toEqual("");
+      expect(read()).toEqual("");
       expect(derive).toHaveBeenCalledTimes(2);
     } finally {
       warn.mockRestore();
@@ -2361,8 +2361,8 @@ describe("a value derived from config.json", () => {
   });
 
   it.skipIf(process.platform === "win32")("sees a change of permissions or owner on the next call", () => {
-    writeSettled({ members: ["one@example.test"] });
-    const derive = vi.fn(members);
+    writeSettled({ name: "one" });
+    const derive = vi.fn(name);
     const read = cacheUntilConfigChanges(derive);
     read();
     // Linux stamps ctime from a clock that ticks every 1 to 10 ms, so a chmod in the write's own tick keeps its ctime.
@@ -2378,13 +2378,13 @@ describe("a value derived from config.json", () => {
     () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       try {
-        writeSettled({ members: ["one@example.test"] });
+        writeSettled({ name: "one" });
         chmodSync(path, 0o000);
-        const read = cacheUntilConfigChanges(members);
-        expect(read()).toEqual([]);
-        expect(read()).toEqual([]);
+        const read = cacheUntilConfigChanges(name);
+        expect(read()).toEqual("");
+        expect(read()).toEqual("");
         chmodSync(path, 0o600);
-        expect(read()).toEqual(["one@example.test"]);
+        expect(read()).toEqual("one");
       } finally {
         chmodSync(path, 0o600);
         warn.mockRestore();

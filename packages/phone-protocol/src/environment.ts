@@ -44,8 +44,6 @@ export interface EnvironmentDescriptor {
     selfUpdate: "desktop-managed" | "operator";
     /** For an operator's server: how it was installed, so a client offers the update command that fits it. */
     install?: ServerInstall;
-    /** Whether /pair offers "sign in with your email" (an allow-list is set). */
-    emailSignIn?: boolean;
     /** GET /api/threads/:id/job answers, long-polled (the headless CLI needs it). */
     jobs: true;
   };

@@ -215,7 +215,7 @@ restart persistence, result history and the full renderer's 100,000-row grid
 in a disposable workspace with synthetic data.
 
 The [local owner fixture](local-owner.md) checks the installation identity, device scopes,
-revocation and migration from email sign-in.
+revocation and rejection of old credentials.
 
 The [sidebar fixture](sidebar.md) checks archive and delete confirmations, their
 default focus, keyboard wrapping and focus return against two disposable bots;

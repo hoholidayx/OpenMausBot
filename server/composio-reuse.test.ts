@@ -135,7 +135,7 @@ describe("who may look for an earlier installation's user", () => {
     sessionsRefused = true;
     const replies: Array<{ status: number; body: unknown }> = [];
     const deps = {
-      sharedMembership: () => shared,
+      hasChatOnlyAccess: () => shared,
       cfg: {},
       hostedModels: false,
       cloudHome: false,

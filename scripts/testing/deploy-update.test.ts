@@ -12,7 +12,7 @@ const posix = process.platform !== "win32";
 const id = (letter: string) => `sha256:${letter.repeat(64)}`;
 const OLD = { id: id("a"), refs: [`${REPO}:latest`, `${REPO}@${id("1")}`], version: "0.1.150", local: true, engine: true };
 const NEW = { id: id("b"), refs: [`${REPO}@${id("2")}`, `${REPO}:v0.1.151`], version: "0.1.151", local: false, engine: true };
-const ENV = "DOMAIN=maus.example.test\nOMB_SIGNIN_EMAILS=owner@example.test\n";
+const ENV = "DOMAIN=maus.example.test\nOMB_SERVER_NAME=fixture\n";
 /** .env after a rollback: as it was, with the version that ran before pinned by its digest, so a tag that moved since
  * (the installer's `stable`) cannot bring the undone version back on a later run of the installer. */
 const ROLLED_BACK = `${ENV}OMB_IMAGE=${OLD.refs[1]}\n`;

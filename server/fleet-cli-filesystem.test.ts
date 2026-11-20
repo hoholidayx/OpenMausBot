@@ -43,10 +43,10 @@ describe.skipIf(process.platform === "win32" || process.getuid?.() === 0)("fleet
   it("creates private tenant files and replaces them atomically through the real bounded child", () => {
     deps.mkdir(data, 0o700, "omb-acme");
     expect(deps.readText(file, "omb-acme")).toBeNull();
-    deps.writeText(file, '{"signIn":{"admins":["a@example.test"]}}', 0o600, "omb-acme");
+    deps.writeText(file, '{"language":"en"}', 0o600, "omb-acme");
     const oldInode = statSync(file).ino;
-    deps.writeText(file, '{"signIn":{"admins":["b@example.test"]}}', 0o600, "omb-acme");
-    expect(deps.readText(file, "omb-acme")).toContain("b@example.test");
+    deps.writeText(file, '{"language":"de"}', 0o600, "omb-acme");
+    expect(deps.readText(file, "omb-acme")).toContain('"de"');
     expect(statSync(file).ino).not.toBe(oldInode);
     expect(statSync(data).mode & 0o777).toBe(0o700);
     expect(statSync(file).mode & 0o777).toBe(0o600);
@@ -59,7 +59,7 @@ describe.skipIf(process.platform === "win32" || process.getuid?.() === 0)("fleet
       expect(script.indexOf("process.setgroups([])")).toBeLessThan(script.indexOf("process.setgid(gid)"));
       expect(script.indexOf("process.setgid(gid)")).toBeLessThan(script.indexOf("process.setuid(uid)"));
       expect(script.indexOf("process.setuid(uid)")).toBeLessThan(script.indexOf("check(fs.lstatSync(cursor)"));
-      expect(call.args.join(" ")).not.toContain("b@example.test");
+      expect(call.args.join(" ")).not.toContain('"de"');
     }
   });
 
@@ -128,7 +128,7 @@ describe.skipIf(process.platform === "win32" || process.getuid?.() === 0)("fleet
     const registry = { ...emptyRegistry("example.test"), workspaces: { acme: { slug: "acme", host: "acme.example.test", port: 8810, webhookPort: 8811, status: "running", createdAt: "" } } };
     const files = new Map([[layout.registryFile, JSON.stringify(registry)], [join(layout.instancesDir, "acme.env"), "OMB_ADMIN_URL=https://admin.example.test\nOMB_ADMIN_WORKSPACE=acme\n"]]);
     const fixtureDeps = { ...deps, isRoot: () => true, readText: (name: string, owner?: string) => owner ? deps.readText(name, owner) : files.get(name) ?? null };
-    const input: FleetInput = { action: "providers", slug: "acme", openrouterModels: ["provider/model"], admins: [], members: [], dryRun: false, yes: true, keepData: false, node: process.execPath, script: "/fixture/cli.js", root };
+    const input: FleetInput = { action: "providers", slug: "acme", openrouterModels: ["provider/model"], dryRun: false, yes: true, keepData: false, node: process.execPath, script: "/fixture/cli.js", root };
     const messages: string[] = [];
     const log = { log: (line: string) => messages.push(line), error: (line: string) => messages.push(line) };
     expect(await runFleetCommand(input, log, fixtureDeps)).toBe(0);

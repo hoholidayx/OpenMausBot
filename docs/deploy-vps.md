@@ -46,7 +46,7 @@ If Docker is missing, the installer asks before installing it with Docker's offi
 | Path | What |
 |---|---|
 | `compose.yaml`, `Caddyfile` | the same server-plus-Caddy setup as path B, Caddy in its own container reaching the server over a socket; written again on every run |
-| `.env` | your settings: `DOMAIN`, the pinned version (`OMB_IMAGE`) and anything you add, such as [who may sign in with an email](self-hosting.md#sign-in-with-your-email). The installer keeps your lines |
+| `.env` | your domain (`DOMAIN`), pinned image (`OMB_IMAGE`) and other settings you add |
 | `data/` | everything MausBot stores: chats, bots, engine sign-ins, paired devices. Never touched once it exists |
 | `caddy/` | the HTTPS certificates |
 | `update.sh` | the update command, once this repository has it (see below) |
@@ -58,13 +58,13 @@ It runs the newest release, pinned by its version; once a `stable` channel is pu
 
 **The bots' sandbox.** A MausBot version with the hardened profile runs every bot in a sandbox, away from the server's settings, keys and other bots' files, and Docker's defaults do not let a container build one. For such a version the installer prepares the server (a seccomp profile in `/etc/mausbot` and an AppArmor profile in `/etc/apparmor.d`, the two the MausBot connector installs), starts the server with the four security settings in `compose.box.yaml` (no `--privileged`, no added capability), and then runs the server's own self-check, which among other things confirms that a bot cannot read `config.json`. If a check fails that means a bot could reach something it must not, or that bots would not work, the installer names it and does not report success; so does a self-check that gives no answer, or a check the installer has never heard of. Five checks that are about neither (the kernel keyring, the sandbox's host name, the CPU list, a hosting provider's address, and reaching the public internet) only print a note. For a version without the hardened profile it says the sandbox is not there yet; run the install command again after updating to one that has it. `--no-sandbox` skips all of this, for a server only you sign in to on a host without AppArmor.
 
-**Sign in as the first admin** with a one-time link made on the server. Run in a terminal, the installer makes one and prints it when it finishes. It does not when its output goes anywhere else, such as a log, because whoever reads the link can sign in as the admin until it is used or expires. To make one yourself:
+**Pair an owner device** with a one-time link made on the server. Run in a terminal, the installer makes one and prints it when it finishes. It does not when its output goes anywhere else, such as a log, because whoever reads the link can connect as the owner until it is used or expires. To make one yourself:
 
 ```sh
 cd /opt/openmausbot && sudo docker compose exec omb openmausbot pair --label "First admin"
 ```
 
-Open the link it prints, or paste it into the desktop app under **＋ → Connect to a server**. To sign in with an emailed code instead, run the installer with `--email you@example.com`.
+Open the link it prints, or paste it into the desktop app under **＋ → Connect to a server**.
 
 - **Update:** `sudo /opt/openmausbot/update.sh`, which backs the data up, checks the new version's health and puts the old one back if it fails. The installer places it once this repository has it and prints the command when it finishes; until then, running the install command again moves to the newest release. `update.sh` pins the version by digest in `.env`, and a later run of the installer keeps that pin.
 - **Repair:** run the install command again. It checks the server, rewrites its own files and leaves `.env` and `data/` alone. That also moves an install made before Caddy got its own container: Caddy then shared the server's network, and HTTPS went down whenever the server restarted without it.

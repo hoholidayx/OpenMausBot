@@ -47,17 +47,13 @@ export class DotsInbox {
     this.threadId = String(identity.thread);
   }
 
-  ownerMatches(key: string, legacyKey?: string | null) {
+  ownerMatches(key: string): boolean {
     const digest = createHash("sha256").update(key).digest("hex");
-    const owner = this.db.prepare("SELECT digest FROM binding_owner WHERE singleton=1").get();
-    if (owner) {
-      if (owner.digest === digest) return true;
-      if (!legacyKey || owner.digest !== createHash("sha256").update(legacyKey).digest("hex")) return false;
-      return this.db.prepare("UPDATE binding_owner SET digest=? WHERE singleton=1 AND digest=?").run(digest, owner.digest).changes === 1;
-    }
-    if (legacyKey === null) return false;
-    this.db.prepare("INSERT INTO binding_owner VALUES(1,?)").run(digest);
-    return true;
+    this.db.prepare(`INSERT OR IGNORE INTO binding_owner SELECT 1,?
+      WHERE NOT EXISTS (SELECT 1 FROM identity WHERE installed=1)
+        AND NOT EXISTS (SELECT 1 FROM jobs) AND NOT EXISTS (SELECT 1 FROM grants)
+        AND NOT EXISTS (SELECT 1 FROM receipts)`).run(digest);
+    return this.db.prepare("SELECT digest FROM binding_owner WHERE singleton=1").get()?.digest === digest;
   }
 
   get installed() {

@@ -68,7 +68,7 @@ export interface ConfigRouteDeps {
   sharedComputers: Pick<SharedComputers, "close">;
   sharedComputerControl: Pick<SharedComputerControl, "close">;
   /** A shared installation must not inherit another installation's connected accounts. */
-  sharedMembership: () => boolean;
+  hasChatOnlyAccess: () => boolean;
   lendingEnabled(): boolean;
   providerConfigs(): InstanceConfigMap;
   localVmIdleMs(): number;
@@ -100,7 +100,7 @@ export interface ConfigRouteDeps {
 export function createConfigRoutes(deps: ConfigRouteDeps): RouteHandler {
   const {
     store, cfg, registry, browserCleanup, browserLive, browserRuntime, usedBrowserSessions, decider,
-    closeBrowser, browserEngineSwitched, sharedComputers, sharedComputerControl, sharedMembership, lendingEnabled, providerConfigs,
+    closeBrowser, browserEngineSwitched, sharedComputers, sharedComputerControl, hasChatOnlyAccess, lendingEnabled, providerConfigs,
     localVmIdleMs, localVmIdles, localVmActiveThreads, localVmLifecycleBusy, localVmImageBusy, localVmModeChangeBusy, localVmModeChanging,
     providerConfigBusy, computerProviderConfigTransitions, managedComputerOwners, providerOperationConflict,
     perBotLocalVmCountForModeChange, checkedModelSelection, policyModelRefusal, browserSessionSpec, configStatus,
@@ -114,11 +114,11 @@ export function createConfigRoutes(deps: ConfigRouteDeps): RouteHandler {
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
       const body = await readBody(req);
       const patch = parseConfigPatchForPerson(body);
+      if (Object.keys(patch).length === 0 && Object.keys(body).length > 0) return json(res, 400, { error: "No recognized configuration fields." });
       if (patch.box !== undefined) return json(res, 400, { error: "Choose a self-hosted VPS or a local computer." });
       if (patch.profile?.aboutMe !== undefined) {
         return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
       }
-      if (patch.signIn !== undefined) return json(res, 410, { error: "Email sign-in lists have been retired. Pair a device instead." });
       if (patch.newBotDefaults) {
         patch.newBotDefaults.memory = cfg.newBotDefaults?.memory ?? {};
         if (patch.newBotDefaults.profile.modelSelection) {
@@ -261,7 +261,7 @@ export function createConfigRoutes(deps: ConfigRouteDeps): RouteHandler {
       if (requestedComposioKey !== undefined) {
         if (requestedComposioKey.trim()) {
           try {
-            const prepared = await composio.prepareProjectSession(requestedComposioKey, cfg.composio, undefined, { reuseEarlierUser: !sharedMembership() });
+            const prepared = await composio.prepareProjectSession(requestedComposioKey, cfg.composio, undefined, { reuseEarlierUser: !hasChatOnlyAccess() });
             patch.composio = { ...patch.composio, ...prepared };
           } catch (error) {
             return json(res, 400, { error: error instanceof Error ? error.message : String(error) });

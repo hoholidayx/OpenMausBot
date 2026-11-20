@@ -69,7 +69,7 @@ describe.skipIf(process.platform === "win32")("fleet agent over its socket", () 
     const m = machine(root);
     m.files.set(fleetLayout(root).registryFile, JSON.stringify(emptyRegistry("example.test")));
     await boot(m);
-    const created = await fleetRequest(socketPath, "POST", "/workspaces", { slug: "acme", admins: ["owner@example.test"], portalUrl: "https://admin.example.test", openrouterKey: "scoped-secret", openrouterUrl: "https://admin.example.test/api/gateway/acme/openrouter/v1", openrouterModels: ["provider/first"], openrouterDefault: true });
+    const created = await fleetRequest(socketPath, "POST", "/workspaces", { slug: "acme", portalUrl: "https://admin.example.test", openrouterKey: "scoped-secret", openrouterUrl: "https://admin.example.test/api/gateway/acme/openrouter/v1", openrouterModels: ["provider/first"], openrouterDefault: true });
     expect(created.status).toBe(200);
     const configPath = join(root, "var/lib/openmausbot/acme/.openmausbot/config.json");
     const original = m.files.get(configPath);
@@ -91,7 +91,7 @@ describe.skipIf(process.platform === "win32")("fleet agent over its socket", () 
     expect(JSON.parse(m.files.get(path)!).provider[MANAGED_OPENROUTER].models).toEqual({});
   });
 
-  it("creates, lists with this month's usage, edits users, suspends, deletes, and audits every action", async () => {
+  it("creates, lists with this month's usage, suspends, deletes, and audits every action", async () => {
     const m = machine(root);
     const layout = fleetLayout(root);
     m.files.set(layout.registryFile, JSON.stringify({ ...emptyRegistry("agentada.cc"), operator: "maus" }));
@@ -100,7 +100,7 @@ describe.skipIf(process.platform === "win32")("fleet agent over its socket", () 
     expect(fleetAvailable(socketPath)).toBe(true);
     if (process.platform !== "win32") expect(statSync(socketPath).mode & 0o777).toBe(0o660);
 
-    const created = await fleetRequest(socketPath, "POST", "/workspaces", { slug: "acme", admins: ["ada@example.test"], members: ["@acme.test"], anthropicKey: "sk-ant-fixture", brandJson: '{"name":"Acme"}', portalUrl: "https://admin.example.test", anthropicUrl: "https://admin.example.test/api/gateway/acme/anthropic" });
+    const created = await fleetRequest(socketPath, "POST", "/workspaces", { slug: "acme", anthropicKey: "sk-ant-fixture", brandJson: '{"name":"Acme"}', portalUrl: "https://admin.example.test", anthropicUrl: "https://admin.example.test/api/gateway/acme/anthropic" });
     expect(created).toMatchObject({ status: 200, body: { ok: true, log: [expect.stringContaining("https://acme.agentada.cc is ready")] } });
     expect(m.calls).toContain("useradd --system --create-home --home-dir " + join(root, "var/lib/openmausbot/acme") + " --shell /usr/sbin/nologin --user-group omb-acme");
     expect(JSON.parse(m.files.get(join(root, "var/lib/openmausbot/acme/.openmausbot/config.json"))!)).toMatchObject({ anthropic: { key: "sk-ant-fixture", url: "https://admin.example.test/api/gateway/acme/anthropic" } });
@@ -118,10 +118,8 @@ describe.skipIf(process.platform === "win32")("fleet agent over its socket", () 
     expect(listed).toMatchObject({ status: 200, body: { domain: "agentada.cc", operator: "maus", workspaces: [{ slug: "acme", host: "acme.agentada.cc", port: 8810, live: "active", usage: { month: "2026-09", turns: 1, costUsd: 0.25 } }] } });
     expect(m.calls).toContain(`usage ${dataDir} as omb-acme`);
 
-    const added = await fleetRequest(socketPath, "POST", "/workspaces/acme/users", { action: "add", email: "bob@acme.test", chatOnly: true });
-    expect(added.status).toBe(200);
-    expect(JSON.parse(m.files.get(join(dataDir, "config.json"))!).signIn).toEqual({ admins: ["ada@example.test"], members: ["@acme.test", "bob@acme.test"] });
-    expect(await fleetRequest(socketPath, "POST", "/workspaces/acme/users", { action: "remove", email: "nobody@acme.test" })).toMatchObject({ status: 400, body: { error: expect.stringContaining("not on the list") } });
+    expect((await fleetRequest(socketPath, "POST", "/workspaces/acme/users", {})).status).toBe(404);
+    expect(JSON.parse(m.files.get(join(dataDir, "config.json"))!)).not.toHaveProperty("signIn");
 
     expect((await fleetRequest(socketPath, "POST", "/workspaces/acme/suspend")).status).toBe(200);
     expect(m.calls).toContain("systemctl disable --now openmausbot@acme.service");
@@ -131,7 +129,7 @@ describe.skipIf(process.platform === "win32")("fleet agent over its socket", () 
     expect(await fleetRequest(socketPath, "GET", "/workspaces")).toMatchObject({ status: 200, body: { workspaces: [{ slug: "acme", status: "retained", live: "retained" }] } });
 
     const audit = readFileSync(join(root, "audit.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
-    expect(audit.map((entry) => [entry.action, entry.ok])).toEqual([["create", true], ["users", true], ["users", false], ["suspend", true], ["delete", true]]);
+    expect(audit.map((entry) => [entry.action, entry.ok])).toEqual([["create", true], ["suspend", true], ["delete", true]]);
     expect(readFileSync(join(root, "audit.jsonl"), "utf8")).not.toContain("sk-ant-fixture");
   });
 
@@ -167,16 +165,15 @@ describe.skipIf(process.platform === "win32")("fleet agent over its socket", () 
     const m = machine(root, { failing: ["systemctl enable"] });
     m.files.set(fleetLayout(root).registryFile, JSON.stringify(emptyRegistry("agentada.cc")));
     await boot(m);
-    expect(await fleetRequest(socketPath, "POST", "/workspaces", { slug: "Not Valid", admins: ["a@b.test"] })).toMatchObject({ status: 400, body: { error: expect.stringContaining("not a workspace name") } });
-    expect(await fleetRequest(socketPath, "POST", "/workspaces", { slug: "beta", admins: [] })).toMatchObject({ status: 400, body: { error: expect.stringContaining("at least one admin") } });
+    expect(await fleetRequest(socketPath, "POST", "/workspaces", { slug: "Not Valid" })).toMatchObject({ status: 400, body: { error: expect.stringContaining("not a workspace name") } });
     expect((await fleetRequest(socketPath, "GET", "/nothing")).status).toBe(404);
     expect((await fleetRequest(socketPath, "POST", "/workspaces/../etc", {})).status).toBe(404);
-    const failed = await fleetRequest(socketPath, "POST", "/workspaces", { slug: "beta", admins: ["b@example.test"] });
+    const failed = await fleetRequest(socketPath, "POST", "/workspaces", { slug: "beta" });
     expect(failed.status).toBe(500);
     expect(JSON.stringify(failed.body)).toContain("could not start the workspace");
     expect(JSON.stringify(failed.body)).toContain("unit failed");
     expect(JSON.parse(m.files.get(fleetLayout(root).registryFile)!)).toMatchObject({ nextPort: 8820, workspaces: { beta: { status: "error", accountCreated: true } } });
-    expect(await fleetRequest(socketPath, "POST", "/workspaces", { slug: "beta", admins: ["b@example.test"] })).toMatchObject({ status: 400, body: { error: expect.stringContaining("already exists") } });
+    expect(await fleetRequest(socketPath, "POST", "/workspaces", { slug: "beta" })).toMatchObject({ status: 400, body: { error: expect.stringContaining("already exists") } });
     expect(await fleetRequest(socketPath, "POST", "/workspaces/beta/resume")).toMatchObject({ status: 400, body: { error: expect.stringContaining("operator recovery") } });
     expect(await fleetRequest(socketPath, "GET", "/workspaces")).toMatchObject({ status: 200, body: { workspaces: [{ slug: "beta", status: "error", live: "error" }] } });
     expect(m.calls).not.toContain("systemctl is-active openmausbot@beta.service");
@@ -191,11 +188,11 @@ describe.skipIf(process.platform === "win32")("fleet agent over its socket", () 
     const layout = fleetLayout(root);
     m.files.set(layout.registryFile, JSON.stringify(emptyRegistry("agentada.cc")));
     await boot(m);
-    const alpha = fleetRequest(socketPath, "POST", "/workspaces", { slug: "alpha", admins: ["a@example.test"] });
+    const alpha = fleetRequest(socketPath, "POST", "/workspaces", { slug: "alpha" });
     try {
       await vi.waitFor(() => expect(m.calls.some((call) => call.endsWith("omb-alpha"))).toBe(true));
       expect(await fleetRequest(socketPath, "GET", "/workspaces")).toMatchObject({ status: 200, body: { workspaces: [{ slug: "alpha", status: "provisioning", accountCreated: false, live: "provisioning" }] } });
-      const beta = fleetRequest(socketPath, "POST", "/workspaces", { slug: "beta", admins: ["b@example.test"] });
+      const beta = fleetRequest(socketPath, "POST", "/workspaces", { slug: "beta" });
       expect((await fleetRequest(socketPath, "GET", "/health")).status).toBe(200);
       expect(m.calls.some((call) => call.endsWith("omb-beta"))).toBe(false);
       release();
@@ -222,14 +219,14 @@ describe.skipIf(process.platform === "win32")("fleet agent over its socket", () 
     };
     await boot(m);
     const [alpha, beta] = await Promise.all([
-      fleetRequest(socketPath, "POST", "/workspaces", { slug: "alpha", admins: ["a@example.test"] }),
-      fleetRequest(socketPath, "POST", "/workspaces", { slug: "beta", admins: ["b@example.test"] }),
+      fleetRequest(socketPath, "POST", "/workspaces", { slug: "alpha" }),
+      fleetRequest(socketPath, "POST", "/workspaces", { slug: "beta" }),
     ]);
     expect(alpha).toMatchObject({ status: 500, body: { error: "fixture write refused" } });
     expect(beta.status).toBe(200);
     expect(JSON.parse(m.files.get(layout.registryFile)!)).toMatchObject({ nextPort: 8830, workspaces: { alpha: { status: "error", accountCreated: true, port: 8810 }, beta: { status: "running", port: 8820 } } });
     expect(m.files.get(layout.fenceFile)).toContain("omb-alpha");
-    expect(await fleetRequest(socketPath, "POST", "/workspaces/alpha/users", { action: "add", email: "x@example.test" })).toMatchObject({ status: 400, body: { error: expect.stringContaining("operator recovery") } });
+    expect(await fleetRequest(socketPath, "POST", "/workspaces/alpha/suspend")).toMatchObject({ status: 400, body: { error: expect.stringContaining("operator recovery") } });
   });
 
   it("tells the operator plainly when there is no agent to talk to", async () => {

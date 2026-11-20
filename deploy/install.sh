@@ -647,9 +647,6 @@ services:
       OMB_WEBHOOK_PUBLIC_URL: https://${DOMAIN}
       OMB_PUBLIC_URL: https://${DOMAIN}
       OMB_SERVER_NAME: ${OMB_SERVER_NAME:-${DOMAIN}}
-      # Passed only when .env sets them: an empty one would still be set, and Settings' own lists are used when not.
-      OMB_SIGNIN_EMAILS:
-      OMB_SIGNIN_MEMBER_EMAILS:
       # "1": phones pair by QR through MausBot Relay. Sign in once: docker compose exec omb openmausbot login --relay
       OMB_PHONE_RELAY:
     healthcheck:

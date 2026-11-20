@@ -54,7 +54,7 @@ pnpm exec vitest run server/bot-visibility.test.ts server/bot-visibility.e2e.tes
 ```
 
 - `server/bot-visibility.e2e.test.ts` boots a server with an admin (Boss) and
-  two members (Ada, Bob) on the sign-in list and the fake ACP engine. Boss
+  two chat-only devices (Ada, Bob) and the fake ACP engine. Boss
   restricts "Payroll" to Ada and "Board" to admins, puts Payroll in a room
   with an everyone-visible bot, gives it a routine, a webhook, an image in
   its thread and an avatar. As Bob it checks the bot list (bots, rooms,

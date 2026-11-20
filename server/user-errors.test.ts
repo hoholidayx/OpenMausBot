@@ -36,7 +36,7 @@ describe("user errors", () => {
     expect(masked).not.toContain(secret);
     const said = userError("serverError.chat.busyInRoom", { room: `Launch ${secret}` });
     expect(said).toEqual({ error: `this bot is working in channel Launch ${masked}`, errorKey: "serverError.chat.busyInRoom", errorParams: { room: `Launch ${masked}` } });
-    const thrown = userErrorThrown("serverError.email.unavailable", { detail: secret });
+    const thrown = userErrorThrown("serverError.chat.busyInRoom", { room: secret });
     expect(JSON.stringify([thrown.message, { ...thrown }])).not.toContain(secret);
     expect(refusalBody({ error: "x", errorKey: "serverError.team.signInFirst", errorParams: { team: secret } }).errorParams).toEqual({ team: masked });
     expect(userError("serverError.chat.busyInRoom", { room: "Launch" })).toEqual({

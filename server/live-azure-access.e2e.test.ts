@@ -119,8 +119,9 @@ it("on a self-hosted server: the owner and their devices get through; a chat-onl
   expect(await s.start(botId, chatOnly)).toEqual({ status: 403, body: { error: "forbidden: this session lacks the admin scope" } });
 }, 90_000);
 
-it("on a self-hosted server with a sign-in list: an admin's session gets through, a local request does not", async () => {
-  const s = await boot({}, { signIn: { admins: ["owner@acme.test"], members: ["person@acme.test"] } });
+it("on a self-hosted server with an open chat-only pairing: an admin's session gets through, a local request does not", async () => {
+  const s = await boot({});
+  expect((await s.call("POST", "/api/auth/pairing", { scopes: ["client"] })).status).toBe(200);
   const botId = await s.newBot();
   expect(await s.start(botId)).toEqual(REFUSED);
   expect(s.liveSessions()).toEqual([]);

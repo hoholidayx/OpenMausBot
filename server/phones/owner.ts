@@ -4,7 +4,6 @@
 // run and its reports are the owner's only while the owner wrote it and nobody else has changed it since; a webhook's
 // payload and an outside event's run stay someone else's words.
 import type { CloudLendingTurn } from "../cloud-lending.ts";
-import type { LoopbackTrust } from "../request-auth.ts";
 
 type Line = CloudLendingTurn["thread"][number];
 /** The lines as the store keeps them: what they say about where their words came from, beyond the lending test's fields. */
@@ -30,26 +29,6 @@ export interface DesktopOwnerDeps {
 /** A person no owner test accepts: a bot's ask outside the user's work, a relayed line, a worker's answer, or a session
  * answer with no recorded person. Never a session's person key, which is a hash. */
 export const NOT_THE_OWNER = "not-the-owner";
-
-/** One desktop owner exists only where one person uses this server: never where sign-in lets several people in (each
- * admin would reach every admin's phones), and never where a request from this machine is a service, not the owner. */
-export function desktopPhonesOffered(server: { sharedMembership: boolean; loopbackTrust: LoopbackTrust }): boolean {
-  return !server.sharedMembership && server.loopbackTrust !== "service";
-}
-
-/** Routines written before this desktop kept authorship records have none, so the owner's own brief or reminder would
- * count as someone else's words in every conversation it reports into. On the first start with records, where one person
- * uses this server and no other person holds a session here, those routines can only be the owner's: record them once.
- * The record is kept even when there is nothing to adopt, so a routine added later is never adopted by a later start. */
-export function adoptExistingRoutines<R extends { id: string }>(input: {
-  recordsExisted: boolean; offered: boolean; otherPeople: boolean; routines: readonly R[];
-  record(routine: R): void; persist(): void;
-}): number {
-  if (input.recordsExisted || !input.offered || input.otherPeople) return 0;
-  for (const routine of input.routines) input.record(routine);
-  input.persist();
-  return input.routines.length;
-}
 
 /** The routine a report or run card speaks for; an outside event's run names its trigger, which is no routine. */
 const routineOf = (line: DesktopLine): string | undefined =>

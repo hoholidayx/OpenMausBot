@@ -6,7 +6,7 @@ import type { Audience } from "../audience.ts";
 import type { CloudTeam } from "../cloud-team.ts";
 import { personKey } from "../person-key.ts";
 import type { RequestAuth } from "../request-auth.ts";
-import type { SessionRegistry } from "../sessions.ts";
+import type { SessionRecord } from "../sessions.ts";
 import type { BotRecord, Store } from "../store.ts";
 import { createTeamPeople } from "../team-people.ts";
 
@@ -15,7 +15,10 @@ export type { AskViewer } from "../ask-routing.ts";
 export interface TeamOwnersDeps {
   team: CloudTeam | null;
   dataDir: string;
-  sessions: Pick<SessionRegistry, "list" | "onSessionIssued">;
+  sessions: {
+    list(): Array<Pick<SessionRecord, "id" | "email" | "teamRole">>;
+    onSessionIssued(listener: (session: Pick<SessionRecord, "id" | "email" | "teamRole" | "membershipAuthority">) => void): () => void;
+  };
   store(): Pick<Store, "bots" | "bot" | "patchBot">;
   audienceOf(threadId: string): Audience;
   starters: { get(threadId: string): string | undefined; set(threadId: string, person: string): void };

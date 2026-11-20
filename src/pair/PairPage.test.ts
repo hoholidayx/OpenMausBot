@@ -78,7 +78,7 @@ it("warns only on plain http across the open internet", () => {
 it("offers only device pairing even for an old invitation", async () => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("location", { replace: () => {}, protocol: "http:", hostname: "203.0.113.9", origin: "http://203.0.113.9:8799" });
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ environmentId: "e", label: "hetzner-1", platform: "linux", version: "1", capabilities: { emailSignIn: true } }) }));
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ environmentId: "e", label: "hetzner-1", platform: "linux", version: "1", capabilities: {} }) }));
   const html = render(code);
   expect(html).toContain(en["pair.notEncrypted"].replace("'", "&#x27;"));
   expect(html).toContain(en["pair.fromLink"]);

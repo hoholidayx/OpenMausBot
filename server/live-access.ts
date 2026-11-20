@@ -11,7 +11,7 @@ export const LIVE_ELEVENLABS_REFUSAL = "Live calls here go through ElevenLabs, s
 
 export interface LiveCallPlace {
   /** A local request may not be the owner, because other people use this server and every bot's shell is a local caller
-   * too: a Team Cloud, a shared workspace, a sign-in list that lets others in, or a chat-only device. False in the desktop
+   * too: a Team Cloud, a shared workspace, or a chat-only device or pairing code. False in the desktop
    * app, where a local change needs the app's private token, and on a server one person uses. */
   othersOnLoopback: boolean;
 }

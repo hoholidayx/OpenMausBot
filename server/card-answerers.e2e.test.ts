@@ -1,5 +1,5 @@
 import { pairDevice } from "./testing/paired-session.ts";
-// The fake ACP CLI in "permission" mode (every turn asks to run `echo hi`), and an email sign-in list naming one admin and
+// The fake ACP CLI in "permission" mode (every turn asks to run `echo hi`), and paired devices with one admin and
 // two members whose sessions are issued before boot.
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -116,7 +116,6 @@ posixOnly("who may answer a card on a shared workspace", () => {
     const data = join(home, ".openmausbot");
     mkdirSync(data, { recursive: true });
     writeFileSync(join(data, "config.json"), JSON.stringify({
-      signIn: { admins: [BOSS], members: [ADA, BOB] },
       instances: { roomApi: { driver: "openai-compat", config: { tools: false } }, grok: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "permission" }, config: { cli: FAKE_CLI, fullAuto: false } } },
     }));
     const role = (email: string) => (email === BOSS ? ["admin", "client"] as const : ["client"] as const);

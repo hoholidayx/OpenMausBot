@@ -34,7 +34,7 @@ const recordSchema = z.object({
   lastCalledAt: z.number().finite().nonnegative().optional(),
   /** The owner marked this key as acting for them (bot-api-host.ts): a thread it opens runs at the bot's own level. A new
    * key starts without it. */
-  actsAsOwner: z.literal(true).optional(),
+  ownerId: z.string().optional(),
 });
 const attemptSchema = z.object({
   id: z.string().min(1),
@@ -69,6 +69,7 @@ export interface BotApiStatus {
 }
 
 export interface BotApiManagerOptions {
+  ownerId?: string;
   file?: string;
   now?: () => number;
 }
@@ -82,6 +83,7 @@ function newKey(): string {
 }
 
 export class BotApiManager {
+  private readonly ownerId?: string;
   private readonly file: string;
   private readonly now: () => number;
   private bots: StoredBotApi[] = [];
@@ -92,6 +94,7 @@ export class BotApiManager {
   private unreadable = false;
 
   constructor(options: BotApiManagerOptions = {}) {
+    this.ownerId = options.ownerId;
     this.file = options.file ?? join(DATA_DIR, "bot-api.json");
     this.now = options.now ?? Date.now;
     try {
@@ -110,7 +113,7 @@ export class BotApiManager {
   status(botId: string): BotApiStatus {
     const record = this.bots.find((candidate) => candidate.botId === botId);
     if (!record) return { enabled: false, actsAsOwner: false, callCount: 0 };
-    return { enabled: true, actsAsOwner: record.actsAsOwner === true, keyCreatedAt: record.keyCreatedAt, callCount: record.callCount, ...(record.lastCalledAt !== undefined ? { lastCalledAt: record.lastCalledAt } : {}) };
+    return { enabled: true, actsAsOwner: this.ownerId !== undefined && record.ownerId === this.ownerId, keyCreatedAt: record.keyCreatedAt, callCount: record.callCount, ...(record.lastCalledAt !== undefined ? { lastCalledAt: record.lastCalledAt } : {}) };
   }
 
   /** Turns the API on with a fresh key, or replaces the key of one already on. The key is returned once and never kept. */
@@ -123,7 +126,7 @@ export class BotApiManager {
       record.keyHash = hashBotApiKey(key);
       record.keyCreatedAt = now;
       // A new key is a new token: whoever is given it acts as the owner only once the owner says so again.
-      delete record.actsAsOwner;
+      delete record.ownerId;
       if (mintedBy) record.mintedBy = mintedBy; else delete record.mintedBy;
     } else {
       this.bots.unshift({ botId, keyHash: hashBotApiKey(key), ...(mintedBy ? { mintedBy } : {}), createdAt: now, keyCreatedAt: now, callCount: 0 });
@@ -166,7 +169,7 @@ export class BotApiManager {
 
   /** Whether the key acts as the owner. The host also asks whether this server allows it at all. */
   actsAsOwner(botId: string): boolean {
-    return this.bots.find((candidate) => candidate.botId === botId)?.actsAsOwner === true;
+    return this.ownerId !== undefined && this.bots.find((candidate) => candidate.botId === botId)?.ownerId === this.ownerId;
   }
 
   /** Marks the key as acting for the owner, or not; false when the API is off. */
@@ -174,7 +177,8 @@ export class BotApiManager {
     const record = this.bots.find((candidate) => candidate.botId === botId);
     if (!record) return false;
     this.assertWritable();
-    if (on) record.actsAsOwner = true; else delete record.actsAsOwner;
+    if (on && !this.ownerId) return false;
+    if (on) record.ownerId = this.ownerId; else delete record.ownerId;
     this.save();
     return true;
   }

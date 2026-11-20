@@ -14,8 +14,8 @@ function harness() {
   dirs.push(dir);
   const file = join(dir, "bot-api.json");
   let now = new Date("2026-11-02T10:00:00.000Z").getTime();
-  const manager = new BotApiManager({ file, now: () => now });
-  return { file, manager, tick: (ms: number) => { now += ms; }, reopen: () => new BotApiManager({ file, now: () => now }) };
+  const manager = new BotApiManager({ ownerId: "p_fixture", file, now: () => now });
+  return { file, manager, tick: (ms: number) => { now += ms; }, reopen: () => new BotApiManager({ ownerId: "p_fixture", file, now: () => now }) };
 }
 
 describe("a bot's API key", () => {
@@ -34,12 +34,13 @@ describe("a bot's API key", () => {
   });
 
   it("acts as the owner only once marked, keeps that across a restart, and a new key starts without it", () => {
-    const { manager, reopen } = harness();
+    const { manager, file, reopen } = harness();
     expect(manager.setActsAsOwner("b1", true)).toBe(false);
     manager.enable("b1");
     expect(manager.actsAsOwner("b1")).toBe(false);
     expect(manager.setActsAsOwner("b1", true)).toBe(true);
     expect(reopen().status("b1")).toMatchObject({ enabled: true, actsAsOwner: true });
+    expect(new BotApiManager({ file, ownerId: "p_other" }).actsAsOwner("b1")).toBe(false);
     manager.enable("b1");
     expect(manager.actsAsOwner("b1")).toBe(false);
     expect(reopen().actsAsOwner("b1")).toBe(false);

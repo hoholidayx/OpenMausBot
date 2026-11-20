@@ -29,8 +29,7 @@ description is in [self-hosting](../self-hosting.md#loopback-trust-owner-or-serv
   server running. Later `openmausbot pair` and `openmausbot sessions` are
   refused with an explanation. A browser on an SSH tunnel gets the sign-in
   page, not an app whose every admin call fails.
-- **Who may answer a card.** With portal membership or an email sign-in list
-  that names members, a card that can be traced to a person — who sent its
+- **Who may answer a card.** When chat-only devices are paired, a card that can be traced to a person — who sent its
   request (`sender.id`), who the thread was opened for, and for a thread a
   bot opened while working on someone's request, that person — may be
   answered only by them, an admin or the owner. A card that names nobody
@@ -68,7 +67,7 @@ pnpm exec vitest run server/request-auth.test.ts server/decision-log.test.ts \
   secret opening the pairing route and nothing else, and the start-up choice.
 - The archived workspace fixture exercised service-level loopback trust on a portal-managed instance. [Hosted workspace fixture](https://github.com/hoholidayx/OpenMausBot/blob/2d0dc208baffbbd050e291065604641a04a13aa9/server/hosted-access.test.ts)
 - `server/card-answerers.e2e.test.ts` boots a server with one admin and two
-  members on the sign-in list and the fake ACP engine asking permission every
+  chat-only devices and the fake ACP engine asking permission every
   turn: another member is refused on both respond routes, the requester
   approves, the thread's opener declines someone else's request, a thread a
   bot opened mid-way through a member's request (through the real

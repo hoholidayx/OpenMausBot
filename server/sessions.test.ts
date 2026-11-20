@@ -205,7 +205,7 @@ describe("pairing codes", () => {
     }
   });
 
-  it("an email sign-in or a bad signature keeps its own, looser count", () => {
+  it("bad signatures have a separate limit from pairing attempts", () => {
     for (let i = 0; i < PAIRING_LOCKOUT.failures; i++) registry.noteFailure("mail");
     expect(registry.attemptAllowed("mail")).toEqual({ ok: true });
     for (let i = PAIRING_LOCKOUT.failures; i < LOCKOUT.failures; i++) registry.noteFailure("mail");
@@ -408,11 +408,11 @@ describe("sessions", () => {
   it("applies the cap to a session paired long before this version", () => {
     const day = 24 * 60 * 60_000;
     const old = {
-      id: "old-device", tokenHash: "0".repeat(64), label: "old laptop", scopes: ["admin"],
+      id: "old-device", userId: registry.userId, tokenHash: "0".repeat(64), label: "old laptop", scopes: ["admin"],
       createdAt: clock - 160 * day, lastSeenAt: clock - day, expiresAt: clock + 15 * day,
     };
     const older = { ...old, id: "older-device", tokenHash: "1".repeat(64), createdAt: clock - 175 * day };
-    writeFileSync(file(), JSON.stringify({ version: 1, sessions: [old, older] }));
+    writeFileSync(file(), JSON.stringify({ version: 2, ownerId: registry.userId, sessions: [old, older] }));
     const loaded = new SessionRegistry({ file: file(), now: () => clock });
     expect(loaded.renew("old-device")).toBe(true);
     expect(loaded.list()[0]?.expiresAt).toBe(old.createdAt + SESSION_MAX_AGE_MS);
@@ -487,54 +487,49 @@ describe("telling the server a session opened", () => {
 
 describe("the installation's owner", () => {
   const device = (label: string, scopes: Array<"admin" | "client"> = ["admin", "client"]) => pairDevice(registry, { label, scopes });
-  function writeLegacy(email?: string) {
-    registry.close();
-    const { sessions } = JSON.parse(readFileSync(file(), "utf8")) as { sessions: Array<Partial<import("./sessions.ts").SessionRecord>> };
-    for (const session of sessions) {
-      delete session.userId;
-      if (session.label === "Email login") session.email = email;
-    }
-    writeFileSync(file(), JSON.stringify({ version: 1, sessions }));
-  }
-  const reopen = (legacyOwner: string | null) => new SessionRegistry({ file: file(), now: () => clock, legacyOwner });
+  const reopen = () => new SessionRegistry({ file: file(), now: () => clock });
 
-  it("upgrades personal devices once, keeps their scopes and never adopts email credentials", () => {
-    const laptop = device("Laptop"), phone = device("Phone"), limited = device("Chat", ["client"]), email = device("Email login");
+  it("counts only live chat-only pairings and sessions", () => {
+    device("Laptop");
+    expect(registry.hasChatOnlyAccess()).toBe(false);
+    const window = registry.openPairing({ scopes: ["client"], ttlMs: 60_000 });
+    expect(registry.hasChatOnlyAccess()).toBe(true);
+    clock = window.expiresAt + 1;
+    expect(registry.hasChatOnlyAccess()).toBe(false);
+    const limited = device("Chat", ["client"]);
+    expect(registry.hasChatOnlyAccess()).toBe(true);
+    registry.revoke(limited.session.id);
+    expect(registry.hasChatOnlyAccess()).toBe(false);
+  });
+
+  it("keeps each device's scopes and revocation across restarts", () => {
+    const laptop = device("Laptop"), phone = device("Phone"), limited = device("Chat", ["client"]);
     const ownerId = registry.userId;
-    writeLegacy("owner@example.test");
-    registry = reopen("owner@example.test");
+    registry.close();
+    registry = reopen();
     expect(registry.userId).toBe(ownerId);
-    expect(registry.wasShared).toBe(false);
     for (const { token } of [laptop, phone]) expect(registry.authenticate(token)?.userId).toBe(ownerId);
     expect(registry.authenticate(limited.token)).toMatchObject({ id: limited.session.id, scopes: ["client"] });
     expect(registry.authenticate(limited.token)?.userId).toBeUndefined();
-    expect(registry.authenticate(email.token)).toBeNull();
     expect(registry.revoke(laptop.session.id)).toBe(true);
     registry.close();
-    registry = reopen(null);
+    registry = reopen();
     expect(registry.authenticate(laptop.token)).toBeNull();
     expect(registry.authenticate(phone.token)?.userId).toBe(ownerId);
   });
 
-  it.each([null, "local-owner"])("revokes ambiguous old credentials before accepting a new owner pairing (%s)", (legacyOwner) => {
-    const laptop = device("Laptop"), member = device("Email login", ["client"]);
-    writeLegacy("member@example.test");
-    registry = reopen(legacyOwner);
-    for (const { token } of [laptop, member]) expect(registry.authenticate(token)).toBeNull();
-    expect(JSON.parse(readFileSync(file(), "utf8"))).toMatchObject({ version: 2, sessions: [] });
-    expect(registry.wasShared).toBe(true);
+  it("discards older session files and accepts a fresh pairing", () => {
+    const previous = device("Laptop");
+    registry.close();
+    const { sessions } = JSON.parse(readFileSync(file(), "utf8"));
+    writeFileSync(file(), JSON.stringify({ version: 1, sessions }));
+    registry = reopen();
+    expect(registry.authenticate(previous.token)).toBeNull();
     const fresh = device("New pairing");
-    registry = reopen("local-owner");
-    expect(registry.wasShared).toBe(true);
+    registry.close();
+    registry = reopen();
     expect(registry.authenticate(fresh.token)?.userId).toBe(registry.userId);
-  });
-
-  it("requires pairing again on a shared installation even if all saved devices are anonymous", () => {
-    const laptop = device("Laptop");
-    writeLegacy();
-    registry = reopen(null);
-    expect(registry.authenticate(laptop.token)).toBeNull();
-    expect(registry.list()).toEqual([]);
+    expect(registry.authenticate(previous.token)).toBeNull();
   });
 
   it("requires fresh credentials when a session file belongs to a different installation", () => {

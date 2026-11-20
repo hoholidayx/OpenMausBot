@@ -45,7 +45,7 @@ export const STREAM_TICKET_TTL_MS = 5 * 60_000;
 type Lockout = { readonly failures: number; readonly windowMs: number; readonly lockMs: number };
 /** Slow-down only: a 60-bit code cannot be guessed online in a day, and sources are shared (NAT), so the lock stays short. */
 export const PAIRING_LOCKOUT: Lockout = { failures: 5, windowMs: 5 * 60_000, lockMs: 5 * 60_000 };
-/** Everything else a source can get wrong here: an email sign-in, a Cloud home's request signature. */
+/** Everything else a source can get wrong here: including a Cloud home's request signature. */
 export const LOCKOUT: Lockout = { failures: 10, windowMs: 60_000, lockMs: 60_000 };
 type Failures = Map<string, { count: number; windowStart: number; lockedUntil: number }>;
 /** Behind a proxy that names no client, every visitor arrives as loopback (or over IPC, "unknown"). Locking that address
@@ -70,56 +70,27 @@ const sessionSchema = z.object({
   lastSeenAt: z.number(),
   expiresAt: z.number(),
   userId: z.string().max(256).optional(),
-  email: z.string().max(320).optional(),
-  /** `portal`: set only by the internal verified-portal issuance path. `team`: the Admin's signed member claim on a
-   * Team Cloud. Never by email or pairing input. */
-  membershipAuthority: z.enum(["portal", "team"]).optional(),
-  /** A Team Cloud session's role in the team, from the Admin's claim. */
-  teamRole: z.enum(["owner", "admin", "member"]).optional(),
-  /** A team session opened with a code its member made (their phone): when the Admin last vouched for that member. The
-   * session ends within the hour of it; each new Admin-signed pairing of the same member, in the same role, moves it. */
-  memberCheckedAt: z.number().optional(),
-  /** A team session the Admin's roster check last found its member in the team, at this role: it ends
-   * within the hour of that, so a browser or app in use stays signed in with no new pairing. */
-  vouchedAt: z.number().optional(),
-  /** A browser sign-in (PairingCode `browser`): accepted only as its browser's cookie, never as a bearer token. */
-  cookieOnly: z.literal(true).optional(),
-  owner: z.string().max(254).optional(),
-  /** A Team Cloud's sign-in for moving one bot in (server/team-move-in.ts): it reaches that bot's move routes only. */
-  moveIn: z.string().regex(/^[\w-]{1,128}$/).optional(),
   /** An access token for a script (`openmausbot token create`): it ends at expiresAt and never renews. */
   token: z.literal(true).optional(),
-});
+}).strict();
 
-const fileSchema = z.object({ version: z.union([z.literal(1), z.literal(2)]), ownerId: z.string().optional(), wasShared: z.literal(true).optional(), sessions: z.array(sessionSchema) });
+const fileSchema = z.object({ version: z.literal(2), ownerId: z.string(), sessions: z.array(z.unknown()) }).strict();
 
-export type SessionRecord = z.infer<typeof sessionSchema>;
+type PairedSession = z.infer<typeof sessionSchema>;
 
-function hasRetiredAuthority(record: SessionRecord): boolean {
-  return record.membershipAuthority !== undefined || record.teamRole !== undefined || record.owner !== undefined ||
-    record.moveIn !== undefined || record.cookieOnly === true || record.memberCheckedAt !== undefined || record.vouchedAt !== undefined;
-}
-
-function hasOtherLegacyIdentity(record: SessionRecord, owner: string | undefined): boolean {
-  if (hasRetiredAuthority(record) || record.userId?.startsWith("portal:")) return true;
-  if (record.email === undefined) return record.userId !== undefined;
-  return !record.scopes.includes("admin") || record.email.trim().toLowerCase() !== owner;
-}
+export type SessionRecord = PairedSession & {
+  email?: string;
+  membershipAuthority?: "team" | "portal";
+  teamRole?: TeamRole;
+  memberCheckedAt?: number;
+  vouchedAt?: number;
+  cookieOnly?: true;
+  owner?: string;
+  moveIn?: string;
+};
 
 /** What the UI may see: never the hash. */
-export interface PublicSession {
-  id: string;
-  label: string;
-  scopes: Scope[];
-  createdAt: number;
-  lastSeenAt: number;
-  expiresAt: number;
-  userId?: string;
-  email?: string;
-  owner?: string;
-  teamRole?: TeamRole;
-  token?: true;
-}
+export type PublicSession = Omit<PairedSession, "tokenHash">;
 
 export interface PairingCode {
   id: string;
@@ -182,7 +153,7 @@ export function isPairingCredential(value: string): boolean {
   return value.startsWith(PAIRING_CREDENTIAL_PREFIX);
 }
 
-function publicSession(record: SessionRecord): PublicSession {
+function publicSession(record: PairedSession): PublicSession {
   const view: PublicSession = {
     id: record.id,
     label: record.label,
@@ -191,10 +162,7 @@ function publicSession(record: SessionRecord): PublicSession {
     lastSeenAt: record.lastSeenAt,
     expiresAt: record.expiresAt,
   };
-  if (record.userId?.startsWith("p_") && !record.email) view.userId = record.userId;
-  if (record.email) view.email = record.email;
-  if (record.owner) view.owner = record.owner;
-  if (record.teamRole) view.teamRole = record.teamRole;
+  if (record.userId) view.userId = record.userId;
   if (record.token) view.token = true;
   return view;
 }
@@ -228,7 +196,6 @@ export function pairingRequest(body: unknown): PairingRequest | { error: string 
 export interface SessionStoreOptions {
   file: string;
   now?: () => number;
-  legacyOwner?: string | null;
 }
 
 /** The member a team session was opened for, and when the Admin last vouched for them; null for any other session. */
@@ -238,28 +205,25 @@ export function sessionMember(session: Pick<SessionRecord, "membershipAuthority"
 }
 
 export class SessionRegistry {
-  private sessions: SessionRecord[] = [];
+  private sessions: PairedSession[] = [];
   private pairings: PairingCode[] = [];
   private tickets = new Map<string, { sessionId: string; expiresAt: number }>();
   private failures: Failures = new Map();
   private codeFailures: Failures = new Map();
   private replays: Array<{ codeHash: string; attemptId: string; result: ExchangeResult; expiresAt: number }> = [];
   private readonly onRevoked = new Set<(sessionId: string) => void>();
-  private readonly onIssued = new Set<(session: Pick<SessionRecord, "id" | "scopes" | "email" | "teamRole" | "membershipAuthority">) => void>();
+  private readonly onIssued = new Set<(session: Pick<PairedSession, "id" | "scopes">) => void>();
   private lastSeenWrites = new Map<string, number>();
   private readonly now: () => number;
   private readonly options: SessionStoreOptions;
   private readonly openMarker: string;
   private closed = false;
   private adminOnly: UserError | null = null;
-  private sharedInstallation: boolean;
-  get wasShared(): boolean { return this.sharedInstallation; }
   readonly userId: string;
 
   // No parameter properties: Node's strip-only TypeScript mode only erases types.
   constructor(options: SessionStoreOptions) {
     this.options = options;
-    this.sharedInstallation = options.legacyOwner === null;
     this.now = options.now ?? Date.now;
     this.openMarker = `${options.file}.open`;
     this.userId = localUserId(loadEnvironmentId(dirname(options.file)));
@@ -280,31 +244,17 @@ export class SessionRegistry {
     try {
       raw = JSON.parse(readFileSync(this.options.file, "utf8"));
     } catch {
-      this.sharedInstallation = true;
       return;
     }
     const parsed = fileSchema.safeParse(raw);
-    if (!parsed.success) {
-      this.sharedInstallation = true;
-      return;
+    if (!parsed.success || parsed.data.ownerId !== this.userId) return;
+    for (const rawSession of parsed.data.sessions) {
+      const session = sessionSchema.safeParse(rawSession);
+      if (!session.success) continue;
+      const record = session.data;
+      const owner = record.scopes.includes("admin") && !record.token ? this.userId : undefined;
+      if (record.userId === owner) this.sessions.push(record);
     }
-    const legacy = parsed.data.version === 1;
-    const records = parsed.data.sessions;
-    const owner = this.options.legacyOwner;
-    const sameOwner = parsed.data.ownerId === this.userId;
-    if (legacy && owner !== null && records.some(record => hasOtherLegacyIdentity(record, owner))) this.sharedInstallation = true;
-    if (!legacy && (!sameOwner || parsed.data.wasShared)) this.sharedInstallation = true;
-    const belongsHere = legacy ? !this.sharedInstallation : sameOwner;
-    if (belongsHere) {
-      for (const record of records) {
-        if (hasRetiredAuthority(record) || record.email !== undefined) continue;
-        const ownerId = record.scopes.includes("admin") && !record.token ? this.userId : undefined;
-        if (record.userId !== (legacy ? undefined : ownerId)) continue;
-        if (ownerId) record.userId = ownerId;
-        this.sessions.push(record);
-      }
-    }
-    if (legacy || !sameOwner || this.wasShared !== Boolean(parsed.data.wasShared) || this.sessions.length !== records.length) this.persist();
   }
 
   private syncDirectory(): void {
@@ -319,7 +269,7 @@ export class SessionRegistry {
     if (this.closed) throw new Error("Session registry is closed.");
     const dir = dirname(this.options.file);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    writeFileAtomic(this.options.file, JSON.stringify({ version: 2, ownerId: this.userId, ...(this.wasShared ? { wasShared: true } : {}), sessions: this.sessions }, null, 2) + "\n", { mode: 0o600 });
+    writeFileAtomic(this.options.file, JSON.stringify({ version: 2, ownerId: this.userId, sessions: this.sessions }, null, 2) + "\n", { mode: 0o600 });
     this.syncDirectory();
   }
 
@@ -359,7 +309,7 @@ export class SessionRegistry {
   }
 
   /** Every session opened from now on, by pairing or sign-in. */
-  onSessionIssued(listener: (session: Pick<SessionRecord, "id" | "scopes" | "email" | "teamRole" | "membershipAuthority">) => void): () => void {
+  onSessionIssued(listener: (session: Pick<PairedSession, "id" | "scopes">) => void): () => void {
     this.onIssued.add(listener);
     return () => this.onIssued.delete(listener);
   }
@@ -486,7 +436,7 @@ export class SessionRegistry {
     this.codeFailures.delete(input.source);
     if (this.personal(pairing.scopes)) return { ok: false, status: 403, code: "cloud_personal", ...this.adminOnly! };
     const token = `omb_sess_${randomBytes(32).toString("base64url")}`;
-    const record: SessionRecord = {
+    const record: PairedSession = {
       id: randomUUID(),
       tokenHash: sha256(token),
       label: (deviceLabel(input.label) || deviceLabel(pairing.label) || deviceLabel(input.fallbackLabel) || "Unnamed device").slice(0, 80),
@@ -519,7 +469,7 @@ export class SessionRegistry {
     this.failures.delete(source);
   }
 
-  authenticate(token: string | undefined): SessionRecord | null {
+  authenticate(token: string | undefined): PairedSession | null {
     if (!token) return null;
     const hash = sha256(token);
     const now = this.now();
@@ -555,9 +505,15 @@ export class SessionRegistry {
   }
 
   /** A live session by id: what a paired phone with no stream open may still be shown (server/phone-push.ts). */
-  record(sessionId: string): SessionRecord | null {
+  record(sessionId: string): PairedSession | null {
     this.prune();
     return this.sessions.find((s) => s.id === sessionId && s.expiresAt > this.now() && !this.personal(s.scopes)) ?? null;
+  }
+
+  hasChatOnlyAccess(): boolean {
+    const now = this.now();
+    const active = (entry: Pick<PairedSession, "expiresAt" | "scopes">) => entry.expiresAt > now && !entry.scopes.includes("admin");
+    return this.sessions.some(active) || this.pairings.some(active);
   }
 
   list(): PublicSession[] {
@@ -568,7 +524,7 @@ export class SessionRegistry {
   /** The stored digest of each live bearer session among `ids`: the phone relay derives a phone's keys from it. */
   bearerDigests(ids: ReadonlySet<string>): Array<{ id: string; tokenHash: string }> {
     this.prune();
-    return this.sessions.filter((s) => ids.has(s.id) && !s.cookieOnly && !this.personal(s.scopes)).map((s) => ({ id: s.id, tokenHash: s.tokenHash }));
+    return this.sessions.filter((s) => ids.has(s.id) && !this.personal(s.scopes)).map((s) => ({ id: s.id, tokenHash: s.tokenHash }));
   }
 
   /** The credential digests of the newest open pairing windows a device may redeem. */
@@ -602,7 +558,7 @@ export class SessionRegistry {
     return entry && entry.expiresAt > this.now() ? entry.sessionId : null;
   }
 
-  redeemStreamTicket(ticket: string): SessionRecord | null {
+  redeemStreamTicket(ticket: string): PairedSession | null {
     this.prune();
     const hash = sha256(ticket);
     const entry = this.tickets.get(hash);

@@ -5,7 +5,6 @@ import { posix } from "node:path";
 import { writeFileAtomic } from "./atomic.ts";
 import { unstableInstallWarning } from "./service-unit.ts";
 import {
-  applySignIn,
   assertManagedWorkspace,
   assertSlug,
   assertUnixUser,
@@ -22,7 +21,6 @@ import {
   resumePlan,
   suspendPlan,
   upgradePlan,
-  workspaceDataDir,
   workspaceHome,
   type FleetLayout,
   type FleetRegistry,
@@ -30,13 +28,11 @@ import {
 } from "./fleet.ts";
 
 export interface FleetInput {
-  action: "init" | "create" | "list" | "users" | "providers" | "suspend" | "resume" | "delete" | "upgrade";
+  action: "init" | "create" | "list" | "providers" | "suspend" | "resume" | "delete" | "upgrade";
   slug?: string;
   domain?: string;
   /** The operator's Unix user: the one workspace allowed to talk to the fleet agent. */
   operator?: string;
-  admins: string[];
-  members: string[];
   brandFile?: string;
   brandJson?: string;
   anthropicKeyFile?: string;
@@ -51,9 +47,6 @@ export interface FleetInput {
   dryRun: boolean;
   yes: boolean;
   keepData: boolean;
-  userAction?: "add" | "remove";
-  email?: string;
-  chatOnly?: boolean;
   node: string;
   script: string;
   root?: string;
@@ -330,7 +323,7 @@ export function planFleetAction(input: FleetInput, deps: FleetDeps): FleetStep[]
       return createPlan({
         registry,
         slug: input.slug,
-        seed: { admins: input.admins, members: input.members, ...(anthropicKey ? { anthropicKey } : {}), ...(input.anthropicUrl ? { anthropicUrl: input.anthropicUrl } : {}), ...(input.portalUrl ? { portalUrl: input.portalUrl } : {}), ...(brandJson ? { brandJson } : {}), openrouterKey: input.openrouterKey, openrouterUrl: input.openrouterUrl, openrouterModels: input.openrouterModels, openrouterDefault: input.openrouterDefault },
+        seed: { ...(anthropicKey ? { anthropicKey } : {}), ...(input.anthropicUrl ? { anthropicUrl: input.anthropicUrl } : {}), ...(input.portalUrl ? { portalUrl: input.portalUrl } : {}), ...(brandJson ? { brandJson } : {}), openrouterKey: input.openrouterKey, openrouterUrl: input.openrouterUrl, openrouterModels: input.openrouterModels, openrouterDefault: input.openrouterDefault },
         ...(input.memory ? { memoryMax: input.memory } : {}),
         layout,
       }).steps;
@@ -363,19 +356,6 @@ export function planFleetAction(input: FleetInput, deps: FleetDeps): FleetStep[]
       return [
         { kind: "write", path: file, content: `${JSON.stringify(config, null, 2)}\n`, mode: 0o600, owner: fleetUser(input.slug) },
         { kind: "note", text: "managed OpenRouter models updated; refresh the workspace model picker to load its catalog" },
-      ];
-    }
-    case "users": {
-      if (!input.slug || !input.userAction || !input.email) throw new Error("fleet users needs: NAME add|remove EMAIL [--chat-only]");
-      assertSlug(input.slug);
-      const registry = loadRegistry(layout, deps);
-      if (!registry.workspaces[input.slug]) throw new Error(`no workspace "${input.slug}"`);
-      assertManagedWorkspace(registry.workspaces[input.slug]!);
-      const file = posix.join(workspaceDataDir(layout, input.slug), "config.json");
-      const next = applySignIn(deps.readText(file, fleetUser(input.slug)) ?? "{}", input.userAction, input.email, Boolean(input.chatOnly));
-      return [
-        { kind: "write", path: file, content: next.config, mode: 0o600, owner: fleetUser(input.slug) },
-        { kind: "note", text: next.summary },
       ];
     }
     case "suspend":
@@ -423,7 +403,7 @@ export async function runFleetCommand(input: FleetInput, io: FleetIo, deps: Flee
       const registry = loadRegistry(layout, deps);
       const rows = Object.values(registry.workspaces).sort((a, b) => a.slug.localeCompare(b.slug));
       if (!rows.length) {
-        io.log(`no workspaces yet on ${registry.domain}; create one with: openmausbot fleet create NAME --admin you@example.com`);
+        io.log(`no workspaces yet on ${registry.domain}; create one with: openmausbot fleet create NAME`);
         return 0;
       }
       for (const workspace of rows) {
