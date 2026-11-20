@@ -102,13 +102,6 @@ export interface CatalogPagination {
 
 export type AppsFilter = "all" | "connected" | "mcp";
 
-function McpConnections({ filter, search }: { filter: "all" | "mcp"; search: string }) {
-  return <div className={filter === "mcp" ? "pt-1" : "mt-8 border-t border-hairline/30 pt-6"}>
-    {filter === "mcp" && matchesCatalogSearch("Mem0", search) && <Mem0Connection />}
-    <McpServersPanel embedded hideHosted={filter === "all"} />
-  </div>;
-}
-
 export const APPS_PREVIEW_COUNT = 48;
 
 export const USED_BY_AVATAR_SIZE = 16;
@@ -732,7 +725,12 @@ export function PluginsPanel() {
             </div>
           )}
 
-          {filter !== "connected" && category === null && <McpConnections filter={filter} search={search} />}
+          {filter !== "connected" && category === null && (
+            <div className={filter === "mcp" ? "pt-1" : "mt-8 border-t border-hairline/30 pt-6"}>
+              {filter === "mcp" && matchesCatalogSearch("Mem0", search) && <Mem0Connection />}
+              <McpServersPanel embedded hideHosted={filter === "all"} />
+            </div>
+          )}
         </div>
         <ConfirmDialog open={disconnecting !== null} layer="z-[60]" tone="danger" title={t("connectors.disconnect")} confirmLabel={t("connectors.disconnect")}
           body={disconnecting ? disconnectAccountConfirmation(disconnecting.label, disconnecting.account) : ""} onCancel={() => setDisconnecting(null)}
