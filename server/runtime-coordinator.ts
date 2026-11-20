@@ -94,7 +94,7 @@ export function needsInputQuestion(text: string): string | undefined {
   const line = at < 0 ? "" : lines[at]!.trim();
   if (!NEEDS_INPUT.test(line)) return undefined;
   const value = line.slice("NEEDS INPUT:".length).trim();
-  if (NOTHING_TO_ASK.has(value.replace(/[.!。！]+$/u, "").toLowerCase())) return undefined;
+  if (NOTHING_TO_ASK.has(value.replace(/[.!。！]+$/u, "").trimEnd().toLowerCase())) return undefined;
   const question = [value, ...lines.slice(at + 1)].join("\n").trim();
   return question || undefined;
 }

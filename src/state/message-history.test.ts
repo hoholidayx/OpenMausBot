@@ -32,6 +32,11 @@ describe("letting go of paged rows when a conversation is left", () => {
     expect(trimmedHeld(bot({ activeLeafId: "m100" })).messages).toHaveLength(3_000);
   });
 
+  it.each(["pinnedMessageId", "activeLeafId"] as const)("preserves the reader's old row when it is also the %s", (field) => {
+    const owner = bot({ [field]: "m10" });
+    expect(trimmedHeld(owner, "m10")).toBe(owner);
+  });
+
   it("leaves the conversation on screen and a short one untouched", () => {
     const shown = { ...initialState, bots: [bot()], selectedId: "bot-1", activeView: "chat" as const };
     expect(reducer(shown, { type: "trimHeldMessages", threadId: "thread-1" })).toBe(shown);

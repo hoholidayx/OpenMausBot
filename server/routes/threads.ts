@@ -202,16 +202,16 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
         return json(res, 415, { error: "content-type must be application/json" });
       }
       const threadId = m[1]!;
+      if (!visible.thread(threadId)) return json(res, 404, { error: "no such conversation" });
       const directBot = store.botByThread(threadId);
       const group = directBot ? undefined : store.groupByThread(threadId);
       if (!directBot && !group) return json(res, 404, { error: "no such conversation" });
 
       const message = store.messagesFor(threadId).find((candidate) => candidate.id === m![2]);
       if (!message) return json(res, 404, { error: "no such message" });
-      if (!visible.thread(threadId)) return json(res, 404, { error: "no such conversation" });
       // A non-text card (a hand-off result is an activity message) shares only what it explicitly attaches.
       const attachmentsOnly = message.kind !== "text";
-      if ((attachmentsOnly && !message.attachments?.length) || (!message.text && !message.attachments?.length)) {
+      if (!message.attachments?.length && (attachmentsOnly || !message.text)) {
         return json(res, 403, { error: "that message does not share this file" });
       }
       const messageText = message.text ?? "";

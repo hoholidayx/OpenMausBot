@@ -180,12 +180,13 @@ describe("needsInputQuestion", () => {
     expect(needsInputQuestion("NEEDS INPUT: first line\nsecond line")).toBeUndefined();
     expect(needsInputQuestion("All done. NEEDS INPUT: not at line start")).toBeUndefined();
     expect(needsInputQuestion("NEEDS INPUT:")).toBeUndefined();
+    expect(needsInputQuestion("NEEDS INPUT: \r\nDefault: wait")).toBe("Default: wait");
     expect(needsInputQuestion("")).toBeUndefined();
     expect(needsInputQuestion("Done.")).toBeUndefined();
   });
 
   it("reads a NEEDS INPUT line that only says there is nothing to ask, in any language, as no question", () => {
-    for (const none of ["无", "无。", "没有", "无需", "none", "None.", "N/A", "nothing", "nil", "-", "なし", "없음", "нет", "ninguna", "aucune", "keine"]) {
+    for (const none of ["无", "无。", "无 。", "aucune !", "没有", "无需", "none", "None.", "N/A", "nothing", "nil", "-", "なし", "없음", "нет", "ninguna", "aucune", "keine"]) {
       expect(needsInputQuestion(`Imported all 8 guides.\nNEEDS INPUT: ${none}`), none).toBeUndefined();
     }
     expect(needsInputQuestion("Imported all 8 guides.\nNEEDS INPUT: 无\nDefault: 结单")).toBeUndefined();

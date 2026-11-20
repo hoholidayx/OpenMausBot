@@ -43,8 +43,8 @@ export function trimmedHeld<T extends HeldOwner>(owner: T, keepFromId?: string):
   for (const id of [keepFromId, owner.activeLeafId, owner.pinnedMessageId]) {
     const at = id ? owner.messages.findIndex((message) => message.id === id) : -1;
     if (at < 0 || at >= from) continue;
-    if (id !== keepFromId && total - at > HELD_FOR_PLACE) return owner;
     if (total - at <= HELD_FOR_PLACE) from = at;
+    else if (id === owner.activeLeafId || id === owner.pinnedMessageId) return owner;
   }
   return from > 0 ? { ...owner, messages: owner.messages.slice(from), hasMore: true } : owner;
 }
