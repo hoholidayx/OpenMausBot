@@ -5,7 +5,7 @@
 - [Install and get started](../apps/docs/content/docs/getting-started/installation.mdx)
 - [Run a self-hosted server](self-hosting.md), [deploy it on a VPS](deploy-vps.md), or [connect a VPS as a bot's computer](byo-vps.md)
 - [Move or recover a workspace with an encrypted backup](../apps/docs/content/docs/self-hosting/data-and-backups.mdx#move-a-workspace-to-another-installation)
-- [Configure tools and approvals](tool-selection.md) and [maintain read-only bot notes](memory.md)
+- [Configure tools and approvals](tool-selection.md) and [manage private Mem0 memory and read-only bot notes](memory.md)
 - [Integrate through the Bot API](bot-api.md), [MCP server](mcp-server.md), [custom MCP servers](custom-mcp-servers.md), or [custom engines](custom-engines.md)
 - [接入 Dots 工作端并在主会话派活](verification/dots-work-partner.md)
 

@@ -11131,6 +11131,13 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
 function engineMcpServers(bot: BotRecord) { return mcpServersHost.grantSpecs(teamConnections.engineMcp(bot)); } // approval keys: no Vault key value, no restart count
 
 function persistMcpServers(next: Record<string, unknown>): void {
+  for (const [name, raw] of Object.entries(next)) {
+    if (raw === cfg.mcpServers?.[name]) continue;
+    const parsed = parseStoredMcpServer(name, raw);
+    if (parsed.ok && parsed.server.enabled && isRemoteMcpServer(parsed.server) && botMemory.usesEndpoint(new URL(parsed.server.url).href)) {
+      throw Object.assign(new Error("Turn off the private bot memory bindings before enabling a shared connection to this address."), { status: 409 });
+    }
+  }
   saveConfig({ mcpServers: next });
   cfg.mcpServers = next;
 }

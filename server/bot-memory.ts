@@ -46,6 +46,10 @@ async function withClient<T>(url: string, token: string, signal: AbortSignal, wo
   } finally { await client.close(); }
 }
 
+function containsCredential(value: unknown, token: string): boolean {
+  return JSON.stringify(value)?.includes(JSON.stringify(token).slice(1, -1)) === true;
+}
+
 function rpcCall(client: RemoteMcpClient, name: string, args: Args, signal: AbortSignal) {
   return client.request("tools/call", { name, arguments: args }, signal);
 }
@@ -91,7 +95,7 @@ async function verifyBinding(url: string, token: string, userId: string, botId: 
     await verifyRole(client, userId, botId, signal);
     const list = await client.request("tools/list", {}, signal);
     const tools = z.array(toolSchema).safeParse(isRecord(list) ? list.tools : null);
-    if (!tools.success || tools.data.length !== BOT_MEMORY_TOOLS.length || new Set(tools.data.map(tool => tool.name)).size !== BOT_MEMORY_TOOLS.length) {
+    if (!tools.success || containsCredential(tools.data, token) || tools.data.length !== BOT_MEMORY_TOOLS.length || new Set(tools.data.map(tool => tool.name)).size !== BOT_MEMORY_TOOLS.length) {
       throw new MemoryRefusal(422, "The memory service did not offer the six expected tools.");
     }
     return tools.data.map(publicTool);
@@ -117,7 +121,7 @@ export class BotMemory {
 
   constructor(deps: BotMemoryDeps) {
     this.deps = deps;
-    this.file = join(deps.dataDir, "providers", "mem0", "bindings.json");
+    this.file = join(deps.dataDir, "providers", "mem0", deps.environmentId, "bindings.json");
     try {
       const saved = settingsSchema.parse(JSON.parse(readFileSync(this.file, "utf8")));
       if (saved.environmentId === deps.environmentId) this.settings = saved;
@@ -189,6 +193,14 @@ export class BotMemory {
     }
   }
 
+  mayRestoreShared(): boolean {
+    return !this.unreadable && !Object.values(this.settings?.bots ?? {}).some(binding => binding.enabled);
+  }
+
+  usesEndpoint(url: string): boolean {
+    return this.settings?.url === url && !this.mayRestoreShared();
+  }
+
   revision(botId: string): string | undefined {
     const binding = this.settings?.bots[botId];
     return binding?.enabled && this.settings && !this.deps.sharesEndpoint(this.settings.url) ? binding.revision : undefined;
@@ -234,7 +246,10 @@ export class BotMemory {
         return rpcCall(client, name, scoped, requestSignal);
       });
       if (!permitted()) return reply(rejected("This memory call is no longer authorized."));
-      this.failed.delete(botId);
+      if (containsCredential(result, binding.token)) return reply(rejected("Mem0 returned private credential data."));
+      const code = refusalCode(result);
+      if (code === "scope_denied" || code?.startsWith("upstream_")) this.failed.add(botId);
+      else this.failed.delete(botId);
       return reply(result);
     } catch {
       if (permitted()) this.failed.add(botId);

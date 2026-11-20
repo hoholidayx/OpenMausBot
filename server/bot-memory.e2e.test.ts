@@ -39,7 +39,7 @@ it("grants six tools to owner-device private turns and confines records and dele
   };
   const settings = (bot: { id: string }) => "/api/bots/" + bot.id + "/long-term-memory";
   const run = async (bot: { id: string; thread: string }, token?: string, name?: string, args: Record<string, string | boolean> = {},
-    onDelete?: (requestId: string) => Promise<void>) => {
+    onDelete?: (requestId: string) => Promise<void>, beforeApproval?: () => Promise<void>) => {
     results = [];
     action = name ? { name, args } : undefined;
     const before = provider.requests.length;
@@ -52,7 +52,10 @@ it("grants six tools to owner-device private turns and confines records and dele
       const card = rows.findLast((row: any) => row.card?.requestId && !row.card.answered)?.card;
       if (!card) continue;
       if (card.tool === "maus_memory_delete" && onDelete) await onDelete(card.requestId);
-      else await api("POST", "/api/bots/" + bot.id + "/respond", { threadId: bot.thread, requestId: card.requestId, behavior: "allow" }, token);
+      else {
+        await beforeApproval?.();
+        await api("POST", "/api/bots/" + bot.id + "/respond", { threadId: bot.thread, requestId: card.requestId, behavior: "allow" }, token);
+      }
     }
     const tools = provider.requests[before]?.tools?.map(tool => tool.function.name).filter(tool => tool.startsWith(BOT_MEMORY_SERVER + "_")) ?? [];
     evidence.push({ name, bot: bot.id, thread: bot.thread, tools, results: [...results] });
@@ -72,7 +75,7 @@ it("grants six tools to owner-device private turns and confines records and dele
     const status = await api("PUT", settings(a), bind(roleA), laptop);
     expect(status).toMatchObject({ enabled: true, configured: true, failed: false });
     expect(JSON.stringify(status)).not.toContain(roleA);
-    const file = join(dataDir, "providers", "mem0", "bindings.json");
+    const file = join(dataDir, "providers", "mem0", userId.slice("maus-".length), "bindings.json");
     expect(statSync(file).mode & 0o777).toBe(0o600);
     const calls = mem.calls.length;
     expect((await run(a, phone)).tools).toHaveLength(6);
@@ -108,6 +111,18 @@ it("grants six tools to owner-device private turns and confines records and dele
     expect((await run(a, laptop, "memory_get", { memoryId: id })).result).toContain(fact);
     expect((await run(a, phone, "memory_delete", { all: true, confirm: true })).result).toContain("partition");
     expect(deletes()).toBe(before);
+    await api("PATCH", "/api/bots/" + a.id + "/tasks/" + a.thread, { approvalMode: "ask" });
+    let heldApproval = false;
+    const writes = () => mem.calls.filter(call => (call as { name: string }).name === "memory_add").length;
+    const beforeWrites = writes();
+    await run(a, laptop, "memory_add", { text: "Unapproved fixture write" }, undefined, async () => {
+      heldApproval = true;
+      await api("PUT", settings(a), { enabled: false }, phone);
+      await api("PUT", settings(a), { enabled: true }, phone);
+    });
+    expect(heldApproval).toBe(true);
+    expect(writes()).toBe(beforeWrites);
+    await api("PATCH", "/api/bots/" + a.id + "/tasks/" + a.thread, { approvalMode: "full" });
     const spare = await device("Revocable fixture");
     const { current } = await api("GET", "/api/auth/sessions", undefined, spare);
     await run(other, spare, "memory_delete", { memoryId: id }, async () => {

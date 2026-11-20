@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { fixtureChatReply, fixtureChatSelection, startLoopbackChat, waitForFixtureFile } from "./testing/loopback-chat.ts";
 import { saveChatFollowup } from "./message-db.ts";
 import { killCliTree } from "./procs.ts";
 import {
@@ -700,7 +701,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
   let receiptGate: string;
   let dispatchGate: string;
   let roomGate: string;
-  let roomRpcAppend: string;
+  let roomProvider: Awaited<ReturnType<typeof startLoopbackChat>> | undefined;
   const evidence: unknown[] = [];
   let evidencePath: string;
 
@@ -758,7 +759,10 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
     receiptGate = join(home, "gates", "receipt-provider.gate");
     dispatchGate = join(home, "gates", "early-dispatch.gate");
     roomGate = join(home, "gates", "room.gate");
-    roomRpcAppend = join(home, "gates", "room.rpc-append");
+    roomProvider = await startLoopbackChat(async (request, signal) => {
+      if (request.stream) await waitForFixtureFile(roomGate, signal);
+      return fixtureChatReply("echo: " + (request.messages.findLast(message => message.role === "user")?.content ?? ""));
+    });
     evidencePath = join(tmpdir(), `omb-steer-evidence-${Date.now()}-${process.pid}.json`);
     // Delay only the adapter's returned acknowledgment, reproducing completion before sendTurn resolves.
     const prelude = join(home, "delayed-dispatch.mjs");
@@ -823,6 +827,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
             config: { cli: FAKE_CLI, fullAuto: true },
           },
           // Wait for session/prompt to be in flight: an earlier interrupt is a no-op on a turn the driver has not registered.
+          steerRoom: roomProvider.instance("Room fixture"),
           steerStop: {
             driver: "grokAgent",
             environment: {
@@ -830,12 +835,6 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
               FAKE_ACP_GATE_FILE: stopGate,
               FAKE_ACP_RPC_DUMP: stopRpcDump,
             },
-            config: { cli: FAKE_CLI, fullAuto: true },
-          },
-          // One gate holds the room's turn open while a 1:1 message arrives.
-          steerRoom: {
-            driver: "grokAgent",
-            environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: roomGate, FAKE_ACP_RPC_APPEND_FILE: roomRpcAppend },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
         },
@@ -876,6 +875,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
     // Windows' SIGTERM ends only the server, so its engines would keep their working folders in the home open:
     // the whole tree goes, and is gone, before the home is deleted.
     if (child) await killCliTree(child, 15_000);
+    await roomProvider?.close();
     writeFileSync(evidencePath, JSON.stringify({ url: base, fixtureHome: home, requests: evidence, stderr }, null, 2));
     console.info(JSON.stringify({ evidencePath }));
     if (home) await removeTempDir(home);
@@ -1021,16 +1021,8 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
   it(
     "starts a person's 1:1 turn while the bot's room turn is still open",
     async () => {
-      const bot = await newBot("steerRoom", "RoomBusy");
-      const roomPrompts = () => {
-        try {
-          return readFileSync(roomRpcAppend, "utf8").trim().split("\n")
-            .map((line) => JSON.parse(line))
-            .filter((entry: any) => entry.method === "session/prompt");
-        } catch {
-          return [];
-        }
-      };
+      const bot = (await api("POST", "/api/bots", { name: "RoomBusy", modelSelection: fixtureChatSelection("steerRoom") })).body.bot;
+      const roomPrompts = () => roomProvider!.requests.filter(request => request.stream);
 
       // The room turn stays open until the gate exists, so the room holds the bot.
       const room = (await api("POST", "/api/groups", {
