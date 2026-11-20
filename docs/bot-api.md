@@ -106,7 +106,7 @@ Who and where:
 - On a self-hosted server the owner can mark a key from the local app or a
   paired owner device. The grant belongs to this installation's user ID. A
   key with an older, unbound grant requires the owner to mark it again.
-- Owner mode pauses while a chat-only device session or pairing code is active.
+- Chat-only devices cannot mark a key.
 - Never for guest links or webhooks: only a Bot API key carries it.
 - **New key** starts without the mark, and switching the API off forgets it.
   Marking and unmarking, including the mark a new key or switching the API off
