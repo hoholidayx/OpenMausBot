@@ -9,6 +9,11 @@ type LoadOlderMessages = Extract<Action, { type: "loadOlderMessages" }>;
 type TrimHeldMessages = Extract<Action, { type: "trimHeldMessages" }>;
 type HeldOwner = { id: string; messages: Message[]; threadId: string; hasMore?: boolean; activeLeafId?: string | null; pinnedMessageId?: string };
 
+export function beginLoadingOlderMessages(state: AppState, threadId: string): AppState {
+  if (state.loadingOlder[threadId]) return state;
+  return { ...state, loadingOlder: { ...state.loadingOlder, [threadId]: true } };
+}
+
 export function reduceOlderMessages(state: AppState, action: OlderMessages): AppState {
   const { [action.threadId]: _done, ...loadingOlder } = state.loadingOlder;
   if ((state.transcriptGeneration[action.threadId] ?? 0) !== action.generation) return { ...state, loadingOlder };

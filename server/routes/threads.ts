@@ -98,6 +98,18 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
     const shown = memberBot({ ...wired, tasks: wired.tasks ?? [] }, visible);
     return { ...shown, ...(typeof shown.threadId === "string" ? messagePage(shown.threadId, limit) : { messages: [], hasMore: false, activeLeafId: null }) };
   };
+  function messageForDownload(visible: VisibleSet, threadId: string, messageId: string):
+    { message: Message; directBot: BotRecord | null } | { status: number; error: string } {
+    if (!visible.thread(threadId)) return { status: 404, error: "no such conversation" };
+    const directBot = store.botByThread(threadId);
+    if (!directBot && !store.groupByThread(threadId)) return { status: 404, error: "no such conversation" };
+    const message = store.messagesFor(threadId).find((row) => row.id === messageId);
+    if (!message) return { status: 404, error: "no such message" };
+    if (!message.attachments?.length && (message.kind !== "text" || !message.text)) {
+      return { status: 403, error: "that message does not share this file" };
+    }
+    return { message, directBot };
+  }
   const jobs = createJobRoutes({ store, coordinator: deps.coordinator, groupThreadIsWorking: deps.groupThreadIsWorking, viewerFor, visibleTo, sessions });
   const handle = async ({ req, res, url, path, method, auth, json, readBody }: RouteContext): Promise<unknown> => {
     let m: RegExpMatchArray | null = null;
@@ -202,18 +214,9 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
         return json(res, 415, { error: "content-type must be application/json" });
       }
       const threadId = m[1]!;
-      if (!visible.thread(threadId)) return json(res, 404, { error: "no such conversation" });
-      const directBot = store.botByThread(threadId);
-      const group = directBot ? undefined : store.groupByThread(threadId);
-      if (!directBot && !group) return json(res, 404, { error: "no such conversation" });
-
-      const message = store.messagesFor(threadId).find((candidate) => candidate.id === m![2]);
-      if (!message) return json(res, 404, { error: "no such message" });
-      // A non-text card (a hand-off result is an activity message) shares only what it explicitly attaches.
-      const attachmentsOnly = message.kind !== "text";
-      if (!message.attachments?.length && (attachmentsOnly || !message.text)) {
-        return json(res, 403, { error: "that message does not share this file" });
-      }
+      const source = messageForDownload(visible, threadId, m[2]!);
+      if ("error" in source) return json(res, source.status, { error: source.error });
+      const { message, directBot } = source;
       const messageText = message.text ?? "";
       // Only this viewer's link for this message; every check below runs again on what it stands for.
       const mediaGrant = mediaId ? mediaLinks.use(mediaId, threadId, message.id, auth) : null;
@@ -238,7 +241,8 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
       const botAttachment = message.role === "bot"
         ? message.attachments?.find((attachment) => attachment.path === href)
         : undefined;
-      if (attachmentsOnly && !botAttachment) {
+      // A non-text card shares only the files it explicitly attaches.
+      if (message.kind !== "text" && !botAttachment) {
         return json(res, 403, { error: "that message does not share this file" });
       }
       if (message.role === "user") {

@@ -1,6 +1,6 @@
 import { cloudAsleep, onCloudPower } from "../lib/cloud-power";
 import { api, ApiError, retryRequest, snapshotArrays } from "./api";
-import { loadOlderPage, MESSAGE_PAGE_SIZE, reduceOlderMessages, reduceTrimHeldMessages } from "./message-history";
+import { beginLoadingOlderMessages, loadOlderPage, MESSAGE_PAGE_SIZE, reduceOlderMessages, reduceTrimHeldMessages } from "./message-history";
 export { MESSAGE_PAGE_SIZE } from "./message-history";
 import { addForkOptimistic, reduceForkPanel, removeForkOptimistic, runForkEffect, type ForkPanelAction, type ForkPanelState } from "./fork-panel";
 import { use, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -902,10 +902,7 @@ export function reducer(state: AppState, action: Action): AppState {
         [...action.bots, ...action.groups],
       );
     }
-    case "loadOlderMessages":
-      return state.loadingOlder[action.threadId]
-        ? state
-        : { ...state, loadingOlder: { ...state.loadingOlder, [action.threadId]: true } };
+    case "loadOlderMessages": return beginLoadingOlderMessages(state, action.threadId);
     case "olderMessages": return reduceOlderMessages(state, action);
     case "trimHeldMessages": return reduceTrimHeldMessages(state, action);
     case "sectionDeleted":

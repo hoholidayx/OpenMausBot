@@ -68,6 +68,14 @@ interface TranscriptVisit {
 
 type HeldWindow = { key: string; first: string | undefined } & TranscriptWindowBounds;
 
+function windowForVisit(visit: TranscriptVisit, first: string | undefined, tail: number): HeldWindow {
+  return { key: visit.key, first, start: visit.restore?.start ?? tail, end: visit.restore?.end ?? null };
+}
+
+function sameBounds(left: TranscriptWindowBounds, right: TranscriptWindowBounds): boolean {
+  return left.start === right.start && left.end === right.end;
+}
+
 function openVisit(key: string, messages: readonly { id: string }[]): TranscriptVisit {
   const remembered = readTranscriptPosition(key);
   const rowIndex = remembered && !remembered.atEnd && remembered.rowId ? messages.findIndex((message) => message.id === remembered.rowId) : -1;
@@ -158,12 +166,10 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   const movingDown = useRef(false);
   // One visit per conversation: switching back opens where the reader left it, or at the end if they were there.
   const [visit, setVisit] = useState(() => openVisit(transcriptKey, messages));
-  const [transcriptWindow, setTranscriptWindow] = useState<HeldWindow>(
-    () => ({ key: transcriptKey, first: messages[0]?.id, start: visit.restore?.start ?? tailStart, end: visit.restore?.end ?? null }),
-  );
+  const first = messages[0]?.id;
+  const [transcriptWindow, setTranscriptWindow] = useState(() => windowForVisit(visit, first, tailStart));
   const followNow = useRef<{ key: string; follow: TranscriptFollow }>({ key: visit.key, follow: visit.follow });
   const followRef = useRef(visit.follow.mode === "following");
-  const switched = transcriptWindow.key !== transcriptKey;
   const current = visit.key === transcriptKey ? visit : openVisit(transcriptKey, messages);
   if (current !== visit) setVisit(current);
   if (followNow.current.key !== transcriptKey) {
@@ -172,16 +178,16 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   }
   const follow = followNow.current.follow;
   const following = follow.mode === "following";
-  const first = messages[0]?.id;
-  const proposed = switched
-    ? { start: current.restore?.start ?? tailStart, end: current.restore?.end ?? null, added: -1 }
-    : nextWindow(transcriptWindow, messages, following, readingBottom);
-  const moves = proposed.start !== transcriptWindow.start || proposed.end !== transcriptWindow.end;
-  const next = !switched && moves ? { ...proposed, ...keepSelection(proposed) } : proposed;
-  if (switched || next.start !== transcriptWindow.start || next.end !== transcriptWindow.end || first !== transcriptWindow.first) {
-    // Rows came in front of the drawn ones or left their top: the DOM is still the last commit's, so it is read now.
-    if (!switched && !following && (next.added > 0 || next.start > transcriptWindow.start)) holdRow();
-    setTranscriptWindow({ key: transcriptKey, first, start: next.start, end: next.end });
+  if (transcriptWindow.key !== transcriptKey) {
+    setTranscriptWindow(windowForVisit(current, first, tailStart));
+  } else {
+    const proposed = nextWindow(transcriptWindow, messages, following, readingBottom);
+    const next = sameBounds(proposed, transcriptWindow) ? proposed : keepSelection(proposed);
+    if (first !== transcriptWindow.first || !sameBounds(next, transcriptWindow)) {
+      // Capture the visible row before React commits a prepend or releases rows at the top.
+      if (!following && (proposed.added > 0 || next.start > transcriptWindow.start)) holdRow();
+      setTranscriptWindow({ key: transcriptKey, first, start: next.start, end: next.end });
+    }
   }
   const {
     visible: windowedMessages,
@@ -189,13 +195,15 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     laterCount,
     startIndex,
     endIndex,
+    restingId,
   } = useMemo(() => {
     const range = resolveTranscriptWindow(messages, transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end);
-    return { ...range, visible: withRestingCard(messages, range.visible, range.startIndex, rests) };
+    const visible = withRestingCard(messages, range.visible, range.startIndex, rests);
+    return { ...range, visible, restingId: visible.length > range.visible.length ? visible[0]!.id : undefined };
   }, [messages, transcriptWindow.start, transcriptWindow.end, rests]);
   const windowRef = useRef(transcriptWindow);
   windowRef.current = transcriptWindow;
-  restingCardId.current = windowedMessages[0] && windowedMessages[0] !== messages[startIndex] ? windowedMessages[0].id : undefined;
+  restingCardId.current = restingId;
   const drawnBounds: TranscriptWindowBounds = { start: startIndex, end: laterCount > 0 ? endIndex : null };
   const laterRef = useRef(laterCount);
   laterRef.current = laterCount;
@@ -313,7 +321,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   useLayoutEffect(() => {
     const el = scrollRef.current, list = transcriptRef.current, held = anchor.current;
     if (!held || !el) return;
-    if (held.key === transcriptKey && held.from?.start === transcriptWindow.start && held.from.end === transcriptWindow.end) return;
+    if (held.key === transcriptKey && held.from && sameBounds(held.from, transcriptWindow)) return;
     anchor.current = null;
     expandingRef.current = false;
     if (held.key !== transcriptKey) return;
@@ -358,7 +366,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   /** Draws the window `step` gives, in a transition so its rows mount between frames; false when there is nothing to draw. */
   const stepWindow = (step: (window: TranscriptWindowBounds, total: number) => TranscriptWindowBounds) => {
     const target = keepSelection(step(drawnBounds, messages.length), drawnBounds);
-    if (target.start === drawnBounds.start && target.end === drawnBounds.end) return false;
+    if (sameBounds(target, drawnBounds)) return false;
     holdRow(windowRef.current);
     startTransition(() => setTranscriptWindow((w) => w.key === transcriptKey ? { ...w, ...target } : w));
     return true;

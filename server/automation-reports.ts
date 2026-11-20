@@ -89,6 +89,7 @@ export function newestAutomationLines(messages: readonly Pick<Message, "id" | "a
 
 const saidLine = (message: Message) => message.role === "bot" && message.kind === "text";
 const turnOfLine = (message: Message) => message.turnId ?? message.sentInTurn;
+const waitingSetupCards = new Set<Message["kind"]>(["signin", "connector", "secret"]);
 const settledQuestion = (message: Message) => {
   const card = message.card;
   return message.kind === "options" && !message.automation && card?.requestType === "question"
@@ -284,7 +285,7 @@ export function createAutomationReports(deps: AutomationReportDeps) {
     if (change.type !== "message" && change.type !== "message.patch") return;
     const { message } = change;
     const option = message.kind === "options" && Boolean(message.card?.requestId);
-    if (message.automation || (!option && message.kind !== "signin" && message.kind !== "connector" && message.kind !== "secret")) return;
+    if (message.automation || (!option && !waitingSetupCards.has(message.kind))) return;
     const run = deps.routines()?.runForThread(change.threadId);
     if (run?.target !== "bot") return;
     const source = store.taskByThread(run.botId, change.threadId);
