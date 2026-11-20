@@ -47,6 +47,19 @@ function open(): DatabaseSync {
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec(`
+
+  CREATE TABLE IF NOT EXISTS image_jobs (
+    id TEXT PRIMARY KEY, environment TEXT NOT NULL, bot TEXT NOT NULL, thread TEXT NOT NULL, source TEXT NOT NULL,
+    slot INTEGER NOT NULL, turn TEXT NOT NULL, card TEXT NOT NULL, attachment TEXT NOT NULL UNIQUE,
+    server TEXT NOT NULL, fingerprint TEXT NOT NULL, paramsHash TEXT NOT NULL, prompt TEXT NOT NULL, size TEXT NOT NULL,
+    phase TEXT NOT NULL, day TEXT NOT NULL, nextAt INTEGER, claim TEXT NOT NULL DEFAULT '',
+    errors INTEGER NOT NULL DEFAULT 0, troubleSince INTEGER NOT NULL DEFAULT 0, digest TEXT NOT NULL DEFAULT '',
+    UNIQUE(environment, bot, thread, source, slot), UNIQUE(thread, card)
+  );
+  CREATE INDEX IF NOT EXISTS image_jobs_due ON image_jobs(environment, nextAt) WHERE nextAt IS NOT NULL;
+  CREATE TABLE IF NOT EXISTS image_days (environment TEXT NOT NULL, day TEXT NOT NULL, used INTEGER NOT NULL,
+    PRIMARY KEY(environment, day));
+
     CREATE TABLE IF NOT EXISTS messages (
       thread_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -175,7 +188,7 @@ export function prepared(sql: string): StatementSync {
 }
 
 let transactionDepth = 0;
-function transaction<T>(fn: (database: DatabaseSync) => T): T {
+export function transaction<T>(fn: (database: DatabaseSync) => T): T {
   const database = db();
   if (transactionDepth > 0) {
     const savepoint = `command_${transactionDepth}`;

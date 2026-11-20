@@ -31,7 +31,7 @@ interface QueueEntry {
     unattended?: boolean;
     peerAsk?: Message["peerAsk"];
     origin?: WorkOrigin;
-    memoryDevice?: string;
+    memoryDevice?: string; imageDevice?: string;
     sender?: ResolvedSender;
     trigger?: UsageTrigger;
     queuedAt: number;
@@ -48,7 +48,7 @@ interface QueueEntry {
   }>;
 }
 
-export type SteerQueueHead = Pick<QueueEntry["items"][number], "trigger" | "sender" | "peerAsk" | "origin" | "mentions" | "memoryDevice">;
+export type SteerQueueHead = Pick<QueueEntry["items"][number], "trigger" | "sender" | "peerAsk" | "origin" | "mentions" | "memoryDevice" | "imageDevice">;
 
 const queues = new Map<string, QueueEntry>();
 
@@ -67,7 +67,7 @@ export function restoreSteeredMessages(): void {
     const { via, callId, origin: storedOrigin, ...payload } = row.payload;
     const origin = workOriginSchema.safeParse(storedOrigin);
     entry.items.push({
-      ...payload, memoryDevice: undefined,
+      ...payload, memoryDevice: undefined, imageDevice: undefined,
       ...spokenLineFields(via, callId),
       ...(origin.success ? { origin: origin.data } : {}),
       messageId: row.id,
@@ -110,7 +110,7 @@ export function queueSteeredMessage(
   botId: string,
   threadId: string,
   text: string,
-  options: { memoryDevice?: string; prompt?: string; replyToId?: string; sendId?: string; dataContext?: Message["dataContext"]; reason?: SteerQueueReason; unattended?: boolean; peerAsk?: Message["peerAsk"]; origin?: WorkOrigin; sender?: ResolvedSender; trigger?: UsageTrigger; callId?: string; via?: "call"; reaction?: string; fromApp?: Message["fromApp"]; relay?: Message["relay"]; rowId?: string; first?: boolean; queuedAt?: number; mentions?: string[]; aheadOfOthers?: string } = {},
+  options: { memoryDevice?: string; imageDevice?: string; prompt?: string; replyToId?: string; sendId?: string; dataContext?: Message["dataContext"]; reason?: SteerQueueReason; unattended?: boolean; peerAsk?: Message["peerAsk"]; origin?: WorkOrigin; sender?: ResolvedSender; trigger?: UsageTrigger; callId?: string; via?: "call"; reaction?: string; fromApp?: Message["fromApp"]; relay?: Message["relay"]; rowId?: string; first?: boolean; queuedAt?: number; mentions?: string[]; aheadOfOthers?: string } = {},
 ): QueuedSteer {
   const id = newId();
   const entry = queues.get(threadId) ?? { botId, items: [] };
@@ -141,7 +141,7 @@ export function queueSteeredMessage(
   // whose request runs, where several people write), ahead of everyone else's too.
   const ahead = options.first ? entry.items.findIndex((other) => other.peerAsk !== undefined || other.unattended === true || other.queuedAt > item.queuedAt
     || (options.aheadOfOthers !== undefined && other.sender?.id !== options.aheadOfOthers)) : -1;
-  const queued = { ...item, memoryDevice: options.memoryDevice };
+  const queued = { ...item, memoryDevice: options.memoryDevice, imageDevice: options.imageDevice };
   if (ahead < 0) entry.items.push(queued);
   else entry.items.splice(ahead, 0, queued);
   queues.set(threadId, entry);
@@ -246,7 +246,7 @@ export function drainSteeredMessages(
         appended.map((message) => message.id),
         // One unattended line makes the turn unattended: a person's words in the group cannot re-attend a bot's own.
         group.some((item) => item.unattended === true),
-        { ...(group[0].memoryDevice ? { memoryDevice: group[0].memoryDevice } : {}), trigger: group[0].trigger, sender: group[0].sender, peerAsk: group[0].peerAsk, origin: group[0].origin, ...(mentions.length ? { mentions } : {}) },
+        { ...(group[0].imageDevice ? { imageDevice: group[0].imageDevice } : {}), ...(group[0].memoryDevice ? { memoryDevice: group[0].memoryDevice } : {}), trigger: group[0].trigger, sender: group[0].sender, peerAsk: group[0].peerAsk, origin: group[0].origin, ...(mentions.length ? { mentions } : {}) },
       );
     } catch (error) { console.warn("steer-queue: queued dispatch threw", error); running = Promise.reject(error); }
     void Promise.resolve(running).then(
@@ -262,6 +262,7 @@ function coalesceIdentity(item: QueueEntry["items"][number]): string {
   if (item.peerAsk) return `peer:${item.peerAsk.botId}:${item.unattended === true ? "unattended" : "attended"}:${JSON.stringify(item.origin ?? null)}`;
   if (item.unattended === true) return "unattended";
   const person = item.sender ? `person:${item.sender.id ?? item.sender.name}` : "person:local";
+  if (item.imageDevice) return "image-request:" + item.messageId;
   if (item.memoryDevice) return `owner-device:${item.memoryDevice}|${person}`;
   return item.via === "call" ? `call:${item.callId ?? ""}|${person}` : person;
 }

@@ -335,7 +335,7 @@ const Bubble = memo(function Bubble({
   const speech = useSpeech();
   const speaking = speech.messageId === message.id && speech.status !== "idle";
   const rawText = peer ? peer.body : botLineText(message);
-  const text = user ? rawText : stripLeakedSystemHarnessMessages(rawText);
+  const text = message.imageJob ? "" : user ? rawText : stripLeakedSystemHarnessMessages(rawText);
   const botMenu = useBotMessageMenu({
     text,
     botId,
@@ -531,6 +531,7 @@ const Bubble = memo(function Bubble({
                   ))}
                 </div>
               )}
+              {message.imageJob && <ImageJobStatus threadId={threadId} message={message} />}
               <DotsFiles message={message} threadId={threadId} />
               {!group && <AttachmentGallery images={generatedPaths} files={linkedFiles} originals={attached.originals} message={{ threadId, messageId: message.id }} className={text ? undefined : "mb-0"} eager={eagerAttachments} />}
               {tabled && blocks ? (
@@ -793,6 +794,26 @@ const MessagesList = memo(function MessagesList({
 });
 
 const CHATHEAD_PILL = `flex min-w-0 items-center gap-2 rounded-full py-0.5 pl-1.5 text-ink ${ELEVATED_FLOAT}`;
+
+function ImageJobStatus({ message, threadId }: { message: Message; threadId: string }) {
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState(false);
+  const job = message.imageJob!;
+  const detail = job.reason === "access_changed" || job.reason === "other_installation" ? "access"
+    : job.reason === "result_expired" ? "expired" : job.reason === "output_invalid" ? "invalid"
+    : job.reason === "queue_full" ? "busy" : job.reason?.startsWith("provider_") ? "provider" : undefined;
+  const check = async () => {
+    setChecking(true); setError(false);
+    try { await api(`/api/threads/${threadId}/image-jobs/${message.id}/recheck`, { method: "POST", body: "{}" }); }
+    catch { setError(true); }
+    finally { setChecking(false); }
+  };
+  return <div className="text-sm text-ink-secondary" data-image-job={job.state}>
+    <span role="status">{t(`imageJob.${job.state}`)}{detail ? " " + t(`imageJob.detail.${detail}`) : ""}</span>
+    {job.recheck && <button type="button" className="ms-2 text-accent underline" disabled={checking} onClick={() => void check()}>{t("imageJob.recheck")}</button>}
+    {error && <span role="alert" className="ms-2 text-danger">{t("imageJob.checkError")}</span>}
+  </div>;
+}
 
 export const ChatView = memo(function ChatView({ bot: profile, inForkPanel = false }: { bot: Bot; inForkPanel?: boolean }) {
   const bot = useMemo(() => currentTaskBot(profile), [profile]);

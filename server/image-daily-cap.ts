@@ -9,7 +9,7 @@ import { writeFileAtomic } from "./atomic.ts";
 export const IMAGE_DAILY_CAP = 50;
 export const IMAGE_DAY_FILE = "image-generation-day.json";
 
-function localDay(at: Date): string {
+export function localDay(at: Date): string {
   return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
 }
 

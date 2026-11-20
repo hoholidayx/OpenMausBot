@@ -150,6 +150,7 @@ export interface ConfigStatus {
     customModel?: string;
     openaiConfigured?: boolean;
     xaiConfigured?: boolean;
+    asyncMcp?: string;
     customKeyConfigured?: boolean;
     geminiConfigured?: boolean;
     openrouterConfigured?: boolean;

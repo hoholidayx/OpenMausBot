@@ -17,7 +17,7 @@ export interface AgentsConversation {
   botDriven?: boolean;
   /** `x`: a research credential is held (a treg key or a plan's); `research`: research works for it too; `appHosting`:
    * the plan's included app hosting reaches this server. */
-  host: { skillAuthoring: boolean; sharedComputers: boolean; cloudHome: boolean; team: boolean; voiceNotes: boolean; x: boolean; research: boolean; imageGeneration: boolean; meetings?: boolean; appHosting?: boolean };
+  host: { skillAuthoring: boolean; sharedComputers: boolean; cloudHome: boolean; team: boolean; voiceNotes: boolean; x: boolean; research: boolean; imageGeneration: boolean; asyncImages?: boolean; meetings?: boolean; appHosting?: boolean };
 }
 
 /** What one turn may do. Its bearer carries this to the harness, which checks it on every call. */
@@ -48,7 +48,7 @@ export function agentsServerEnv(conversation: AgentsConversation, turn: AgentsTu
     OMB_X_RESEARCH: flag(host.x && bot.xResearch !== false),
     OMB_RESEARCH: flag(host.x && host.research && bot.xResearch !== false),
     ...roleToolEnv(bot),
-    OMB_IMAGE_GENERATION: flag(host.imageGeneration),
+    OMB_IMAGE_GENERATION: host.asyncImages && !conversation.room && !conversation.botDriven ? "async" : flag(host.imageGeneration),
     OMB_MEETINGS: flag(host.meetings === true && !conversation.room),
     OMB_APP_HOSTING: flag(host.appHosting === true),
     OMB_COMPUTER_SELECTION: flag(!conversation.room && bot.computer !== "off" && !conversation.botDriven),

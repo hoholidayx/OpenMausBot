@@ -63,6 +63,14 @@ export function ImageGenerationSettings() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openrouterModels, setOpenrouterModels] = useState<OpenRouterImageModels | null>(null);
+  const [connections, setConnections] = useState<string[]>([]);
+  useEffect(() => {
+    let active = true;
+    api<{ servers: { name: string; type?: string; enabled: boolean; runsOn?: unknown }[] }>("/api/mcp/servers")
+      .then(list => { if (active) setConnections(list.servers.filter(s => s.type === "http" && s.enabled && !s.runsOn).map(s => s.name)); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [status?.asyncMcp]);
   const [more, setMore] = useState(false);
   const usesOpenrouter = primary.provider === "openrouter" || fallback?.provider === "openrouter";
 
@@ -76,10 +84,11 @@ export function ImageGenerationSettings() {
     return () => { cancelled = true; };
   }, [usesOpenrouter, openrouterModels]);
 
-  const save = async (patch: object) => {
+  const save = async (patch: object, probe?: string) => {
     setSaving(true);
     setError(null);
     try {
+      if (probe) await api("/api/images/mcp-test", { method: "POST", body: JSON.stringify({ name: probe }) });
       const next: ConfigStatus = await api("/api/config", { method: "PUT", body: JSON.stringify(patch) });
       dispatch({ type: "configStatus", config: next });
     } catch (cause) {
@@ -98,7 +107,7 @@ export function ImageGenerationSettings() {
 
   const providers = [primary.provider, ...(fallback ? [fallback.provider] : [])].filter((provider, index, all) => all.indexOf(provider) === index);
 
-  const statusText = status?.ready
+  const statusText = status?.asyncMcp ? t("imageJob.selected", { name: status.asyncMcp }) : status?.ready
     ? primary.configured
       ? t("imageGen.status.ready", { provider: PROVIDER_LABEL[primary.provider] })
       : t("imageGen.status.backupOnly", { provider: PROVIDER_LABEL[fallback!.provider] })
@@ -108,11 +117,18 @@ export function ImageGenerationSettings() {
       <SettingsGroup label={t("settings.ai.images")} block="images"
         description={<>{t("imageGen.introShort")}{" "}<LearnMore onClick={() => setMore((open) => !open)} /></>}
         footnote={<span role="status" data-testid="image-gen-status" className="inline-flex items-center">
-          {status?.ready ? <StatusDot tone={primary.configured ? "success" : "warning"} /> : <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 rounded-full bg-ink/20" />}
+          {status?.asyncMcp || status?.ready ? <StatusDot tone={status?.asyncMcp || primary.configured ? "success" : "warning"} /> : <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 rounded-full bg-ink/20" />}
           {statusText}
         </span>}>
         {more && <p data-image-gen-more="" className="px-4 text-[12px] leading-4 text-ink-secondary">{t("imageGen.intro")}</p>}
         <SettingsRows selectWidth={200}>
+          <SettingRow title={t("imageJob.connection")} subtitle={t("imageJob.connectionHelp")}>
+            <Select data-testid="image-async-mcp" aria-label={t("imageJob.connection")} value={status?.asyncMcp ?? ""}
+              disabled={saving || !state.config} onChange={e => { const name = e.target.value; void save({ imageGen: { asyncMcp: name || null } }, name); }}>
+              <option value="">{t("imageJob.direct")}</option>
+              {[...new Set([...connections, ...(status?.asyncMcp ? [status.asyncMcp] : [])])].map(name => <option key={name} value={name}>{name}</option>)}
+            </Select>
+          </SettingRow>
           <SlotRow
             slot="primary" provider={primary.provider} model={primary.model} configured={primary.configured} openrouterModels={openrouterModels}
             disabled={saving || !state.config} onProvider={chooseProvider} onModel={(model) => void save({ imageGen: { primary: { provider: primary.provider, model } } })}

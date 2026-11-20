@@ -37,6 +37,7 @@ export interface ImageToolDeps {
    * run's request line): never a routine, a webhook, an app, a guest or a goal's coordinator, whose images never land. */
   personTurn: boolean;
   daily: ImageDailyCap;
+  reserveDaily?: () => ((made: boolean) => void) | null;
   fetchImpl?: typeof fetch;
   turn: ImageTurn | null;
   /** Images still being made, per turn key: they count toward the limit before they are attached. */
@@ -51,6 +52,7 @@ export async function generateImageForTurn(raw: unknown, deps: ImageToolDeps): P
   if (!parsed.success) {
     return { status: 400, body: { error: `generate_image takes a prompt (1 to ${IMAGE_PROMPT_MAX_CHARS} characters), an optional aspect (1:1, 16:9 or 9:16) and an optional provider.` } };
   }
+  if (deps.cfg.imageGen?.asyncMcp) return { status: 409, body: { error: "Use the async image tool configured for this chat." } };
   const { prompt, aspect, provider } = parsed.data;
   if (!deps.personTurn) return { status: 403, body: { error: IMAGE_MESSAGES.notPerson } };
   const { turn } = deps;
@@ -74,7 +76,8 @@ export async function generateImageForTurn(raw: unknown, deps: ImageToolDeps): P
     return { status: 409, body: { error: IMAGE_MESSAGES.notSetUp } };
   }
 
-  if (!deps.daily.reserve()) return { status: 429, body: { error: IMAGE_MESSAGES.dailyCap(deps.daily.cap) } };
+  const settle = deps.reserveDaily ? deps.reserveDaily() : deps.daily.reserve() ? deps.daily.settle : null;
+  if (!settle) return { status: 429, body: { error: IMAGE_MESSAGES.dailyCap(deps.daily.cap) } };
   let made = false;
   deps.inFlight.set(turn.key, (deps.inFlight.get(turn.key) ?? 0) + 1);
   try {
@@ -89,7 +92,7 @@ export async function generateImageForTurn(raw: unknown, deps: ImageToolDeps): P
     if (typeof status !== "number" || !(error instanceof Error)) return { status: 500, body: { error: IMAGE_MESSAGES.notSaved } };
     return { status, body: { error: error.message } };
   } finally {
-    deps.daily.settle(made);
+    settle(made);
     const left = (deps.inFlight.get(turn.key) ?? 1) - 1;
     if (left > 0) deps.inFlight.set(turn.key, left); else deps.inFlight.delete(turn.key);
   }
@@ -130,7 +133,7 @@ export function imageTurn(store: ImageTurnStore, threadId: string, requireActive
   };
 }
 
-export function createImageToolRoutes(deps: ImageTurnStore & { config: () => ImageCredentials; dataDir: string; fetchImpl?: typeof fetch }) {
+export function createImageToolRoutes(deps: ImageTurnStore & { config: () => ImageCredentials; dataDir: string; reserveDaily?: ImageToolDeps["reserveDaily"]; fetchImpl?: typeof fetch }) {
   const inFlight = new Map<string, number>();
   const daily = createImageDailyCap(deps.dataDir);
   return {
@@ -139,7 +142,7 @@ export function createImageToolRoutes(deps: ImageTurnStore & { config: () => Ima
       const turn = imageTurn(deps, ctx.threadId, ctx.requireActive);
       const call = new AbortController();
       ctx.res.once("close", () => { if (!ctx.res.writableEnded) call.abort(); });
-      const outcome = await generateImageForTurn(await ctx.readBody(), { cfg: deps.config(), personTurn: ctx.personTurn, daily, fetchImpl: deps.fetchImpl, turn, inFlight, signal: call.signal });
+      const outcome = await generateImageForTurn(await ctx.readBody(), { cfg: deps.config(), personTurn: ctx.personTurn, daily, reserveDaily: deps.reserveDaily, fetchImpl: deps.fetchImpl, turn, inFlight, signal: call.signal });
       ctx.json(ctx.res, outcome.status, outcome.body);
     },
   };

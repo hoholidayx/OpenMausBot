@@ -13,7 +13,7 @@ import { THREAD_POST_TOOL_DEFINITION } from "./agents-thread-post-tool.ts";
 import { RENAME_THREAD_TOOL_DEFINITION } from "./agents-thread-title-tool.ts";
 import { WAIT_TOOL_DEFINITIONS, WAIT_TOOL_NAMES } from "./agents-wait-tools.ts";
 import { COMPUTER_ASK_TOOL_DEFINITIONS, COMPUTER_ASK_TOOL_NAMES } from "./agents-computer-ask-tool.ts";
-import { IMAGE_TOOL_DEFINITIONS, IMAGE_TOOL_NAMES } from "./agents-image-tools.ts";
+import { IMAGE_TOOL_DEFINITIONS } from "./agents-image-tools.ts";
 import { HOSTING_TOOL_DEFINITIONS, HOSTING_TOOL_NAMES } from "./agents-hosting-tools.ts";
 import { MEETING_TOOL_DEFINITIONS, MEETING_TOOL_NAMES } from "./agents-meeting-tools.ts";
 import { MAUSBOT_TOOL_DEFINITIONS } from "./agents-mausbot-tools.ts";
@@ -765,7 +765,7 @@ function catalogTools(profile: CatalogProfile) {
     (profile.botId === WATCHER_OPTIONS_CARD_BOT_ID || !WATCHER_TOOL_NAMES.has(tool.name)) &&
     (profile.computerSelection === true || tool.name !== "select_computer") &&
     (profile.room !== true || !ROOM_REFUSED_TOOL_NAMES.has(tool.name)) &&
-    (profile.imageGeneration === true || !IMAGE_TOOL_NAMES.has(tool.name)) && (profile.appHosting === true || !HOSTING_TOOL_NAMES.has(tool.name)) &&
+    (profile.imageGeneration === true || tool.name !== "generate_image") && (profile.asyncImages === true || tool.name !== "generate_image_async") && (profile.appHosting === true || !HOSTING_TOOL_NAMES.has(tool.name)) &&
     (profile.meetings === true || (!MEETING_TOOL_NAMES.has(tool.name) && tool.name !== "reset_cloud_computer")));
   const AUTHORING_TOOLS = profile.skillAuthoring
     ? BOT_SCOPED_TOOLS

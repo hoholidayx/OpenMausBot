@@ -10,6 +10,7 @@ const imageSlotSchema = z.object({ provider: z.enum(IMAGE_PROVIDERS), model: ima
 const savedModelIdSchema = imageModelIdSchema.refine((value) => !looksLikeApiKey(value), "This looks like an API key, not a model ID: paste the key in the key field instead");
 const savedImageSlotSchema = z.object({ provider: z.enum(IMAGE_PROVIDERS), model: savedModelIdSchema.optional() }).strict();
 export const imageGenConfigSchema = z.object({
+  asyncMcp: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/).optional(),
   primary: imageSlotSchema.optional(),
   fallback: imageSlotSchema.optional(),
   maxPerTurn: z.number().int().min(1).max(10).optional(),
@@ -27,7 +28,7 @@ export const imageGenConfigSchema = z.object({
   customModel: imageModelIdSchema.optional(),
 });
 /** A patch from an older client names one `provider`; it becomes the base, so only `primary` decides it. */
-export const imageGenPatchSchema = imageGenConfigSchema.extend({ primary: savedImageSlotSchema.optional(), fallback: savedImageSlotSchema.nullable().optional(), customModel: savedModelIdSchema.optional() })
+export const imageGenPatchSchema = imageGenConfigSchema.extend({ asyncMcp: imageGenConfigSchema.shape.asyncMcp.nullable(), primary: savedImageSlotSchema.optional(), fallback: savedImageSlotSchema.nullable().optional(), customModel: savedModelIdSchema.optional() })
   .transform(({ provider, customModel, ...patch }) => {
     const typed = [patch.primary, patch.fallback].find((slot) => slot?.provider === "custom" && slot.model)?.model;
     const remembered = typed ?? (provider && provider !== "custom" ? undefined : customModel);

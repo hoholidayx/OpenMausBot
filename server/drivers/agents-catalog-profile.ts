@@ -30,6 +30,7 @@ export interface CatalogProfile {
   /** A room's thread: the wait tools are not mounted, since a room holds no wait. */
   room?: boolean;
   imageGeneration?: boolean;
+  asyncImages?: boolean;
   /** A cloud computer can be had here (Boat): the meeting tools and reset_cloud_computer are mounted. */
   meetings?: boolean;
   /** The plan's included app hosting reaches this server: publish_app is mounted. */
@@ -54,6 +55,7 @@ export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
     mausbot: env.OMB_MAUSBOT === "1",
     computerSelection: env.OMB_COMPUTER_SELECTION === "1",
     room: env.OMB_ROOM === "1",
+    asyncImages: env.OMB_IMAGE_GENERATION === "async",
     imageGeneration: env.OMB_IMAGE_GENERATION === "1",
     meetings: env.OMB_MEETINGS === "1",
     appHosting: env.OMB_APP_HOSTING === "1",

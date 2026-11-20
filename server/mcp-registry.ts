@@ -36,6 +36,7 @@ export interface McpOAuthClientConfig {
   scopes?: string[];
 }
 export interface StoredRemoteMcpServer extends RemoteMcpSpec {
+  purpose?: "async_image";
   enabled: boolean;
   oauth?: McpOAuthClientConfig;
   resultBudget?: number;
@@ -228,6 +229,7 @@ const oauthClientSchema = z.object({
 }).strict();
 
 const remoteEntrySchema = z.object({
+  purpose: z.literal("async_image").optional(),
   /** Streamable HTTP unless the entry says the older SSE transport. */
   type: z.enum(["http", "sse"]).optional(),
   url: z.string().trim().min(1).max(2_048),
@@ -360,6 +362,7 @@ function parseRemote(raw: unknown, mutation: boolean, existing?: StoredMcpServer
       type: parsed.data.type ?? "http",
       url: parsed.data.url,
       headers: headers.values,
+      ...((parsed.data.purpose ?? (existing && isRemoteMcpServer(existing) && existing.purpose)) ? { purpose: "async_image" as const } : {}),
       ...(oauth.value ? { oauth: oauth.value } : {}),
       enabled: enabledFor(parsed.data.enabled, mutation, existing),
       ...(parsed.data.resultBudget !== undefined ? { resultBudget: parsed.data.resultBudget } : {}),
@@ -534,7 +537,7 @@ export function parseMcpServersImport(
     if (Object.hasOwn(servers, name)) return { ok: false, error: `"${rawName}" appears twice.` };
     // `enabled` from the paste is dropped so nothing runs before it was tested.
     const result = parseMcpServerMutation(name, looksRemote(record)
-      ? pickEntry(record, ["type", "url", "headers", "resultBudget"])
+      ? pickEntry(record, ["type", "url", "headers", "resultBudget", "purpose"])
       : pickEntry(record, ["command", "args", "env", "resultBudget"]));
     if (!result.ok) return { ok: false, error: `"${rawName}": ${result.error}` };
     servers[name] = result.server;

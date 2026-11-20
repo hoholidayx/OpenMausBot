@@ -920,6 +920,15 @@ export function saveConfig(
   if (checkedPatch.mcpServers !== undefined) {
     disk.mcpServers = jsonObjectSchema.parse(checkedPatch.mcpServers);
   }
+  if (checkedPatch.imageGen?.asyncMcp) {
+    const name = checkedPatch.imageGen.asyncMcp;
+    const servers = jsonObjectSchema.parse(disk.mcpServers ?? {});
+    const parsed = parseStoredMcpServer(name, servers[name]);
+    if (!parsed.ok || !isRemoteMcpServer(parsed.server) || parsed.server.type !== "http" || parsed.server.runsOn || !parsed.server.enabled) {
+      throw Object.assign(new Error("Select an enabled Streamable HTTP connection on this Maus host."), { status: 400 });
+    }
+    disk.mcpServers = { ...servers, [name]: { ...jsonObjectSchema.parse(servers[name]), purpose: "async_image" } };
+  }
   if (checkedPatch.browserProfiles !== undefined) {
     const existingProfiles = new Map(
       (storedProfiles.success ? storedProfiles.data : []).map((profile) => [profile.id, profile]),
@@ -1206,6 +1215,7 @@ export function customMcpServers(cfg: AppConfig, only?: string[], botId?: string
       skipMcpEntry(name, `${parsed.error} Expected { "command": "npx", "args": [...], "env": { ... } } or { "type": "http", "url": "https://…", "headers": { ... } }`);
       continue;
     }
+    if (name === cfg.imageGen?.asyncMcp || (isRemoteMcpServer(parsed.server) && parsed.server.purpose === "async_image")) continue;
     if (!parsed.server.enabled || parsed.server.runsOn || !mcpServerServes(parsed.server, botId)) continue; // another computer's or bot's own
     out[name] = isRemoteMcpServer(parsed.server)
       ? { type: parsed.server.type, url: parsed.server.url, headers: { ...parsed.server.headers, ...postizKeyHeaders(cfg.postiz, name, parsed.server) } }

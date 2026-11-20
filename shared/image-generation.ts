@@ -46,6 +46,8 @@ export interface ImageSlotConfig {
 }
 
 export interface ImageGenerationConfig {
+  /** Registered, host-only Streamable HTTP connection for asynchronous chat images. */
+  asyncMcp?: string;
   primary?: ImageSlotConfig;
   fallback?: ImageSlotConfig;
   maxPerTurn?: number;

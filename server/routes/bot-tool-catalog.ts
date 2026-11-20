@@ -83,7 +83,7 @@ function agentsSources(profile: CatalogProfile, supported: boolean): BotToolSour
   const activeNames = new Set(availableTools(baseProfile).map(({ name }) => name));
   const candidates = availableTools({
     ...baseProfile, skillAuthoring: true, sharedComputers: true, voiceNotes: true, xResearch: true,
-    research: true, imageGeneration: true,
+    research: true, imageGeneration: true, asyncImages: true,
     meetings: true, appHosting: true, computerSelection: true, cloudHome: false,
   });
   const agents = new Map<string, BotToolSource>([["agents", { id: "agents", kind: "agents", tools: [] }]]);

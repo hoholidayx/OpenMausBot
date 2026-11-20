@@ -28,6 +28,7 @@ export function avatarImageStatus(cfg: ImageCredentials) {
     primary: slotStatus(primary),
     fallback: fallback ? slotStatus(fallback) : null,
     ready: imageGenerationReady(cfg),
+    ...(cfg.imageGen?.asyncMcp ? { asyncMcp: cfg.imageGen.asyncMcp } : {}),
     maxPerTurn: cfg.imageGen?.maxPerTurn ?? IMAGE_MAX_PER_TURN_DEFAULT,
     customUrl: customImageUrl(cfg),
     customModel: [primary, fallback].find((slot) => slot?.provider === "custom")?.model ?? "",

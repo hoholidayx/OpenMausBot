@@ -544,6 +544,8 @@ export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCard
   partnerRelayReceipt?: { rootId: string; attempt: number };
   partnerRelayFailure?: { rootId: string; attempt: number; retried?: boolean };
   partnerResultId?: string;
+  /** A host-delivered image request. The remote task identifier stays on the server. */
+  imageJob?: { state: "queued" | "running" | "done" | "failed" | "review"; reason?: string; recheck?: true };
   /** The durable Dots receipt that produced this row. */
   dotsEventId?: string;
   /** Hosted files are downloaded through the message that grants access to them. */
