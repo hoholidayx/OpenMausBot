@@ -50,7 +50,10 @@ export class DotsClient {
       const data = await (await this.request("/v1/status", signal)).json() as { subscription?: string };
       return { connected: true, authorized: true, subscription: data.subscription ?? "unknown" };
     } catch {
-      const connected = await fetch(this.url + "/health", { redirect: "error", signal }).then(r => r.ok, () => false);
+      const connected = await fetch(this.url + "/health", { redirect: "error", signal }).then(async response => {
+        await response.body?.cancel();
+        return response.ok;
+      }).catch(() => false);
       return { connected, authorized: false, subscription: "unknown" };
     }
   }
@@ -74,8 +77,9 @@ export class DotsClient {
   }
 
   async acknowledge(sequence: number, signal: AbortSignal) {
-    await this.request("/v1/events/ack", signal, { method: "POST", headers: { "content-type": "application/json" },
+    const response = await this.request("/v1/events/ack", signal, { method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ sequence }) });
+    await response.arrayBuffer();
   }
 
   async upload(name: string, mime: string, bytes: Uint8Array<ArrayBuffer>, signal: AbortSignal) {

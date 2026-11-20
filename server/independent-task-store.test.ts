@@ -186,6 +186,18 @@ describe("independent bot task state", () => {
     expect(new Store(selection).bot(bot.id)?.threadId).toBe(bot.threadId);
   });
 
+  it("repairs a deleted partner thread on load and preserves bot-wide partners", () => {
+    const store = new Store(selection);
+    const stale = store.createBot({}, { seedMessages: false });
+    const ordinary = store.createBot({}, { seedMessages: false });
+    store.patchBotProfile(stale.id, { workPartnerIds: [ordinary.id], workPartnerThreadId: "deleted-thread" });
+    store.patchBotProfile(ordinary.id, { workPartnerIds: [stale.id] });
+    const reloaded = new Store(selection);
+    expect(reloaded.bot(stale.id)?.workPartnerIds).toBeUndefined();
+    expect(savedBots().find(bot => bot.id === stale.id)).not.toHaveProperty("workPartnerThreadId");
+    expect(reloaded.bot(ordinary.id)?.workPartnerIds).toEqual([stale.id]);
+  });
+
   it("leaves an opened internal run when a different visible task is deleted", () => {
     const store = new Store(selection);
     const bot = store.createBot({}, { seedMessages: false });

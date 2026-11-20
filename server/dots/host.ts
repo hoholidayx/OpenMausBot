@@ -7,6 +7,7 @@ import { uploadBytes } from "./files.ts";
 import { DotsInbox, type DotsJob, type DotsTurn } from "./inbox.ts";
 
 export interface DotsProjection {
+  available(): boolean;
   permitted(turn: DotsTurn): boolean;
   project(receipt: DotsReceipt, job: DotsJob | null): boolean;
 }
@@ -27,9 +28,10 @@ export class DotsHost {
     if (this.workers) return;
     this.workers = Promise.all([
       this.repeat(() => this.sendNext(projection)),
-      this.repeat(() => this.receive()),
+      this.repeat(() => this.receive(projection)),
       this.repeat(async () => {
         const rows = this.inbox.pending();
+        if (rows.length && !projection.available()) return 1000;
         for (const { receipt, op } of rows) {
           this.inbox.applied(receipt.id, projection.project(receipt, op ? this.inbox.get(op) : null));
         }
@@ -53,6 +55,7 @@ export class DotsHost {
   private async sendNext(projection: DotsProjection) {
     const job = this.inbox.nextSend();
     if (!job) return 250;
+    if (!projection.available()) return 1000;
     const { signal } = this.shutdown;
     const { turn, uploaded } = job;
     const checkSource = () => {
@@ -70,6 +73,7 @@ export class DotsHost {
       this.inbox.accepted(turn.id, await this.client.submit(turn.id, turn.text, uploaded, signal));
     } catch (error) {
       if (signal.aborted) return 0;
+      if (!projection.available()) return 1000;
       if (error instanceof DotsHttpError && error.status < 500 && ![401, 408, 429].includes(error.status)) {
         this.inbox.capture({ id: "host-" + turn.id, kind: "failed", sequence: 0, problem: error.message }, turn.id);
       } else {
@@ -92,11 +96,17 @@ export class DotsHost {
     if (job && (!job.local || job.local === event.message_id) && (!local || local === key)) return key;
   }
 
-  private async receive() {
+  private async receive(projection: DotsProjection) {
+    if (!projection.available()) return 1000;
     const { signal } = this.shutdown;
     const events = await this.client.events(signal);
-    for (const event of events) this.inbox.capture(event, await this.operation(event));
     if (!events.length) return 100;
+    if (!projection.available()) return 1000;
+    for (const event of events) {
+      const op = await this.operation(event);
+      if (!projection.available()) return 1000;
+      this.inbox.capture(event, op);
+    }
     await this.client.acknowledge(events[events.length - 1]!.sequence, signal);
     return 0;
   }

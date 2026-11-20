@@ -27,7 +27,7 @@ Atlas 代表用户正在聊天的主 bot，Dots 是接活的工作端。管理�
 | Dots 本地服务 | 继续负责转发、收件、归档和幂等发件，可供其他宿主复用。MausBot 在服务端读取回环地址及专用 token 文件，凭据从前端、配置导出和子进程环境排除。正式接管由管理员显式执行，401 暂停该绑定。界面分别报告本地服务连通、宿主授权和远端订阅状态。 |
 | MausBot 收件器 | 每个绑定只有一个后台消费者，长轮询 `GET /v1/events?wait=25`。浏览器关闭时照常处理，MausBot 停机期间由本地服务保留事件。接收器恢复子任务，沿用工作搭档运行时将结果投回来源。 |
 
-[驱动注册](../../server/drivers/builtIn.ts) · [上下文构造](../../server/turn-context.ts) · [协作运行时](../../server/runtime-coordinator.ts) · [Dots 本地宿主 API](../../../dots-bridge/local-service/README.md)
+[驱动注册](../../server/drivers/builtIn.ts) · [上下文构造](../../server/turn-context.ts) · [协作运行时](../../server/runtime-coordinator.ts) · [Dots 本地宿主 API](https://github.com/hoholidayx/dots-bridge/blob/0c6f34709f42cc3cd2e83c43c8a18670d4b7e531/local-service/README.md)
 
 1. **发件。** 先持久化操作 ID、触发来源（委派或直接私聊）、归属与有序附件引用。委派以子委派 ID 认领同一次操作，直接聊天以发送操作及用户消息 ID 识别。持久化附件上传结果，以稳定的 `idempotency_key` 和 `correlation_id` 提交 `POST /v1/messages`。202 表示已排队，保存返回的本地消息 ID 和随后获得的远端 request_id。丢失响应时原样重放。上传成功后若来不及保存文件 ID，可能留下额外暂存文件。
 2. **进度与结果。** progress 更新对应的工作记录。reply 完成相应子任务，由现有工作搭档交付逻辑以 Dots 身份回原消息所在分支，直答引起的额外 Atlas 回合为零。直接私聊回执写入发起该请求的私聊。failed、expired、cancel 保留实际终态。回执早于 202 到达时按 correlation_id 找到意图，只有 message_id 的事件可用消息查询接口核对。needs_review 保留待核对状态，避免以新键重复派活。

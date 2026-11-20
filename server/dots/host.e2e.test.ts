@@ -1,17 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import { once } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { spawn } from "node:child_process";
+import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { expect, it } from "vitest";
 import { fixture } from "../testing/direct-coordination-fixture.ts";
 import type { DotsReceipt } from "./client.ts";
 import { verificationServerArgs, verificationServerEnvironment } from "../../scripts/control-omb.ts";
+import { openRuntimeStore } from "../runtime/store.ts";
 
 async function endpoint() {
   const token = randomUUID();
+  const polls = new EventEmitter();
   type Send = { idempotency_key: string; correlation_id: string; text: string; artifact_ids: string[] };
   const attempts: string[] = [], sends = new Map<string, Send>(), events: DotsReceipt[] = [], uploaded: Buffer[] = [];
-  let ack = 0, dropAck = true, dropSubmit = true, authorized = true, refusedPolls = 0;
+  let ack = 0, ackAttempts = 0, dropAck = true, dropSubmit = true, authorized = true, refusedPolls = 0;
   const server = createServer(async (req, res) => {
     const url = new URL(req.url!, "http://localhost");
     const json = (value: unknown, status = 200) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(value)); };
@@ -24,8 +28,16 @@ async function endpoint() {
     for await (const bytes of req) chunks.push(Buffer.from(bytes));
     const body = Buffer.concat(chunks);
     if (url.pathname === "/v1/status") return json({ subscription: "active" });
-    if (url.pathname === "/v1/events") return json({ events: events.filter(e => e.sequence > ack) });
+    if (url.pathname === "/v1/events") {
+      if (polls.listenerCount("started")) {
+        const released = once(polls, "release");
+        polls.emit("started");
+        await released;
+      }
+      return json({ events: events.filter(e => e.sequence > ack) });
+    }
     if (url.pathname === "/v1/events/ack") {
+      ackAttempts++;
       if (dropAck) { dropAck = false; return res.destroy(); }
       ack = JSON.parse(body.toString()).sequence; return json({ cursor: ack });
     }
@@ -46,11 +58,25 @@ async function endpoint() {
     return json({}, 404);
   });
   server.listen(0, "127.0.0.1"); await once(server, "listening");
-  return { refusedPolls: () => refusedPolls, authorize: (allowed: boolean) => { authorized = allowed; }, port: (server.address() as { port: number }).port, token, attempts, sends, uploaded,
+  return { cursor: () => ack, ackAttempts: () => ackAttempts, refusedPolls: () => refusedPolls, authorize: (allowed: boolean) => { authorized = allowed; }, port: (server.address() as { port: number }).port, token, attempts, sends, uploaded,
+    pauseNextPoll() { return { started: once(polls, "started"), release: () => polls.emit("release") }; },
     event(e: Omit<DotsReceipt, "sequence" | "id">) {
       const number = events.length + 1; events.push({ ...e, sequence: number, id: "e" + number });
     },
     async close() { const closed = once(server, "close"); server.close(); server.closeAllConnections(); await closed; } };
+}
+
+async function withRestartedHost(info: { dataDir: string; url: string }, verify: () => Promise<void>) {
+  const env = verificationServerEnvironment({}, info.dataDir, Number(new URL(info.url).port));
+  const child = spawn(process.execPath, verificationServerArgs(env), { env, stdio: "ignore" });
+  try {
+    await expect.poll(async () => (await fetch(info.url + "/api/bots").catch(() => null))?.status, { timeout: 15000 }).toBe(200);
+    await verify();
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, "exit"); child.kill("SIGTERM"); await exited;
+    }
+  }
 }
 
 it("routes interleaved private partner work, unsolicited push and original files across a host restart", async () => {
@@ -92,17 +118,22 @@ it("routes interleaved private partner work, unsolicited push and original files
       expect([a[1].text, b[1].text]).toEqual(["first", "second"]);
       local.event({ kind: "progress", text: "Checking bytes", message_id: a[0], correlation_id: a[1].correlation_id });
       local.event({ kind: "push", text: "Inbox only" });
-      local.event({ kind: "reply", text: "NEEDS INPUT: literal reply?", message_id: b[0], correlation_id: b[1].correlation_id });
+      local.event({ kind: "reply", text: "NEEDS INPUT: literal reply?", message_id: b[0], correlation_id: b[1].correlation_id,
+        artifact_ids: ["remote-file"], attachments: [{ id: "remote-file", name: "receipt.txt", status: "pending" }] });
       await expect.poll(async () => (await rows(thread)).find(r => r.replyToId === second.id && r.partnerResultId)?.text, { timeout: 10000 }).toBe("NEEDS INPUT: literal reply?");
       await expect.poll(async () => (await rows(inbox)).filter(r => r.text === "Inbox only").length).toBe(1);
       await f.api(work, { expected: dots.id, partnerId: null }, "PUT");
       const info = f.session.info, url = info.url;
+      const olderRoot = f.nodes().find((n: any) => n.id === b[1].correlation_id).rootId;
+      await expect.poll(() => f.nodes().filter((n: any) => n.rootId === olderRoot).map((n: any) => n.status), { timeout: 8000 }).toEqual(["completed", "completed"]);
       const exited = once(f.session.child, "exit"); f.session.child.kill("SIGKILL"); await exited;
-      local.event({ kind: "reply", text: "", message_id: a[0], artifact_ids: ["remote-file"], attachments: [{ id: "remote-file", name: "receipt.txt", status: "pending" }] });
-      const env = verificationServerEnvironment({}, info.dataDir, Number(new URL(url).port));
-      const child = spawn(process.execPath, verificationServerArgs(env), { env, stdio: "ignore" });
+      const history = openRuntimeStore(join(info.dataDir, "runtime.db"));
       try {
-        await expect.poll(async () => (await fetch(url + "/api/bots").catch(() => null))?.status, { timeout: 15000 }).toBe(200);
+        history.prune(Date.now() + 1);
+        expect(history.get(b[1].correlation_id)).toBeUndefined();
+      } finally { history.close(); }
+      local.event({ kind: "reply", text: "", message_id: a[0], artifact_ids: ["remote-file"], attachments: [{ id: "remote-file", name: "receipt.txt", status: "pending" }] });
+      await withRestartedHost(info, async () => {
         const result = async () => (await rows(thread)).filter(r => r.partnerResultId && r.replyToId === first.id);
         await expect.poll(async () => (await result()).length, { timeout: 15000 }).toBe(1);
         const item = (await result())[0];
@@ -111,6 +142,9 @@ it("routes interleaved private partner work, unsolicited push and original files
         await expect.poll(async () => (await result())[0].dotsFiles[0].status).toBe("ready");
         const file = (t: string, id: string) => fetch(url + "/api/threads/" + t + "/messages/" + id + "/dots-files/remote-file");
         expect(await (await file(thread, item.id)).text()).toBe("downloaded bytes");
+        const older = (await rows(thread)).find(r => r.partnerResultId === b[1].correlation_id);
+        expect(older.dotsFiles[0].status).toBe("ready");
+        expect(await (await file(thread, older.id)).text()).toBe("downloaded bytes");
         expect((await file(inbox, item.id)).status).toBe(404);
         const pairing = await f.api("/api/auth/pairing", { scopes: ["client"] });
         const paired = await f.api("/api/auth/pair", { code: pairing.code });
@@ -129,9 +163,9 @@ it("routes interleaved private partner work, unsolicited push and original files
         await expect.poll(async () => (await rows(inbox)).filter(r => r.replyToId === direct.message.id && r.text === "Direct answer").length).toBe(1);
         expect((await result()).length).toBe(1);
         await expect(send(dots.id, item.threadRef.threadId, "wrong thread")).rejects.toThrow();
-      } finally {
-        const exited = once(child, "exit"); child.kill("SIGTERM"); await exited;
-      }
+        await f.api(path, { visibility: "everyone" }, "PATCH");
+        expect((await file(thread, older.id)).status).toBe(404);
+      });
     }, {}, local);
   } finally { await local.close(); }
 }, 95000);
@@ -190,3 +224,54 @@ it("holds late work after cancellation or a privacy change and resumes a revoked
     }, {}, local);
   } finally { await local.close(); }
 }, 90000);
+
+it("leaves the cursor in place for a hidden inbox and resumes after restarting hidden", async () => {
+  const local = await endpoint();
+  try {
+    await fixture(async f => {
+      const dots = (await f.api("/api/bots?messages=0")).bots.find((b: any) => b.modelSelection.instanceId === "dots");
+      const path = "/api/bots/" + dots.id;
+      local.event({ kind: "push", text: "Before hiding" });
+      await expect.poll(local.cursor, { timeout: 8000 }).toBe(1);
+      const before = local.ackAttempts();
+      const poll = local.pauseNextPoll();
+      try {
+        await poll.started;
+        await f.api(path, { hidden: true }, "PATCH");
+        local.event({ kind: "push", text: "While hidden" });
+      } finally { poll.release(); }
+      await delay(500);
+      expect(local.ackAttempts()).toBe(before);
+      const exited = once(f.session.child, "exit"); f.session.child.kill("SIGKILL"); await exited;
+      await withRestartedHost(f.session.info, async () => {
+        local.event({ kind: "push", text: "After restarting hidden" });
+        expect(local.cursor()).toBe(1);
+        await f.api(path, { hidden: false }, "PATCH");
+        await expect.poll(local.cursor, { timeout: 8000 }).toBe(3);
+        const arrivals = async () => (await f.messages(dots.threadId)).filter((r: any) => r.dotsEventId).map((r: any) => r.text);
+        await expect.poll(arrivals).toEqual(["Before hiding", "While hidden", "After restarting hidden"]);
+      });
+    }, {}, local);
+  } finally { await local.close(); }
+}, 45000);
+
+it("releases the single work-partner binding only when its source conversation is deleted", async () => {
+  const local = await endpoint();
+  try {
+    await fixture(async f => {
+      const dots = (await f.api("/api/bots?messages=0")).bots.find((b: any) => b.modelSelection.instanceId === "dots");
+      const path = "/api/bots/" + f.chief.id, source = f.chief.activeTaskId;
+      await f.api(path, { visibility: "admins" }, "PATCH");
+      await f.api(path + "/work-partner?threadId=" + source, { expected: null, partnerId: dots.id }, "PUT");
+      const { task } = await f.api(path + "/tasks", {});
+      await f.api(path + "/tasks/" + task.threadId, {}, "DELETE");
+      expect((await f.api(path + "/work-partner?threadId=" + source)).partnerId).toBe(dots.id);
+      await f.api(path + "/tasks/" + source, {}, "DELETE");
+      const next = await f.api(path + "/work-partner");
+      expect(next).toMatchObject({ partnerId: null, dots: { eligible: true, otherThread: false } });
+      await f.api("/api/bots/" + f.lead.id, { visibility: "admins" }, "PATCH");
+      const rebound = await f.api("/api/bots/" + f.lead.id + "/work-partner", { expected: null, partnerId: dots.id }, "PUT");
+      expect(rebound.partnerId).toBe(dots.id);
+    }, {}, local);
+  } finally { await local.close(); }
+}, 30000);

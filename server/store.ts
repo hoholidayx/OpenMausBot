@@ -156,6 +156,13 @@ export function titleFromLlm(raw: string): string | null {
 
 export type { BotRecord } from "./bot-record.ts";
 
+function clearMissingPartnerThread(bot: BotRecord) {
+  if (!bot.workPartnerThreadId || bot.tasks?.some(task => task.threadId === bot.workPartnerThreadId)) return false;
+  delete bot.workPartnerThreadId;
+  delete bot.workPartnerIds;
+  return true;
+}
+
 export type BotWirePrivateKeys = "promptOverrides" | "modelPrefixOverrides" | "workPartnerIds" | "workPartnerThreadId" | "resumeCursors" | "mainThreadChoice" | "tasks" | "avatarUrl" | "approvalGrant" | "lastProfileRequestId" | "lastTeamSetupReceipt" | "packageBase" | "assignedSkills";
 export type BotWireProjection = Pick<BotRecord, Exclude<keyof BotRecord, BotWirePrivateKeys>>;
 export type BotWireProjectionIsExact = AssertExact<Omit<WireBot, "avatarUrl" | "tasks">, BotWireProjection> & AssertSameKeys<Omit<WireBot, "avatarUrl" | "tasks">, BotWireProjection>;
@@ -497,6 +504,7 @@ export class Store {
         b.tasks.unshift(active);
         botsMigrated = true;
       }
+      if (clearMissingPartnerThread(b)) botsMigrated = true;
       for (const task of b.tasks) {
         if (clearModelCopies && task.modelSelection !== undefined && sameModelSelection(task.modelSelection, b.modelSelection)) {
           delete task.modelSelection;
@@ -2256,6 +2264,7 @@ export class Store {
       const kept = bot.tasks!.filter((t) => !doomed.has(t.threadId));
       const visible = nextOpenThread(kept) ?? buildTask(bot);
       bot.tasks = kept.includes(visible) ? kept : [visible, ...kept];
+      clearMissingPartnerThread(bot);
       if (doomed.has(bot.threadId) || this.taskByThread(botId, bot.threadId)?.routineRunId) this.mirrorActiveTask(bot, visible);
       bot.unread = bot.tasks.some(taskCountsAsBotUnread);
       this.refreshBotActivity(bot);

@@ -2719,8 +2719,10 @@ for (const pending of startupCatalogs) {
 }
 if (CLOUD_TEAM) store.newBotSharing = privateUntilShared; testedAi.seed({ defaultBot: !CLOUD_TEAM }); if (!retiredCopy.frozen() && !CLOUD_TEAM) ensureDefaultBot(store, { dataDir: DATA_DIR }); if (CLOUD_TEAM) readTeamRolesWith((email) => sessions.list().filter((session) => session.email?.toLowerCase() === email && session.teamRole).sort((a, b) => b.createdAt - a.createdAt)[0]?.teamRole ?? null); if (CLOUD_TEAM) void mausbotOwnChat.claimAll();
 const dots = dotsHost && !retiredCopy.frozen() ? connectDots(dotsHost, store, () => ownHome.isPrivate() && dotsHost.inbox.ownerMatches(signInAllowList().admins[0]?.trim().toLowerCase() ?? "local-owner"), thread => coordinator.progress(thread), turn => {
-  const child = coordinator.node(turn.id), parent = child?.parentId ? coordinator.node(child.parentId) : undefined;
-  return child?.botId === dotsHost.inbox.botId && child?.threadId === turn.threadId && child.partner?.dots === true &&
+  const child = coordinator.node(turn.id);
+  if (!child) return undefined;
+  const parent = child.parentId ? coordinator.node(child.parentId) : undefined;
+  return child.botId === dotsHost.inbox.botId && child.threadId === turn.threadId && child.partner?.dots === true &&
     child.partner.messageId === turn.parent?.messageId && parent?.botId === turn.parent?.botId && parent?.threadId === turn.parent?.threadId &&
     child.outcome !== "stopped" && (child.status !== "cancelled" || child.outcome === "interrupted");
 }) : undefined;
@@ -14657,7 +14659,7 @@ if (CLOUD_HOME) registerCloudPower(cloudPower = createCloudPower({ dataDir: DATA
 
 let pausedSent = starterAwake.paused().join(); store.onChange((change) => { if (change.type === "bot.deleted") botHolds.forget("bot", change.botId); if (change.type !== "bot" && change.type !== "bot.deleted") return; const paused = starterAwake.paused().join(); if (paused !== pausedSent) { pausedSent = paused; broadcast({ kind: "config", ...configStatus() }); } });
 server.listen(PORT, listenHost(server), async () => {
-  if (dots && dots.available()) dotsHost?.start(dots);
+  if (dots) dotsHost?.start(dots);
   void tailnetShare.start(process.env);
   console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
   personWaits.boot(); browserSweep.start(); startCloudTeamPolicy({ cloudHome: CLOUD_HOME, dataDir: DATA_DIR, managed: managedPolicy, sessions }); startCloudTeamRoster({ cloudHome: CLOUD_HOME, sessions }); if (!retiredCopy.frozen()) appTriggers.start(); startCloudHomeConnectedApps({ cloudHome: CLOUD_HOME !== null, dataDir: DATA_DIR, cloudGrant: process.env.OMB_CLOUD_CONNECTED_APPS_GRANT, ownKey: () => composio.connectionMode(cfg) === "self-hosted", apply: (access) => { composio.setManagedBrokerAccess(access); broadcast({ kind: "config", ...configStatus() }); } });

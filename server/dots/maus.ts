@@ -7,7 +7,7 @@ import { dotsOutcome, type DotsHost } from "./host.ts";
 import type { DotsJob, DotsTurn } from "./inbox.ts";
 
 export function connectDots(host: DotsHost, store: Store, privateHome: () => boolean, progress: (threadId: string) => void,
-  workAvailable: (turn: DotsTurn) => boolean) {
+  workAvailable: (turn: DotsTurn) => boolean | undefined) {
   const { inbox } = host;
   const { botId, threadId: inboxThread } = inbox;
   if (privateHome() && !inbox.installed) {
@@ -24,15 +24,18 @@ export function connectDots(host: DotsHost, store: Store, privateHome: () => boo
   const eligible = (bot: BotRecord, thread: string) => available() && bot.id !== botId && privateThread(bot.id, thread);
   const bound = (bot: BotRecord, thread: string) => eligible(bot, thread) && bot.workPartnerIds?.[0] === botId && bot.workPartnerThreadId === thread;
   const authorized = (thread: string, id: string) => inbox.authorized(thread, line(thread, id));
-  const permitted = (turn: DotsTurn) => {
+  const permitted = (turn: DotsTurn, receiptId?: string) => {
     if (!available() || !privateThread(botId, turn.threadId) || !line(turn.threadId, turn.sourceId)) return false;
     const p = turn.parent;
-    return p ? workAvailable(turn) && privateThread(p.botId, p.threadId) && authorized(p.threadId, p.messageId) : turn.threadId === inboxThread && authorized(inboxThread, turn.sourceId);
+    if (!p) return turn.threadId === inboxThread && authorized(inboxThread, turn.sourceId);
+    if (!privateThread(p.botId, p.threadId) || !authorized(p.threadId, p.messageId)) return false;
+    // After assignment retention expires, only a receipt previously delivered to its authorized thread can expose a file.
+    return workAvailable(turn) ?? (receiptId !== undefined && inbox.projectionOf(receiptId) === 1);
   };
 
   function original(receipt: DotsReceipt, job: DotsJob | null) {
     if (receipt.kind === "push") return available() && !receipt.correlation_id && !receipt.message_id && !receipt.request_id ? inboxThread : undefined;
-    return job && permitted(job.turn) && !(job.stopped && job.turn.parent) ? job.turn.threadId : undefined;
+    return job && permitted(job.turn, receipt.id) && !(job.stopped && job.turn.parent) ? job.turn.threadId : undefined;
   }
   function updateFiles(fileId: string) {
     for (const { receipt, op } of inbox.references(fileId)) {
