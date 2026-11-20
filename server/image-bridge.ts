@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { crc32 } from "node:zlib";
 import { z } from "zod";
 import { IMAGE_MAX_BYTES } from "./attachments.ts";
 import type { RemoteMcpSpec } from "./contracts.ts";
@@ -26,6 +27,23 @@ export const safeImageError = (code?: string) => code && safeCodes.has(code) ? c
 
 export class ImageBridgeError extends Error {}
 export const imageDigest = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
+
+function validPng(bytes: Buffer, width: number, height: number) {
+  if (width > 8192 || height > 8192 || width * height > 32_000_000 || bytes.length < 45 ||
+      bytes.readUInt32BE(8) !== 13 || bytes.toString("ascii", 12, 16) !== "IHDR" ||
+      bytes.readUInt32BE(16) !== width || bytes.readUInt32BE(20) !== height) return false;
+  let data = false;
+  for (let offset = 8; offset + 12 <= bytes.length;) {
+    const length = bytes.readUInt32BE(offset);
+    const end = offset + 12 + length;
+    if (end > bytes.length || crc32(bytes.subarray(offset + 4, end - 4)) !== bytes.readUInt32BE(end - 4)) return false;
+    const kind = bytes.toString("ascii", offset + 4, offset + 8);
+    if (kind === "IEND") return data && length === 0 && end === bytes.length;
+    if (kind === "IDAT" && length > 0) data = true;
+    offset = end;
+  }
+  return false;
+}
 
 export class ImageBridge {
   private readonly client: RemoteMcpClient;
@@ -74,8 +92,8 @@ export class ImageBridge {
     if (!info.success || info.data.task_id !== id || !content.success) throw new ImageBridgeError("output_invalid");
     try {
       const { bytes, mime } = decodeGeneratedImage(content.data[0].data);
-      if (mime !== "image/png" || bytes.length < 45 || bytes.readUInt32BE(8) !== 13 || bytes.toString("ascii", 12, 16) !== "IHDR" ||
-          bytes.readUInt32BE(16) !== info.data.width || bytes.readUInt32BE(20) !== info.data.height || imageDigest(bytes) !== info.data.sha256) {
+      if (mime !== "image/png" || !validPng(bytes, info.data.width, info.data.height) ||
+          bytes.toString("base64") !== content.data[0].data || imageDigest(bytes) !== info.data.sha256) {
         throw new Error();
       }
       return { bytes, digest: info.data.sha256 };

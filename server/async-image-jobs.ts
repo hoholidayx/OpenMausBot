@@ -164,7 +164,10 @@ export class AsyncImageJobs {
       });
       authorized();
       switch (result.state) {
-        case "failed": return this.finish(job, "failed", safeImageError(result.error_code), true);
+        case "failed": {
+          const reason = safeImageError(result.error_code);
+          return this.finish(job, "failed", reason, !["output_unavailable", "output_invalid"].includes(reason));
+        }
         case "expired": return this.finish(job, "failed", "result_expired");
         case "submission_uncertain":
           updateImageJob(job, { phase: "polling", nextAt: Date.now() + pollDelay });
@@ -184,7 +187,7 @@ export class AsyncImageJobs {
       } else if (["output_invalid", "result_expired", "access_changed", "invalid_request", "backend_unavailable", "worker_unavailable", "request_conflict"].includes(reason)) {
         this.finish(job, "failed", reason, job.phase === "queued" || (job.phase === "submitting" && ["backend_unavailable", "worker_unavailable", "invalid_request"].includes(reason)));
       } else {
-        this.retry(job, reason);
+        this.retry(job, reason, job.phase === "queued");
       }
     } finally {
       await bridge?.close().catch(() => {});

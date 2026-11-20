@@ -12,7 +12,6 @@ export interface ImageJob {
 }
 export type ImageJobUpdate = Pick<ImageJob, "phase" | "nextAt"> & Partial<Pick<ImageJob, "prompt" | "digest" | "errors" | "troubleSince">>;
 
-
 export function claimImageQuota(environment: string, dataDir: string, day: string) {
   return transaction(() => {
     if (!prepared("SELECT 1 FROM image_days WHERE environment=? AND day=?").get(environment, day)) {
