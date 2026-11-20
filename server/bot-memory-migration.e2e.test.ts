@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb, verificationServerArgs, verificationServerEnvironment } from "../scripts/control-omb.ts";
+import { BOT_MEMORY_TOOLS, MEMORY_CONNECTION_PATH } from "../shared/bot-memory.ts";
 import { migrateSharedMemory } from "./bot-memory-migration.ts";
 import { waitForExit } from "./testing/cleanup.ts";
 import { fixtureChatReply, fixtureChatSelection, startLoopbackChat } from "./testing/loopback-chat.ts";
@@ -70,7 +71,9 @@ it("switches only the verified workspace role and preserves per-bot exclusions a
     const a = await create("Inherited"), pebble = await create("Pebble", true);
     const { userId } = await api("GET", settings(a));
     const envId = userId.slice(5);
-    const old = upstream.role(userId, "workspace"), token = upstream.role(userId, a.id);
+    const old = upstream.role(userId, "workspace"), fixed = upstream.role(userId, a.id);
+    const connection = { url: mem.url, token: upstream.serviceToken };
+    const privateDir = join(dataDir, "providers/mem0", envId), bindings = join(privateDir, "bindings.json");
     const marker = randomUUID();
     upstream.rows.set(marker, { userId, agentId: "workspace", id: marker, memory: "Existing shared fixture record" });
     const raw = { name: "mem0", type: "http", url: mem.url, headers: { Authorization: "Bearer " + old }, enabled: true };
@@ -78,7 +81,7 @@ it("switches only the verified workspace role and preserves per-bot exclusions a
     await api("PATCH", "/api/mcp/servers/mem0", { enabled: true });
     expect(await offered(a)).toHaveLength(6);
     expect(await offered(pebble)).toEqual([]);
-    await api("PUT", settings(a), { enabled: true, url: mem.url, token }, owner, 409);
+    await api("PUT", MEMORY_CONNECTION_PATH, connection, owner, 409);
     const migrate = (action: "inspect" | "disable" | "restore") => migrateSharedMemory(dataDir, mem.url, action);
     expect((await migrate("inspect")).state).toBe("verified");
     await expect(migrate("disable")).rejects.toThrow();
@@ -86,7 +89,7 @@ it("switches only the verified workspace role and preserves per-bot exclusions a
     expect((await migrateSharedMemory(dataDir, mem.url + "/other", "disable")).state).toBe("unrelated");
     const file = join(dataDir, "config.json"), original = readFileSync(file, "utf8");
     const wrong = JSON.parse(original);
-    wrong.mcpServers.mem0.headers.Authorization = "Bearer " + token;
+    wrong.mcpServers.mem0.headers.Authorization = "Bearer " + fixed;
     writeFileSync(file, JSON.stringify(wrong));
     await expect(migrate("disable")).rejects.toThrow("verify");
     expect(JSON.parse(readFileSync(file, "utf8")).mcpServers.mem0.enabled).toBe(true);
@@ -101,7 +104,25 @@ it("switches only the verified workspace role and preserves per-bot exclusions a
     await start();
     expect(await offered(a)).toEqual([]);
     expect(await offered(pebble)).toEqual([]);
-    await api("PUT", settings(a), { enabled: true, url: mem.url, token }, owner);
+    await stop();
+    const tools = BOT_MEMORY_TOOLS.map(name => ({ name, inputSchema: { type: "object", properties: {} } }));
+    mkdirSync(privateDir, { recursive: true });
+    writeFileSync(bindings, JSON.stringify({ environmentId: envId, url: mem.url, bots: {
+      [a.id]: { token: fixed, enabled: true, revision: randomUUID(), tools },
+    } }), { mode: 0o600 });
+    await start();
+    expect(await api("GET", MEMORY_CONNECTION_PATH)).toEqual({ configured: false, url: mem.url });
+    expect(await api("GET", settings(pebble))).toMatchObject({ configured: false, enabled: false });
+    const beforeLegacy = mem.seenHeaders.length;
+    offline = true;
+    await offered(a);
+    offline = false;
+    expect(await api("GET", settings(a))).toMatchObject({ configured: true, enabled: true, failed: false });
+    expect(mem.seenHeaders.slice(beforeLegacy).some(h => h.authorization === "Bearer " + fixed && !h["x-mem0-agent-id"])).toBe(true);
+    await api("PUT", MEMORY_CONNECTION_PATH, connection, owner);
+    expect(readFileSync(bindings, "utf8")).not.toContain(fixed);
+    expect(await api("GET", settings(pebble))).toMatchObject({ configured: true, enabled: false });
+    expect(await api("GET", settings(a))).toMatchObject({ configured: true, enabled: true });
     expect(await offered(a)).toContain("maus_memory_memory_get");
     await api("PATCH", "/api/mcp/servers/mem0", { enabled: true }, undefined, 409);
     await stop();
@@ -114,7 +135,6 @@ it("switches only the verified workspace role and preserves per-bot exclusions a
     expect((await migrate("restore")).state).toBe("restored");
     expect((await migrate("restore")).state).toBe("restored");
     const idFile = join(dataDir, "environment-id");
-    const bindings = join(dataDir, "providers/mem0", envId, "bindings.json");
     expect(excludedWorkspaceAuthPath("providers/mem0/" + envId + "/bindings.json")).toBe(true);
     expect(excludedWorkspaceAuthPath("providers/mem0/legacy-workspace.json")).toBe(true);
     await start();

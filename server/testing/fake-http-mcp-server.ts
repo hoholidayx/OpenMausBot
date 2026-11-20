@@ -16,7 +16,7 @@ export interface FakeHttpMcpOptions {
   /** require every one of these headers with these values, as a gateway such as Cloudflare Access does; anything else gets 403 */
   requireHeaders?: Record<string, string>;
   /** accept a request only when this approves its Authorization header */
-  acceptBearer?: (authorization: string | undefined) => boolean;
+  acceptBearer?: (authorization: string | undefined, headers: IncomingMessage["headers"]) => boolean;
   /** WWW-Authenticate value sent with a 401 */
   wwwAuthenticate?: string;
   /** which requests `requireHeader`, `requireHeaders` and `acceptBearer` guard: every request (default), or only tools/call,
@@ -255,7 +255,7 @@ export async function startFakeHttpMcp(options: FakeHttpMcpOptions = {}): Promis
         return;
       }
       if (guarded && ((options.requireHeader && req.headers[options.requireHeader.name.toLowerCase()] !== options.requireHeader.value)
-        || (options.acceptBearer && !options.acceptBearer(req.headers.authorization)))) {
+        || (options.acceptBearer && !options.acceptBearer(req.headers.authorization, req.headers)))) {
         if (guardsCallsOnly) refusedCalls.push(early?.params);
         res.writeHead(401, {
           "content-type": "application/json",

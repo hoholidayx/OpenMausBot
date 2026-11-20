@@ -27,6 +27,7 @@ import {
 import { BotAvatar } from "./Avatar";
 import { SidebarPopoverMenu } from "./SidebarPopoverMenu";
 import { appCategoryLabel, CATEGORY_SECTION_SIZE, catalogSections, connectorDescription, inCategory, rankCategories } from "@/lib/app-catalog";
+import { Mem0Connection } from "./Mem0Connection";
 import { McpServersPanel } from "./McpServersPanel";
 import { HOSTED_MCP_APPS, mcpServerConnected, ownMcpServer, type HostedApp, type HostedConnections } from "@/lib/hosted-mcp-apps";
 import { isRemoteMcpListing, type McpServerListing } from "./mcp-draft";
@@ -100,6 +101,13 @@ export interface CatalogPagination {
 }
 
 export type AppsFilter = "all" | "connected" | "mcp";
+
+function McpConnections({ filter, search }: { filter: "all" | "mcp"; search: string }) {
+  return <div className={filter === "mcp" ? "pt-1" : "mt-8 border-t border-hairline/30 pt-6"}>
+    {filter === "mcp" && matchesCatalogSearch("Mem0", search) && <Mem0Connection />}
+    <McpServersPanel embedded hideHosted={filter === "all"} />
+  </div>;
+}
 
 export const APPS_PREVIEW_COUNT = 48;
 
@@ -724,11 +732,7 @@ export function PluginsPanel() {
             </div>
           )}
 
-          {filter !== "connected" && category === null && (
-            <div className={cn(filter === "all" && "mt-8 border-t border-hairline/30 pt-6", filter === "mcp" && "pt-1")}>
-              <McpServersPanel embedded hideHosted={filter === "all"} />
-            </div>
-          )}
+          {filter !== "connected" && category === null && <McpConnections filter={filter} search={search} />}
         </div>
         <ConfirmDialog open={disconnecting !== null} layer="z-[60]" tone="danger" title={t("connectors.disconnect")} confirmLabel={t("connectors.disconnect")}
           body={disconnecting ? disconnectAccountConfirmation(disconnecting.label, disconnecting.account) : ""} onCancel={() => setDisconnecting(null)}

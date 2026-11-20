@@ -2,7 +2,7 @@ import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
-import { BOT_MEMORY_SERVER, BOT_MEMORY_TOOLS } from "../shared/bot-memory.ts";
+import { BOT_MEMORY_SERVER, BOT_MEMORY_TOOLS, MEMORY_CONNECTION_PATH } from "../shared/bot-memory.ts";
 import { fixtureChatReply, fixtureChatSelection, startLoopbackChat } from "./testing/loopback-chat.ts";
 import { fixtureMemory } from "./testing/memory-mcp.ts";
 
@@ -65,19 +65,27 @@ it("grants six tools to owner-device private turns and confines records and dele
     await provider.connect(url);
     const laptop = await device("Laptop"), phone = await device("Phone"), chatOnly = await device("Client", ["client"]);
     const a = await create("A"), b = await create("B");
+    await api("PATCH", "/api/bots/" + b.id, { toolScope: null });
     const { userId } = await api("GET", settings(a), undefined, laptop);
-    const roleA = upstream.role(userId, a.id), roleB = upstream.role(userId, b.id);
-    const bind = (role: string) => ({ enabled: true, url: mem.url, token: role });
-    await api("PUT", settings(a), bind(roleA), chatOnly, 403);
-    await api("PUT", settings(b), bind(roleA), laptop, 422);
-    expect(await api("GET", settings(b))).toMatchObject({ configured: false, failed: true });
+    const fixed = upstream.role(userId, a.id);
+    const connection = { url: mem.url, token: upstream.serviceToken };
+    await api("PUT", settings(a), { enabled: true }, chatOnly, 403);
+    await api("PUT", settings(a), { enabled: true }, laptop, 409);
+    await api("PUT", settings(a), { enabled: true, ...connection }, laptop, 400);
+    await api("PUT", MEMORY_CONNECTION_PATH, connection, chatOnly, 403);
+    await api("GET", MEMORY_CONNECTION_PATH, undefined, chatOnly, 403);
+    await api("PUT", MEMORY_CONNECTION_PATH, { ...connection, token: fixed }, laptop, 422);
+    expect(await api("GET", settings(b))).toMatchObject({ configured: false, enabled: false });
     expect((await run(b, laptop)).tools).toEqual([]);
-    const status = await api("PUT", settings(a), bind(roleA), laptop);
+    expect(await api("POST", MEMORY_CONNECTION_PATH, connection, laptop)).toEqual({ url: mem.url, configured: true });
+    expect(await api("GET", settings(b))).toMatchObject({ configured: true, enabled: false });
+    const calls = mem.calls.length;
+    const status = await api("PUT", settings(a), { enabled: true }, laptop);
     expect(status).toMatchObject({ enabled: true, configured: true, failed: false });
-    expect(JSON.stringify(status)).not.toContain(roleA);
+    expect(JSON.stringify(status)).not.toContain(upstream.serviceToken);
     const file = join(dataDir, "providers", "mem0", userId.slice("maus-".length), "bindings.json");
     expect(statSync(file).mode & 0o777).toBe(0o600);
-    const calls = mem.calls.length;
+    expect(JSON.parse(readFileSync(file, "utf8")).bots[a.id]).toEqual({ enabled: true, revision: expect.any(String) });
     expect((await run(a, phone)).tools).toHaveLength(6);
     expect((await run(a)).tools).toEqual([]);
     expect((await run(a, chatOnly)).tools).toEqual([]);
@@ -91,7 +99,9 @@ it("grants six tools to owner-device private turns and confines records and dele
     const other = { ...a, thread: next.threadId };
     expect((await run(other, phone, "memory_search", { query: fact })).result).toContain(id);
     expect((await run(other, phone, "memory_get", { memoryId: id })).result).toContain(fact);
-    await api("PUT", settings(b), bind(roleB), laptop);
+    const beforeSecondBot = mem.seenHeaders.length;
+    await api("PUT", settings(b), { enabled: true }, laptop);
+    expect(mem.seenHeaders).toHaveLength(beforeSecondBot);
     for (const name of BOT_MEMORY_TOOLS.filter(tool => tool !== "memory_add")) {
       const args = name === "memory_search" ? { query: fact } : name === "memory_list" ? {} : name === "memory_update" ? { memoryId: id, text: "changed" } : { memoryId: id };
       const { result } = await run(b, phone, name, args as Record<string, string>);
@@ -99,6 +109,9 @@ it("grants six tools to owner-device private turns and confines records and dele
       expect(result).toContain(["memory_search", "memory_list"].includes(name) ? "memories" : "not_found");
     }
     expect(upstream.rows.get(id)?.memory).toBe(fact);
+    const frames = mem.seenHeaders.filter(h => h.authorization === `Bearer ${upstream.serviceToken}`);
+    expect(frames.every(h => h["x-mem0-user-id"] === userId && typeof h["x-mem0-agent-id"] === "string")).toBe(true);
+    expect(frames.map(h => h["x-mem0-agent-id"])).toEqual(expect.arrayContaining([a.id, b.id]));
     const deletes = () => mem.calls.filter(call => (call as { name: string }).name === "memory_delete").length;
     const before = deletes();
     await run(other, phone, "memory_delete", { memoryId: id }, async requestId => {
@@ -131,6 +144,20 @@ it("grants six tools to owner-device private turns and confines records and dele
     expect(deletes()).toBe(before);
     expect(upstream.rows.has(id)).toBe(true);
     await api("GET", settings(a), undefined, spare, 401);
+    const preferences = () => JSON.parse(readFileSync(file, "utf8")).bots;
+    const oldPreferences = preferences();
+    await run(other, phone, "memory_delete", { memoryId: id }, async () => {
+      upstream.rotateServiceToken();
+      await api("PUT", MEMORY_CONNECTION_PATH, { url: mem.url, token: upstream.serviceToken }, laptop);
+    });
+    expect(deletes()).toBe(before);
+    for (const bot of [a, b]) {
+      expect(preferences()[bot.id].revision).not.toBe(oldPreferences[bot.id].revision);
+      expect(await api("GET", settings(bot))).toMatchObject({ enabled: true, configured: true });
+    }
+    const afterRotation = mem.seenHeaders.length;
+    await api("POST", MEMORY_CONNECTION_PATH, connection, laptop);
+    expect(mem.seenHeaders).toHaveLength(afterRotation);
     expect((await run(a, laptop, "memory_delete", { memoryId: id })).result).toContain(id);
     expect(upstream.rows.size).toBe(0);
     action = undefined;
@@ -172,9 +199,9 @@ it("grants six tools to owner-device private turns and confines records and dele
     expect(narrowed.bot.toolScope.allow).toEqual(["mcp:maus_memory:memory_get"]);
     expect((await run(a, laptop)).tools).toEqual(["maus_memory_memory_get"]);
     const copy = (await api("POST", "/api/bots", { name: "A copy", modelSelection: fixtureChatSelection(), settings: { toolScope: narrowed.bot.toolScope } })).bot;
-    expect(await api("GET", settings(copy))).toMatchObject({ configured: false, enabled: false });
+    expect(await api("GET", settings(copy))).toMatchObject({ configured: true, enabled: false });
     expect((await run({ id: copy.id, thread: copy.threadId }, laptop)).tools).toEqual([]);
-    for (const secret of [roleA, roleB]) {
+    for (const secret of [fixed, connection.token, upstream.serviceToken]) {
       expect(JSON.stringify(provider.requests)).not.toContain(secret);
       expect(readFileSync(logPath, "utf8")).not.toContain(secret);
     }

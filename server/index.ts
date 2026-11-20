@@ -2477,7 +2477,7 @@ const { cloudLendingTurn, cloudLendingRefusal, cloudThreadStarters, handsOnLendi
   memoryChangedBySomeoneElse: () => false, lifts: () => null, handedSince: (threadId, since) => handedInSince(coordinator.inThread(threadId, { since }), threadId, since) });
 const memoryConsent = createMemoryConsent(store);
 const botMemory = new BotMemory({
-  dataDir: DATA_DIR, environmentId: ENVIRONMENT_ID, botExists: id => Boolean(store.bot(id)),
+  dataDir: DATA_DIR, environmentId: ENVIRONMENT_ID,
   sharesEndpoint: url => Object.entries(cfg.mcpServers ?? {}).some(([name, raw]) => {
     const parsed = parseStoredMcpServer(name, raw);
     return parsed.ok && parsed.server.enabled !== false && isRemoteMcpServer(parsed.server) && new URL(parsed.server.url).href === url;

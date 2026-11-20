@@ -62,7 +62,7 @@ export async function migrateSharedMemory(dataDir: string, endpoint: string, act
     if (action === "inspect") return { state: role.enabled ? "verified" : "already-off", ...report };
     if (action === "restore") {
       if (!saved) throw new Error("A private backup from this installation is required to restore the shared connection.");
-      const memory = new BotMemory({ dataDir, environmentId, botExists: () => false, sharesEndpoint: () => false, changed: () => {} });
+      const memory = new BotMemory({ dataDir, environmentId, sharesEndpoint: () => false, changed: () => {} });
       if (!memory.mayRestoreShared()) throw new Error("Turn off the per-bot bindings and check the private settings before restoring shared access.");
       const excluded = new Set(saved.bots.filter(bot => bot.mcpServers && !bot.mcpServers.includes("mem0")).map(bot => bot.id));
       if (bots.some(bot => excluded.has(bot.id) && (!bot.mcpServers || bot.mcpServers.includes("mem0")))) {
