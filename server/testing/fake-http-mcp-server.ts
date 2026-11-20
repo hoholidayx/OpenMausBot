@@ -33,7 +33,7 @@ export interface FakeHttpMcpOptions {
   description?: string;
   tools?: FakeHttpMcpTool[];
   /** what tools/call answers (default: one "remote execution recorded" text) */
-  callResult?: (params: unknown) => unknown;
+  callResult?: (params: unknown, headers: IncomingMessage["headers"]) => unknown;
   /** answer a tools/call with this JSON-RPC error instead */
   callError?: (params: unknown) => { code: number; message: string } | undefined;
   /** answer each tools/call only after this many milliseconds */
@@ -63,6 +63,7 @@ export interface FakeHttpMcpOptions {
   resources?: FakeHttpMcpResource[];
   /** serverInfo.title in the initialize answer */
   serverTitle?: string;
+  serverName?: string;
   /** answer only at the server's own path (/mcp; /sse and /messages for SSE) and 404 anywhere else, as a Cloudflare
    * Worker's McpAgent serves /mcp and not /mcp/ */
   exactPath?: boolean;
@@ -177,14 +178,14 @@ export async function startFakeHttpMcp(options: FakeHttpMcpOptions = {}): Promis
     const waiting = new Promise<void>((resolve) => { replied = resolve; });
     return { waiting, frame: `event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: options.askId ?? "server-ask-1", method: options.askOnCall, params: {} })}\n\n` };
   };
-  const answerFor = (frame: { id?: unknown; method?: unknown; params?: unknown }) => {
+  const answerFor = (frame: { id?: unknown; method?: unknown; params?: unknown }, headers: IncomingMessage["headers"]) => {
     if (frame.method === "initialize") {
       return {
         jsonrpc: "2.0",
         id: frame.id,
         result: {
           protocolVersion: "2025-06-18", capabilities: { tools: {}, ...(options.resources ? { resources: {} } : {}) },
-          serverInfo: { name: "fake-http-mcp", version: "1", ...(options.serverTitle ? { title: options.serverTitle } : {}) },
+          serverInfo: { name: options.serverName ?? "fake-http-mcp", version: "1", ...(options.serverTitle ? { title: options.serverTitle } : {}) },
           ...(options.instructions === undefined ? {} : { instructions: options.instructions }),
         },
       };
@@ -223,7 +224,7 @@ export async function startFakeHttpMcp(options: FakeHttpMcpOptions = {}): Promis
       calls.push(frame.params);
       const refused = options.callError?.(frame.params);
       if (refused) return { jsonrpc: "2.0", id: frame.id, error: refused };
-      return { jsonrpc: "2.0", id: frame.id, result: options.callResult?.(frame.params) ?? { content: [{ type: "text", text: "remote execution recorded" }] } };
+      return { jsonrpc: "2.0", id: frame.id, result: options.callResult?.(frame.params, headers) ?? { content: [{ type: "text", text: "remote execution recorded" }] } };
     }
     return null;
   };
@@ -309,7 +310,7 @@ export async function startFakeHttpMcp(options: FakeHttpMcpOptions = {}): Promis
         delayedToolsLists += 1;
         await delayed;
       }
-      let answer: object | null = answerFor(frame);
+      let answer: object | null = answerFor(frame, req.headers);
       if (!answer && options.strictInitialize && typeof frame.method === "string" && frame.id !== undefined) {
         answer = { jsonrpc: "2.0", id: frame.id, error: { code: -32601, message: `Method not found: ${frame.method}` } };
       }

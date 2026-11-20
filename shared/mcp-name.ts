@@ -1,5 +1,8 @@
+import { BOT_MEMORY_SERVER } from "./bot-memory.ts";
+
 /** Names OpenMausBot gives its own MCP servers; a custom server may not take one. */
 export const RESERVED_MCP_NAMES: ReadonlySet<string> = new Set([
+  BOT_MEMORY_SERVER,
   "ogb",
   "computer",
   "agents",

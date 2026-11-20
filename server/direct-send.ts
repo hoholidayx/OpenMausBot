@@ -7,6 +7,7 @@ import type { UsageTrigger } from "./usage-ledger.ts";
 
 export interface DirectSendInput {
   botId: string;
+  memoryDevice?: string;
   threadId: string;
   text: string;
   sendId?: string;

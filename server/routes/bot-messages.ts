@@ -54,6 +54,8 @@ type CardAnswer = { botId: string; botName?: string; threadId: string; requestId
 type Behavior = "allow" | "deny" | "answer";
 
 export interface BotMessageRouteDeps {
+  memorySteerAllowed?(threadId: string, device?: string): boolean;
+  memoryDevice?(auth: RequestAuth): string | undefined;
   dotsGrant?(auth: RequestAuth, bot: BotRecord, threadId: string, text: string, send?: string): string | undefined;
   dotsDirect?(auth: RequestAuth, bot: BotRecord, thread: string, typed: boolean): boolean;
   store: Pick<Store,
@@ -75,7 +77,7 @@ export interface BotMessageRouteDeps {
   directSendRefusal(botId: string, threadId: string): { status: number; body: Record<string, unknown> } | null;
   startTurn(botId: string, text: string, opts?: {
     threadId?: string; replyTo?: Message; sendId?: string; sender?: ResolvedSender; trigger?: UsageTrigger; relayed?: boolean;
-    dataContext?: DataContext; cardContinuation?: boolean; editedMessageId?: string;
+    memoryDevice?: string; dataContext?: DataContext; cardContinuation?: boolean; editedMessageId?: string;
   }): Promise<Message>;
   compactContext(bot: BotRecord): Promise<boolean>;
   invalidateContext(threadId: string): void;
@@ -344,7 +346,7 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       try {
         const receipt = await acceptDirectSend({
           botId: bot.id, threadId, text, sendId, replyTo, sender, trigger, dataContext, ...(app ? { app } : {}),
-          personPresent, admin: owners.admin(auth), ...(followUp ? { followUp } : {}),
+          memoryDevice: plain ? deps.memoryDevice?.(auth) : undefined, personPresent, admin: owners.admin(auth), ...(followUp ? { followUp } : {}),
           ...(mentions?.length && !press && !appSent ? { mentions } : {}),
         }, guardedStart);
         press?.settle("queueId" in receipt ? receipt.queueId : undefined);
@@ -392,7 +394,8 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       }
       const currentAtStart = store.projectBotForTask(bot.id, bot.threadId);
       const instance = currentAtStart?.busy ? runningTurnInstance(currentAtStart, bot.threadId) : undefined;
-      const engineCanSteer = Boolean(currentAtStart?.busy && instance?.adapter.capabilities.queueing && instance.adapter.steer);
+      const sameGrant = !deps.memorySteerAllowed || (deps.memorySteerAllowed(bot.threadId, deps.memoryDevice?.(auth)) && held.items.every(item => deps.memorySteerAllowed!(bot.threadId, item.memoryDevice)));
+      const engineCanSteer = sameGrant && Boolean(currentAtStart?.busy && instance?.adapter.capabilities.queueing && instance.adapter.steer);
       const steerInput = extractSteerImages(held.items.map((item) => item.prompt));
       const steerAdmission = admit("direct-busy", {
         carriesImages: !steerInput || steerInput.images.length > 0,
@@ -539,7 +542,7 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       const quoted = source.replyToId ? resolveReplyTarget(bot.threadId, source.replyToId) : undefined;
       const replyTo: ReplyTarget | undefined = quoted && source.reaction && text === source.text ? { ...quoted, reactedWith: source.reaction } : quoted;
       const dataContext = parseDataContext(body.dataContext) ?? (text === source.text ? source.dataContext : undefined);
-      const message = await startTurn(bot.id, text, { threadId: bot.threadId, editedMessageId: messageId, replyTo, sendId, trigger: usageTriggerFor(auth), dataContext });
+      const message = await startTurn(bot.id, text, { threadId: bot.threadId, memoryDevice: !source.fromApp && !source.peerAsk && !source.relay && !source.relayed ? deps.memoryDevice?.(auth) : undefined, editedMessageId: messageId, replyTo, sendId, trigger: usageTriggerFor(auth), dataContext });
       return json(res, 202, { ok: true, message });
     }
 

@@ -18,6 +18,7 @@
   "botSettings.workPartner": "工作搭档",
   "botSettings.noWorkPartner": "未绑定搭档",
   "botSettings.partnerUnavailable": "搭档不可用",
+  "server.mem0.delete": "删除这条长期记忆？",
   "server.partner.empty": "任务已结束，未返回正文或文件。",
   "hostedMcp.otherAppsSetup": "已连接：{services}。请设置或恢复连接服务以使用其他应用。",
   "agentcard.description": "用你自己的 Agentcard 账号购物和付款。",

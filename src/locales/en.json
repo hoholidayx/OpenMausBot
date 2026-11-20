@@ -18,6 +18,7 @@
   "botSettings.workPartner": "Work partner",
   "botSettings.noWorkPartner": "No work partner",
   "botSettings.partnerUnavailable": "Unavailable partner",
+  "server.mem0.delete": "Delete this long-term memory?",
   "server.partner.empty": "The work ended without a reply or a file.",
   "connectedWorkspaces.localTitle": "Environments on this computer",
   "connectedWorkspaces.missing": "missing",
