@@ -3,18 +3,15 @@ import { freshLook } from "../bot-look.ts";
 import { validateBotCwd } from "../bot-cwd.ts";
 import { parseBotProfilePatch } from "../bot-profile.ts";
 import { parseVisibility } from "../bot-visibility.ts";
-import type { createCloudRoutineAuthors } from "../cloud-lending.ts";
 import type { AppConfig } from "../config.ts";
 import type { ModelSelection } from "../contracts.ts";
-import type { hostedModelPolicy } from "../hosted-models.ts";
 import { MAX_MCP_SERVERS, mcpServerNameError } from "../mcp-registry.ts";
 import { resolveBotCreationDefaults } from "../new-bot-defaults.ts";
 import { PRESET_UNAVAILABLE_MESSAGE, applyPresetToBot, presetOffered, type OrgInstallStatus, type PresetStore } from "../presets.ts";
-import { adminOnlyBotSetting, memberBotCreateViolation, type RequestAuth } from "../request-auth.ts";
+import { adminOnlyBotSetting } from "../request-auth.ts";
 import type { RoutineManager } from "../routines.ts";
 import { installOrgSkill, installSkill, parseSkillMd, setSkillEnabled } from "../skills.ts";
 import type { BotRecord, Store } from "../store.ts";
-import type { TeamPeople } from "../team-people.ts";
 import { refusalBody, userError } from "../user-errors.ts";
 import type { ServerErrorBody } from "../../shared/server-text.ts";
 import { botLimitRefusal } from "../bot-limit.ts";
@@ -27,9 +24,6 @@ export interface BotCreateRouteDeps {
   cfg: AppConfig;
   presetStore: Pick<PresetStore, "resolve">;
   orgInstallStatuses(): ReadonlyMap<string, OrgInstallStatus>;
-  /** A hosted (company) workspace: Full access comes only from its policy. */
-  hostedWorkspace: boolean;
-  hostedFullAccessRefusal: string;
   desktopManaged: boolean;
   /** The place a new bot works on when neither its request nor the New bot defaults name one: on the desktop app,
    * This computer, where it can use the person's own files and apps; undefined (Auto) everywhere else. */
@@ -37,17 +31,11 @@ export interface BotCreateRouteDeps {
   maxWorkspaceBots: number;
   /** Whether this bot is paused: a Starter Cloud keeps only so many awake, and one made past them starts paused. */
   paused(botId: string): boolean;
-  cloudOwnerKey: string | null;
-  hostedModels: ReturnType<typeof hostedModelPolicy>;
-  cloudRoutineAuthors: ReturnType<typeof createCloudRoutineAuthors> | null;
   routines(): RoutineManager | null;
   storedAvatarExists(avatarUrl: string): boolean;
   defaultSelection(): Promise<ModelSelection>;
   checkedModelSelection(raw: unknown, current?: { selection: ModelSelection; busy: boolean }, requireAvailableModel?: boolean): ModelSelectionCheck;
-  cloudOwnerSession(auth: RequestAuth): boolean;
   wireBot(bot: BotRecord): WireBot;
-  /** A Team Cloud: a new bot records who created it, and may name who it reports to. */
-  team?: { name: string; people: Pick<TeamPeople, "has"> } | null;
   /** Starts writing personal answers for a new bot's setup card; never awaited. */
   personaliseSetupCard?(bot: BotRecord): void;
   /** The Chief of Staff of a scope changed: these bots' flags did. */
@@ -80,10 +68,8 @@ function askedSettings(body: Record<string, unknown>): Record<string, unknown> {
 export function createBotCreateRoutes(deps: BotCreateRouteDeps): RouteHandler {
   const {
     store, cfg, presetStore, orgInstallStatuses,
-    hostedWorkspace: HOSTED_WORKSPACE, hostedFullAccessRefusal: HOSTED_FULL_ACCESS_REFUSAL, desktopManaged: DESKTOP_MANAGED,
-    maxWorkspaceBots: MAX_WORKSPACE_BOTS, cloudOwnerKey: CLOUD_OWNER_KEY,
-    hostedModels, cloudRoutineAuthors,
-    storedAvatarExists, defaultSelection, checkedModelSelection, cloudOwnerSession, wireBot,
+    desktopManaged: DESKTOP_MANAGED,
+    maxWorkspaceBots: MAX_WORKSPACE_BOTS, storedAvatarExists, defaultSelection, checkedModelSelection, wireBot,
   } = deps;
   return async ({ req, res, path, method, auth, json, readBody }) => {
     const routines = deps.routines();
@@ -99,11 +85,7 @@ export function createBotCreateRoutes(deps: BotCreateRouteDeps): RouteHandler {
         }
       }
       if (auth.kind === "session" && !auth.scopes.includes("admin")) {
-        if (!deps.team || auth.session.membershipAuthority !== "team" || !auth.session.email) return json(res, 403, { error: "forbidden: this session lacks the admin scope" });
-        const field = memberBotCreateViolation(body);
-        if (field) return json(res, 403, { error: `forbidden: "${field}" is an admin's to set` });
-        // The saved New bot defaults are an admin's choices, some of them an admin's alone to make.
-        body = { ...body, useDefaults: false };
+        return json(res, 403, { error: "forbidden: this session lacks the admin scope" });
       }
       const kept = keptBotIds(body, store);
       if ("error" in kept) return json(res, kept.error.includes("already") ? 409 : 400, { error: kept.error });
@@ -122,7 +104,6 @@ export function createBotCreateRoutes(deps: BotCreateRouteDeps): RouteHandler {
       if (settings.approvalMode === "custom") {
         return json(res, 403, { error: "Custom approval requires the desktop permission flow. Use the bot creation dialog or choose another level for API creation." });
       }
-      if (settings.approvalMode === "full" && HOSTED_WORKSPACE) return json(res, 403, { error: HOSTED_FULL_ACCESS_REFUSAL });
       if (settings.computer === "local" && settings.approvalMode === "auto" && body.acknowledgeLocalAuto !== true) {
         return json(res, 400, { error: "Auto mode on this computer requires confirming the warning first (acknowledgeLocalAuto)" });
       }
@@ -167,14 +148,8 @@ export function createBotCreateRoutes(deps: BotCreateRouteDeps): RouteHandler {
           return json(res, 400, { error: "section must be at most 60 characters" });
         }
       }
-      const creator = auth.kind === "session" && auth.session.membershipAuthority === "team" ? auth.session.email : undefined;
-      let reportsTo: string | undefined;
       if (body.reportsTo !== undefined && body.reportsTo !== null) {
-        if (!deps.team) return json(res, 400, userError("serverError.owner.teamOnly"));
-        if (typeof body.reportsTo !== "string" || !body.reportsTo.trim()) return json(res, 400, { error: "reportsTo must be an email" });
-        const email = body.reportsTo.trim().toLowerCase();
-        if (email !== creator?.toLowerCase() && !deps.team.people.has(email)) return json(res, 400, userError("serverError.owner.choose", { team: deps.team.name }));
-        reportsTo = email;
+        return json(res, 400, userError("serverError.owner.teamOnly"));
       }
       let selection: ModelSelection;
       if (body.modelSelection === undefined) {
@@ -184,7 +159,6 @@ export function createBotCreateRoutes(deps: BotCreateRouteDeps): RouteHandler {
         if (!checked.ok) return json(res, checked.status, refusalBody(checked));
         selection = checked.selection;
       }
-      if (hostedModels && !hostedModels.allows(selection)) return json(res, 400, { error: hostedModels.error() });
       // The capacity check sits beside the synchronous write, after every await.
       if (store.bots.length >= MAX_WORKSPACE_BOTS) {
         return json(res, 409, { error: botLimitRefusal(MAX_WORKSPACE_BOTS) });
@@ -198,7 +172,6 @@ export function createBotCreateRoutes(deps: BotCreateRouteDeps): RouteHandler {
       const look = kept.id || settings.color || settings.mascotBody ? undefined : freshLook(store.bots);
       const bot = store.createBot({ ...profile.patch, soul: settings.soul, section, modelSelection: selection,
         toolScope: settings.toolScope ?? undefined, color: settings.color ?? look?.color, mascotBody: settings.mascotBody ?? look?.mascotBody,
-        ...(deps.team && creator ? { createdBy: creator } : {}), ...(reportsTo ? { reportsTo } : {}),
         ...(created?.ok ? { visibility: created.visibility } : {}) }, kept.id ? { ...kept, seedMessages: false } : {});
       const createdRoutines: Array<{ id: string; enabled: boolean }> = [];
       try {
@@ -233,12 +206,9 @@ export function createBotCreateRoutes(deps: BotCreateRouteDeps): RouteHandler {
             if ("error" in enabled) throw Object.assign(new Error(enabled.error), { status: 422 });
           }
         }
-        // On a Cloud home only the owner's devices create bots: its routines are theirs.
-        const ownersRoutines = CLOUD_OWNER_KEY && auth.kind === "session" && cloudOwnerSession(auth) ? CLOUD_OWNER_KEY : null;
         for (const routine of template.routines) {
           const created = routines!.create({ ...routine, botId: bot.id, enabled: false });
           createdRoutines.push({ id: created.id, enabled: routine.enabled !== false });
-          if (ownersRoutines) cloudRoutineAuthors?.wrote(created.id, ownersRoutines);
         }
       } catch (error) {
         for (const routine of createdRoutines) routines!.remove(routine.id);

@@ -18,7 +18,7 @@ import { personKey } from "../person-key.ts";
 import type { BotRecord } from "../store.ts";
 import { userError } from "../user-errors.ts";
 import { PASS, type RouteHandler } from "./table.ts";
-import { sessionMember } from "./team-phone.ts";
+import { sessionMember } from "../sessions.ts";
 
 const PATH = /^\/api\/bots\/([\w-]+)\/tool-catalog(?:\/(apps|mcp\/([a-z][a-z0-9_-]{0,31})))?$/;
 const GROUP_BY_TOOL = new Map(Object.entries(TOOL_GROUP_MEMBERS).flatMap(([group, members]) =>

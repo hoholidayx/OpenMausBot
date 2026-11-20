@@ -39,7 +39,6 @@ export const USAGE = `openmausbot — your team of AI bots, ready in a few steps
   openmausbot --version
   openmausbot login [--email you@example.com] [--relay]
   openmausbot logout
-  openmausbot access list | add EMAIL [--chat-only] | remove EMAIL
   openmausbot service install [the same way-in options as serve] [--port N] [--data-dir DIR] | uninstall
                     [--sentinel]   (the health scan below, every two minutes, instead of the server)
   openmausbot sentinel [--data-dir DIR] [--out DIR] [--once] [--json]   (read-only health scan; see --help)
@@ -66,9 +65,6 @@ login   signs this machine in to an OpenMausBot account (an emailed code)
         and reserves its public address for --tunnel; with --relay it
         reserves none, for serve --relay
 logout  releases that address and signs out
-access  who may sign in with an emailed code at /pair: an address or
-        @domain; --chat-only gives chat and approvals without settings.
-        Takes effect at once, no restart.
 service keep the server running across reboots: writes a systemd unit
         (Linux) or a launchd agent (macOS) for the same serve options and
         prints the commands that install it. Run from npx, it first

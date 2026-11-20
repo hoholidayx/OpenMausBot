@@ -4,7 +4,6 @@ import { AdminOnly } from "../../AdminOnly";
 import { AttachmentStorageSettings } from "../../AttachmentStorageSettings";
 import { AccessOverview } from "../../bot-access/AccessOverview";
 import { ImportSettings } from "../../ImportSettings";
-import { PeopleSection } from "../../PeopleSection";
 import { SettingsGroup, SettingsRows } from "../../SettingsPrimitives";
 import { ThreadCleanupSettings } from "../../ThreadCleanupSettings";
 import { UsageSection } from "../../UsageSection";
@@ -48,7 +47,6 @@ export function DataPage() {
 export function PeoplePage() {
   const { ctx } = useSettingsShell();
   return <>
-    {!ctx.desktop && !ctx.cloud && <SettingsGroup label={t("settings.people.members")} block="members"><PeopleSection /></SettingsGroup>}
     {ctx.team && <SettingsGroup label={t("settings.section.botAccess")} block="bot-access"
       footnote={!ctx.desktop ? t("settings.people.activityIn") : undefined}><AccessOverview /></SettingsGroup>}
   </>;

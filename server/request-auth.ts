@@ -1,6 +1,5 @@
 // Loopback requests (Host and Origin both loopback) or paired sessions (bearer, cookie, stream ticket); a session swaps the loopback rule for same-origin (CSRF) and a scope check.
 // Browsers never get loopback trust: a page a bot opens is a browser on this machine too.
-import { TEAM_LEFT_REFUSAL } from "../shared/cloud-hints.ts";
 import type { IncomingMessage } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
@@ -314,9 +313,7 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   // A Team Cloud member's own themes: the route answers each person with theirs alone, and a limited session elsewhere with none.
   { methods: ["GET", "PUT", "PATCH", "POST", "DELETE"], path: /^\/api\/themes(?:\/[a-z0-9-]+(?:\/(?:duplicate|export))?)?$/ },
   { methods: ["GET", "HEAD"], path: /^\/api\/theme-assets\/[a-z0-9-]+\/[\w.-]+$/ },
-  // A Team Cloud member's own phone: the code carries their address and role, never more (routes/team-phone.ts).
   { methods: ["POST"], path: /^\/api\/team\/phone-pairing$/ },
-  // The phones those codes opened: a member lists and removes their own only (routes/team-phone.ts visiblePhones).
   { methods: ["GET"], path: /^\/api\/team\/phones$/ },
   { methods: ["DELETE"], path: /^\/api\/team\/phones\/[\w-]+$/ },
   // Own desktop connector, bound to a private secret; listed only while features.sharedComputers is on.
@@ -665,12 +662,7 @@ export function resolveRequestAuth(req: IncomingMessage, options: ResolveOptions
     return { auth: { kind: "session", session, via, scopes: session.scopes }, status: 401, error: "" };
   }
 
-  // A removed member's invalid credential must not fall back to loopback owner.
-  if (via) {
-    const presented = via === "bearer" ? bearer : via === "cookie" ? cookie : null;
-    if (presented && options.sessions.leftTeam(presented)) return deny(401, TEAM_LEFT_REFUSAL);
-    return deny(401, "unauthorized: this session has expired or was revoked; pair this device again");
-  }
+  if (via) return deny(401, "unauthorized: this session has expired or was revoked; pair this device again");
 
   const proxied = isProxied(req);
   const loopback = !proxied && isLoopbackHost(headerValue(req.headers.host)) && isAllowedOrigin(headerValue(req.headers.origin));

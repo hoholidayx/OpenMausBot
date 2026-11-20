@@ -77,3 +77,27 @@ it("creates local bots without hosted ownership or sharing fields", async () => 
     await fixture.close();
   }
 });
+
+it("keeps the retired hosted endpoints unavailable on a self-hosted server", async () => {
+  const fixture = await launchVerificationServer();
+  const { url } = fixture.info;
+  try {
+    const cases = [
+      ["GET", "/api/sync", 404],
+      ["GET", "/api/sync/folders", 404],
+      ["GET", "/api/me", 404],
+      ["PUT", "/api/me/welcome", 404],
+      ["GET", "/api/team/people", 400],
+      ["GET", "/api/team/people/p_abcdefghijklmnopqrstuv/picture", 404],
+      ["PUT", "/api/team/reports-to", 400],
+      ["PUT", "/api/bots/sample/reports-to", 400],
+      ["POST", "/api/team/phone-pairing", 404],
+    ] as const;
+    for (const [method, path, expected] of cases) {
+      const response = await fetch(url + path, { method, headers: { origin: url } });
+      expect(response.status, path).toBe(expected);
+    }
+  } finally {
+    await fixture.close();
+  }
+});

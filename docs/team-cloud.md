@@ -1,5 +1,7 @@
 # Team Clouds: the `team` role and the audience rule
 
+This document describes the retired hosted service. See [Self-hosting](self-hosting.md) for current deployments.
+
 A **Team Cloud** is one Cloud machine several people use: the shared home of a team's bots. The Admin
 (openmaus-cloud, `docs/team-cloud.md` there) makes it, invites people and signs each person's pairing. This page is the
 machine's side: what the `team` role changes against a My Cloud ([cloud-pro.md](cloud-pro.md)), and the one rule that

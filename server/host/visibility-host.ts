@@ -1,11 +1,4 @@
-// Who sees what on this server (bot-visibility.ts): each session's viewer and its VisibleSet (cached until the next bot,
-// room or conversation change), the one check every request naming a bot, conversation, room, routine or file passes, and
-// the per-conversation filter a list uses. On a Team Cloud an admin is a viewer with a person too: every bot and room, but
-// only their own private chats (audience.ts).
-import { basename } from "node:path";
-
-import { baseBotId } from "../audience.ts";
-import { audienceEquals, narrowestAudience, roomFeeds, routineRunVisible, routineVisible, SEES_EVERYTHING, VisibleSet, type PathSubject, type ThreadAudiences, type ThreadOwner, type Viewer } from "../bot-visibility.ts";
+import { audienceEquals, narrowestAudience, roomFeeds, routineRunVisible, routineVisible, SEES_EVERYTHING, VisibleSet, type PathSubject, type ThreadOwner, type Viewer } from "../bot-visibility.ts";
 import type { RequestAuth } from "../request-auth.ts";
 import type { RoutineManager } from "../routines.ts";
 import type { BotRecord, GroupRecord, Store } from "../store.ts";
@@ -14,9 +7,6 @@ export interface VisibilityHostDeps {
   /** index.ts's store, made after this host. */
   store(): Pick<Store, "bots" | "groups" | "bot" | "group" | "botByThread" | "groupByThread" | "patchGroup">;
   routines(): Pick<RoutineManager, "listRoutines" | "listRuns"> | null;
-  /** A Team Cloud: an admin session is a person too. */
-  team: boolean;
-  audiencesFor(viewer: Viewer): ThreadAudiences | undefined;
   threadsReferencing(name: string): readonly string[];
 }
 
@@ -24,8 +14,7 @@ export function createVisibilityHost(deps: VisibilityHostDeps) {
   const store = { get bots() { return deps.store().bots; }, get groups() { return deps.store().groups; }, bot: (id: string) => deps.store().bot(id),
     group: (id: string) => deps.store().group(id), botByThread: (id: string) => deps.store().botByThread(id), groupByThread: (id: string) => deps.store().groupByThread(id) };
   function viewerFor(auth: RequestAuth): Viewer {
-    if (auth.kind === "loopback" || (auth.scopes.includes("admin") && !deps.team)) return SEES_EVERYTHING;
-    if (auth.scopes.includes("admin")) return { kind: "all", email: auth.session.email ?? "" };
+    if (auth.kind === "loopback" || auth.scopes.includes("admin")) return SEES_EVERYTHING;
     return { kind: "member", ...(auth.session.email ? { email: auth.session.email } : {}) };
   }
 
@@ -46,7 +35,7 @@ export function createVisibilityHost(deps: VisibilityHostDeps) {
     const key = viewer.kind === "all" ? (viewer.email === undefined ? "*" : `admin:${viewer.email.trim().toLowerCase()}`) : `member:${viewer.email?.trim().toLowerCase() ?? ""}`;
     let set = visibleSets.get(key);
     if (!set) {
-      set = new VisibleSet(store.bots, store.groups, viewer, threadOwner, deps.audiencesFor(viewer));
+      set = new VisibleSet(store.bots, store.groups, viewer, threadOwner);
       if (visibleSets.size >= 1_000) visibleSets.clear();
       visibleSets.set(key, set);
     }
@@ -57,7 +46,6 @@ export function createVisibilityHost(deps: VisibilityHostDeps) {
     threadOwners.clear();
     visibleSets.clear();
   }
-  /** Whether a list row about this conversation may go to this session: on a Team Cloud someone else's private chat never. */
   const threadShown = (auth: RequestAuth) => {
     const visible = visibleTo(viewerFor(auth));
     return (threadId: string) => !visible.hides(threadId);
@@ -73,22 +61,11 @@ export function createVisibilityHost(deps: VisibilityHostDeps) {
     return threads;
   }
 
-  /** On a Team Cloud a file a routine carries is refused when only routines hidden from the viewer use it and no
-   * conversation they read does. */
-  function routineFileShown(name: string, visible: VisibleSet): boolean {
-    if (!visible.filtersThreads) return true;
-    const users = (deps.routines()?.listRoutines() ?? []).filter((routine) => routine.attachments?.some((file) => basename(file.path) === name));
-    return !users.length || users.some((routine) => routineVisible(routine, visible)) || threadsUsingAttachment(name).some((threadId) => visible.thread(threadId));
-  }
-
-  /** The one visibility check every member request naming a subject passes through (a team's admin's too). */
   function subjectVisible(subject: PathSubject, visible: VisibleSet): boolean {
     switch (subject.kind) {
       case "bot": {
-        // Security invariant: on a Team Cloud a bot hidden from the viewer and an id no bot has are refused here alike,
-        // before any route can answer them differently.
-        const bot = store.bot(subject.id) ?? (deps.team ? store.bot(baseBotId(subject.id)) : undefined);
-        return bot ? visible.bot(bot.id) : !deps.team;
+        const bot = store.bot(subject.id);
+        return !bot || visible.bot(bot.id);
       }
       case "thread":
         return !threadOwner(subject.id) || visible.thread(subject.id);
@@ -103,7 +80,7 @@ export function createVisibilityHost(deps: VisibilityHostDeps) {
         return !run || routineRunVisible(run, visible);
       }
       case "attachment":
-        return visible.attachment(subject.name, threadsUsingAttachment) && routineFileShown(subject.name, visible);
+        return visible.attachment(subject.name, threadsUsingAttachment);
     }
   }
 

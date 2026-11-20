@@ -23,7 +23,6 @@ import { isValidSshAlias, type AppConfig } from "../config.ts";
 import type { ModelSelection } from "../contracts.ts";
 import type { createApprovalModeSupport } from "../harness-capabilities.ts";
 import type { ProviderRegistry } from "../harness/registry.ts";
-import type { hostedModelPolicy } from "../hosted-models.ts";
 import { MAX_MCP_SERVERS, mcpServerNameError } from "../mcp-registry.ts";
 import { phoneAppsFor } from "../phones/access.ts";
 import { profileSnapshot } from "../profile-revision.ts";
@@ -49,13 +48,9 @@ export interface BotPatchRouteDeps {
   browserRuntime: Pick<BrowserRuntime, "heldBy">;
   browserLive: Pick<BrowserLive, "closeForBot">;
   cacheKeepWarm: Pick<CacheKeepWarm, "refresh">;
-  hostedModels: ReturnType<typeof hostedModelPolicy>;
   supportsApprovalMode: ReturnType<typeof createApprovalModeSupport>;
   routines(): RoutineManager | null;
   activeVpsThreads: { has(botId: string): boolean };
-  /** Full access comes only from the workspace policy. */
-  hostedWorkspace: boolean;
-  hostedFullAccessRefusal: string;
   desktopManaged: boolean;
   broadcast(payload: Record<string, unknown>): void;
   wireBot(bot: BotRecord): WireBot;
@@ -92,8 +87,8 @@ export interface BotPatchRouteDeps {
 
 export function createBotPatchRoutes(deps: BotPatchRouteDeps): RouteHandler {
   const {
-    store, cfg, registry, sessions, browserRuntime, browserLive, cacheKeepWarm, hostedModels, supportsApprovalMode, activeVpsThreads,
-    hostedWorkspace: HOSTED_WORKSPACE, hostedFullAccessRefusal: HOSTED_FULL_ACCESS_REFUSAL, desktopManaged: DESKTOP_MANAGED,
+    store, cfg, registry, sessions, browserRuntime, browserLive, cacheKeepWarm, supportsApprovalMode, activeVpsThreads,
+    desktopManaged: DESKTOP_MANAGED,
     broadcast, wireBot, publicGroupState, audienceChanged, storedAvatarExists, requestedTaskBot, threadBusy, activeGroupTurnForBot,
     checkedModelSelection, engineSwitchNeedsAsk, currentBrowserSession, interruptAllDirectThreads, cancelGroupTurnOperations,
     revokeInternalCapabilitiesForThread, runningTurnInstance, closeOpenApprovals, forgetTemporaryBrowser,
@@ -504,10 +499,6 @@ export function createBotPatchRoutes(deps: BotPatchRouteDeps): RouteHandler {
           error: "This approval-level change can only be made from the packaged desktop app",
         });
       }
-      if (HOSTED_WORKSPACE && requestedApprovalMode === "full" &&
-        (currentApprovalMode !== "full" || body.applyToAllThreads === true)) {
-        return json(res, 403, { error: HOSTED_FULL_ACCESS_REFUSAL });
-      }
       if (body.applyToAllThreads !== undefined) {
         if (typeof body.applyToAllThreads !== "boolean") return json(res, 400, { error: "applyToAllThreads must be true or false" });
         if (body.applyToAllThreads && (body.approvalMode === undefined || requestedApprovalMode === "custom")) {
@@ -688,8 +679,7 @@ export function createBotPatchRoutes(deps: BotPatchRouteDeps): RouteHandler {
       if (body.applyToAllThreads === true && requestedApprovalMode !== "custom") store.setAllThreadApprovalMode(bot.id, requestedApprovalMode);
       if (body.cacheKeepWarm !== undefined) cacheKeepWarm.refresh();
       if (computerSpecified && requestedComputer !== undefined) store.clearAutoSurfacePins(m[1], requestedComputer);
-      if (normalizedSelection && movedTask) store.patchTask(bot.id, movedTask.threadId, { modelSelection: undefined,
-        ...hostedModels?.resetTask(movedTask.modelSelection, normalizedSelection) });
+      if (normalizedSelection && movedTask) store.patchTask(bot.id, movedTask.threadId, { modelSelection: undefined });
       if (existingBot) {
         settleBrowserChange(bot, { browserProfile: beforeBrowserProfile, browser: beforeBrowserEnabled }, { closeForBot: (id) => browserLive.closeForBot(id), forgetTemporaryBrowser });
       }

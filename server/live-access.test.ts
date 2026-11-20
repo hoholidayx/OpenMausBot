@@ -1,3 +1,4 @@
+import { pairDevice } from "./testing/paired-session.ts";
 // Every way a call start reaches the server, through the sign-in gate and then the Azure limit, as the server runs them.
 import { mkdtempSync, rmSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
@@ -5,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { teamRoleScopes, type TeamRole } from "./cloud-team.ts";
 import { azureLiveCallRefusal, elevenLabsLiveCallRefusal, fishLiveCallRefusal, geminiLiveCallRefusal, LIVE_AZURE_REFUSAL, LIVE_ELEVENLABS_REFUSAL, LIVE_FISH_REFUSAL, LIVE_GEMINI_REFUSAL, liveScopeRefusal } from "./live-access.ts";
 import { requiredScope, resolveRequestAuth, type RequestAuth, type ResolveOptions } from "./request-auth.ts";
 import { SessionRegistry, type Scope, type SessionRecord } from "./sessions.ts";
@@ -43,15 +43,7 @@ function verdict(headers: Record<string, string>, place: Place = {}): string {
 }
 
 const bearer = (token: string) => ({ ...REMOTE, authorization: `Bearer ${token}` });
-const device = (scopes: Scope[]) => bearer(sessions.issue({ label: "Device", scopes }).token);
-function teamMember(role: TeamRole, phone = false) {
-  const email = `${role}@acme.test`;
-  const opened = sessions.openPairing({ scopes: teamRoleScopes(role), label: phone ? "Phone" : "App", member: { email, role }, ...(phone ? { memberCheckedAt: Date.now() } : {}) });
-  const paired = sessions.exchange({ code: opened.code, label: "Device", source: "203.0.113.9" });
-  if (!paired.ok) throw new Error(paired.error);
-  return bearer(paired.token);
-}
-const portal = (scopes: Scope[]) => bearer(sessions.issuePortal({ email: "person@acme.test", grant: "g".repeat(43), scopes }).token);
+const device = (scopes: Scope[]) => bearer(pairDevice(sessions, { label: "Device", scopes }).token);
 const SERVICE = { resolve: { loopbackTrust: "service" as const } };
 const CALL = "gets a call";
 const AT_LIMIT = `limit: ${LIVE_AZURE_REFUSAL}`;
@@ -100,32 +92,13 @@ describe("an Azure Live call", () => {
     });
   });
 
-  describe("on a Team Cloud", () => {
-    const place = { ...SERVICE, othersOnLoopback: true };
-    it("goes to a Super admin and an Admin", () => {
-      expect(verdict(teamMember("owner"), place)).toBe(CALL);
-      expect(verdict(teamMember("admin"), place)).toBe(CALL);
-    });
-    it("is refused in plain words to a User, on the app or their phone", () => {
-      expect(verdict(teamMember("member"), place)).toBe(AT_SIGN_IN);
-      expect(verdict(teamMember("member", true), place)).toBe(AT_SIGN_IN);
-    });
-    it("is refused to a bot's shell", () => {
-      expect(verdict(LOCAL, place)).toMatch(/^sign-in gate 403: forbidden: on this shared server/);
-    });
-  });
-
   describe("on a shared company workspace", () => {
     const place = { ...SERVICE, othersOnLoopback: true };
-    beforeEach(() => {
-      sessions.close();
-      sessions = new SessionRegistry({ file: join(dir, "portal-sessions.json"), portalMembership: true });
-    });
     it("goes to a workspace admin", () => {
-      expect(verdict(portal(["admin", "client"]), place)).toBe(CALL);
+      expect(verdict(device(["admin", "client"]), place)).toBe(CALL);
     });
     it("is refused to anyone else, and to a local request even where an operator made loopback the owner", () => {
-      expect(verdict(portal(["client"]), place)).toBe(AT_SIGN_IN);
+      expect(verdict(device(["client"]), place)).toBe(AT_SIGN_IN);
       expect(verdict(LOCAL, place)).toMatch(/^sign-in gate 403: forbidden: on this shared server/);
       expect(verdict(LOCAL, { othersOnLoopback: true, resolve: { loopbackTrust: "owner" } })).toBe(AT_LIMIT);
     });
@@ -134,7 +107,7 @@ describe("an Azure Live call", () => {
   describe("from a published or shared page", () => {
     // A published page lives on another origin, and an inline one is sandboxed (`Origin: null`).
     const riding = (origin: string) => {
-      const token = sessions.issue({ label: "Admin", scopes: ["admin", "client"] }).token;
+      const token = pairDevice(sessions, { label: "Admin", scopes: ["admin", "client"] }).token;
       return { ...REMOTE, cookie: `${COOKIE}=${token}`, origin };
     };
     it("is refused, though the browser holds an admin's cookie", () => {
@@ -185,18 +158,15 @@ describe("the words for a session without the admin scope", () => {
 
 describe("a Fish Audio Live call", () => {
   const FISH = { provider: "fish" as const };
-  const TEAM = { ...FISH, ...SERVICE, othersOnLoopback: true };
 
-  it("goes to the desktop app's own window, the owner, and a team admin, as on Azure", () => {
+  it("goes to the desktop app's own window, the owner, as on Azure", () => {
     expect(verdict({ ...LOCAL, "x-openmausbot-desktop-owner": "desktop-secret" }, { ...FISH, resolve: DESKTOP })).toBe(CALL);
     expect(verdict(LOCAL, FISH)).toBe(CALL);
     expect(verdict(device(["admin", "client"]), FISH)).toBe(CALL);
-    expect(verdict(teamMember("admin"), TEAM)).toBe(CALL);
   });
 
-  it("is refused in its own words to a chat-only session, a team User and a local request others share", () => {
+  it("is refused in its own words to a chat-only session and a local request others share", () => {
     expect(verdict(device(["client"]), FISH)).toBe(`sign-in gate 403: ${LIVE_FISH_REFUSAL}`);
-    expect(verdict(teamMember("member"), TEAM)).toBe(`sign-in gate 403: ${LIVE_FISH_REFUSAL}`);
     expect(verdict(LOCAL, { ...FISH, othersOnLoopback: true })).toBe(`limit: ${LIVE_FISH_REFUSAL}`);
     const unknown = { kind: "something-new", scopes: ["admin", "client"] } as unknown as RequestAuth;
     expect(fishLiveCallRefusal(unknown, { othersOnLoopback: false })).toBe(LIVE_FISH_REFUSAL);
@@ -205,34 +175,28 @@ describe("a Fish Audio Live call", () => {
 
 describe("a Gemini Live call", () => {
   const GEMINI = { provider: "gemini" as const };
-  const TEAM = { ...GEMINI, ...SERVICE, othersOnLoopback: true };
 
-  it("goes to the owner and a team admin, as on Fish Audio", () => {
+  it("goes to the owner, as on Fish Audio", () => {
     expect(verdict(LOCAL, GEMINI)).toBe(CALL);
     expect(verdict(device(["admin", "client"]), GEMINI)).toBe(CALL);
-    expect(verdict(teamMember("admin"), TEAM)).toBe(CALL);
   });
 
-  it("is refused in its own words to a chat-only session, a team User and a local request others share", () => {
+  it("is refused in its own words to a chat-only session and a local request others share", () => {
     expect(verdict(device(["client"]), GEMINI)).toBe(`sign-in gate 403: ${LIVE_GEMINI_REFUSAL}`);
-    expect(verdict(teamMember("member"), TEAM)).toBe(`sign-in gate 403: ${LIVE_GEMINI_REFUSAL}`);
     expect(verdict(LOCAL, { ...GEMINI, othersOnLoopback: true })).toBe(`limit: ${LIVE_GEMINI_REFUSAL}`);
   });
 });
 
 describe("an ElevenLabs Live call", () => {
   const ELEVENLABS = { provider: "elevenlabs" as const };
-  const TEAM = { ...ELEVENLABS, ...SERVICE, othersOnLoopback: true };
 
-  it("goes to the owner and a team admin, as on Fish Audio", () => {
+  it("goes to the owner, as on Fish Audio", () => {
     expect(verdict(LOCAL, ELEVENLABS)).toBe(CALL);
     expect(verdict(device(["admin", "client"]), ELEVENLABS)).toBe(CALL);
-    expect(verdict(teamMember("admin"), TEAM)).toBe(CALL);
   });
 
-  it("is refused in its own words to a chat-only session, a team User and a local request others share", () => {
+  it("is refused in its own words to a chat-only session and a local request others share", () => {
     expect(verdict(device(["client"]), ELEVENLABS)).toBe(`sign-in gate 403: ${LIVE_ELEVENLABS_REFUSAL}`);
-    expect(verdict(teamMember("member"), TEAM)).toBe(`sign-in gate 403: ${LIVE_ELEVENLABS_REFUSAL}`);
     expect(verdict(LOCAL, { ...ELEVENLABS, othersOnLoopback: true })).toBe(`limit: ${LIVE_ELEVENLABS_REFUSAL}`);
   });
 });

@@ -399,8 +399,6 @@ services:
       # Passed only when .env sets them: an empty one would still be set, and Settings' own lists are used when not.
       OMB_SIGNIN_EMAILS:
       OMB_SIGNIN_MEMBER_EMAILS:
-      OMB_SIGNIN_SMTP_URL:
-      OMB_SIGNIN_SMTP_FROM:
       # "1": phones pair by QR through MausBot Relay. Sign in once: docker compose exec omb openmausbot login --relay
       OMB_PHONE_RELAY:
     healthcheck:

@@ -55,6 +55,8 @@ export interface PairResponse {
 
 /** A signed-in session as the server describes it, never with its token. */
 export interface PairedSession {
+  /** The installation owner's stable ID on a full-access device. */
+  userId?: string;
   id: string;
   label: string;
   scopes: Array<"admin" | "client">;
@@ -164,10 +166,12 @@ export interface LoopbackSessionResponse {
   scopes: ReadonlyArray<"admin" | "client">;
   environmentId: string;
   trust?: "service";
+  userId?: string;
 }
 
 /** GET /api/auth/session for a signed-in session, a paired phone's included. Optional fields are absent, never false. */
 export interface SignedInSessionResponse {
+  userId?: string;
   kind: "session";
   id: string;
   label: string;

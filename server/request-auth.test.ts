@@ -1,3 +1,4 @@
+import { pairDevice } from "./testing/paired-session.ts";
 import type { IncomingMessage } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -361,14 +362,12 @@ describe("resolveRequestAuth", () => {
     expect(foreignOrigin.error).toBe("forbidden: cross-origin request");
   });
 
-  it("rejects revoked email cookies, bearers and tickets without falling back to loopback ownership", () => {
-    let allowed: Array<"admin" | "client"> = ["admin", "client"];
-    sessions = new SessionRegistry({ file: join(dir, "sessions.json"), emailScopes: () => allowed });
+  it("rejects revoked device cookies, bearers and tickets without falling back to loopback ownership", () => {
     const paired = pairedToken();
-    const email = sessions.issue({ label: "browser", email: "person@example.test", scopes: ["admin", "client"] });
+    const email = pairDevice(sessions, { label: "browser", scopes: ["admin", "client"] });
     const { ticket } = sessions.issueStreamTicket(email.session.id);
     expect(resolve({ host: "localhost", cookie: `${cookieName}=${email.token}` }).auth?.kind).toBe("session");
-    allowed = ["client"];
+    sessions.revoke(email.session.id);
     for (const host of ["bots.example.com", "localhost"]) {
       expect(resolve({ host, cookie: `${cookieName}=${email.token}` })).toMatchObject({ auth: null, status: 401 });
       expect(resolve({ host, authorization: `Bearer ${email.token}` })).toMatchObject({ auth: null, status: 401 });
@@ -757,8 +756,8 @@ describe("loopback trust: owner on one person's machine, service on a shared wor
   });
 
   it("still admits a real session with its own scopes on a service-trust server", () => {
-    const admin = sessions.issue({ label: "Laptop", scopes: ["admin", "client"] });
-    const member = sessions.issue({ label: "Phone", scopes: ["client"] });
+    const admin = pairDevice(sessions, { label: "Laptop", scopes: ["admin", "client"] });
+    const member = pairDevice(sessions, { label: "Phone", scopes: ["client"] });
     expect(check("PUT", "/api/config", { trust: "service", headers: { authorization: `Bearer ${admin.token}` } }).auth?.kind).toBe("session");
     expect(check("POST", "/api/bots/bot-1/messages", { trust: "service", headers: { authorization: `Bearer ${member.token}` } }).auth?.kind).toBe("session");
     expect(check("PUT", "/api/config", { trust: "service", headers: { authorization: `Bearer ${member.token}` } }).status).toBe(403);

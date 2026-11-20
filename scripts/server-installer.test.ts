@@ -266,11 +266,11 @@ describe.skipIf(!posix)("deploy/install.sh", () => {
     expect(skipped.stdout).toContain("note  The DNS record of maus.example.com was not checked, as asked.");
   });
 
-  it("refuses a domain, an email or a code that is not one, before anything else", () => {
+  it("refuses a domain, a retired sign-in flag or a code that is not one, before anything else", () => {
     for (const [args, sentence] of [
       [["--domain", "https://maus.example.com"], "is not a domain name"],
       [["--domain", "localhost"], "is not a full domain name"],
-      [["--domain", "maus.example.com", "--email", "a b@example.com"], "email address doesn't look right"],
+      [["--domain", "maus.example.com", "--email", "a b@example.com"], "Unknown option --email"],
       [["--domain", "maus.example.com", "code;rm"], "That code doesn't look right"],
       [["--domain", "maus.example.com", "--dir", "relative"], "--dir needs a full path"],
       [["--frobnicate"], "Unknown option --frobnicate"],
@@ -304,11 +304,11 @@ describe.skipIf(!posix)("deploy/install.sh", () => {
     expect(asked.stderr).toContain("Docker's install script could not be downloaded.");
   });
 
-  it("installs under one folder, pinned to the newest release, and says how the first admin signs in", () => {
-    const result = run(["--domain", "maus.example.com", "--email", "owner@example.com"]);
+  it("installs under one folder, pinned to the newest release, and shows how to pair the first device", () => {
+    const result = run(["--domain", "maus.example.com"]);
     expect(result.all).toContain("MausBot is running at https://maus.example.com");
     expect(result.status).toBe(0);
-    expect(readFileSync(join(result.install, ".env"), "utf8")).toContain("DOMAIN=maus.example.com\nOMB_IMAGE=ghcr.io/milind-soni/openmausbot:v0.1.151\nOMB_SIGNIN_EMAILS=owner@example.com\n");
+    expect(readFileSync(join(result.install, ".env"), "utf8")).toContain("DOMAIN=maus.example.com\nOMB_IMAGE=ghcr.io/milind-soni/openmausbot:v0.1.151\n");
     expect(statSync(join(result.install, ".env")).mode & 0o777).toBe(0o600);
     expect(statSync(join(result.install, "data")).mode & 0o777).toBe(0o700);
     for (const file of ["compose.yaml", "Caddyfile", "caddy/data", "caddy/config"]) expect(existsSync(join(result.install, file)), file).toBe(true);
@@ -328,7 +328,7 @@ describe.skipIf(!posix)("deploy/install.sh", () => {
     // Not a terminal, as here: the admin's sign-in link is not made, so no log holds it, and the output says why.
     expect(result.stdout).toContain("(The link is not made here because this output is not a terminal");
     expect(result.docker.some((call) => call.includes("openmausbot pair"))).toBe(false);
-    expect(result.stdout).toContain("Or open https://maus.example.com/pair and sign in with an emailed code as: owner@example.com");
+    expect(result.stdout).not.toContain("emailed code");
     expect(result.stdout).toContain(`Your data: ${result.install}/data`);
   });
 
@@ -383,12 +383,8 @@ describe.skipIf(!posix)("deploy/install.sh", () => {
   it("with a code, checks that MausBot is reachable and hands the code to the connector's own installer, unchanged", () => {
     const blocked = run(["--check", "--domain", "maus.example.com", CODE], { env: { FAKE_BLOCKED: "admin.example.test" } });
     expect(blocked.fixes).toEqual(["This server can't reach admin.example.test over HTTPS (port 443). Allow outbound HTTPS to them in your firewall, then run this again."]);
-    const connectorScript = readFileSync(join(ROOT, "connector", "install.sh"), "utf8");
-    expect(connectorScript).toContain("CONNECTOR=mausbot-connector");
-    expect(connectorScript).toContain("--install-docker) MAUSBOT_INSTALL_DOCKER=1 ;;");
-    expect(connectorScript).toContain('ADMIN_URL="${MAUSBOT_ADMIN_URL:-@MAUSBOT_ADMIN_URL@}"');
-    expect(script).toContain('curl -fsSL --max-time 60 "$ADMIN_URL/install.sh"');
     const missing = run(["--domain", "maus.example.com", CODE]);
+    expect(missing.calls.some((call) => call.includes("https://admin.example.test/install.sh"))).toBe(true);
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain("MausBot is installed and running here, but the connector's installer could not be downloaded from https://admin.example.test. Nothing needs reinstalling");
     expect(existsSync(join(missing.install, "data"))).toBe(true);
@@ -643,8 +639,7 @@ describe.skipIf(!posix)("deploy/install.sh", () => {
     const written = readFileSync(join(result.install, "compose.yaml"), "utf8");
     const settings = (text: string) => [...text.matchAll(/^ {6}(OMB_[A-Z_]+:.*)$/gm)].map((match) => match[1]);
     expect(settings(written)).toEqual(settings(manual));
-    // The sign-in lists and mail server are passed only when .env sets them: an empty one would still be set.
-    for (const name of ["OMB_SIGNIN_EMAILS", "OMB_SIGNIN_MEMBER_EMAILS", "OMB_SIGNIN_SMTP_URL", "OMB_SIGNIN_SMTP_FROM", "OMB_PHONE_RELAY"]) expect(settings(written)).toContain(`${name}:`);
+    for (const name of ["OMB_SIGNIN_EMAILS", "OMB_SIGNIN_MEMBER_EMAILS", "OMB_PHONE_RELAY"]) expect(settings(written)).toContain(`${name}:`);
     for (const line of ['test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8799/api/health | grep -q openmausbot"]', "init: true", "shm_size: 512m", '- "80:80"', '- "443:443"',
       "- edge:/run/openmausbot", "type: tmpfs"]) {
       expect(written).toContain(line);

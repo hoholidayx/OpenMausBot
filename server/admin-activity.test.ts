@@ -17,8 +17,6 @@ import {
   parseActivityWhat,
   pruneAdminActivity,
   readAdminActivityRange,
-  sharedSignIn,
-  signInListsOf,
   TEAM_BOT_AUDIT_FIELDS,
   type AdminActionRow,
 } from "./admin-activity.ts";
@@ -145,16 +143,6 @@ describe("what a row records", () => {
     expect(botChangeRows({ id: "b" }, onDefault, own).map((row) => [row.changed, row.before, row.after]))
       .toEqual([[["vpsAlias"], { vpsAlias: null }, { vpsAlias: "alpha-vps" }]]);
     expect(botChangeRows({ id: "b" }, own, onDefault).map((row) => row.changed)).toEqual([["vpsAlias"]]);
-  });
-
-  it("knows when more than one person signs in", () => {
-    expect(sharedSignIn({ admins: ["boss@example.test"], members: [] })).toBe(false);
-    expect(sharedSignIn({ admins: [], members: [] })).toBe(false);
-    expect(sharedSignIn({ admins: ["boss@example.test"], members: ["ada@example.test"] })).toBe(true);
-    expect(sharedSignIn({ admins: ["boss@example.test", "cto@example.test"], members: [] })).toBe(true);
-    expect(sharedSignIn({ admins: ["@example.test"], members: [] })).toBe(true);
-    expect(signInListsOf({ signIn: { admins: ["a@x.test", 3], members: "nope" } })).toEqual({ admins: ["a@x.test"], members: [] });
-    expect(signInListsOf(null)).toEqual({ admins: [], members: [] });
   });
 
   it("splits a bot's audience from its other permissions and ignores display fields", () => {

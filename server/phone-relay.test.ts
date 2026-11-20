@@ -1,3 +1,4 @@
+import { pairDevice } from "./testing/paired-session.ts";
 // The server's side of MausBot Relay against the fake relay, driven by the reference phone: the server's own sessions
 // are the phones, and every relayed request reaches the handler as a remote one.
 import { generateKeyPairSync, randomBytes } from "node:crypto";
@@ -185,7 +186,7 @@ describe("phones through MausBot Relay on a server", () => {
     expect(spoofed.status).toBe(403);
     expect(json(spoofed).error).toMatch(/proxy/);
     // A token inside the session must be the one whose key opened it.
-    const other = server.sessions.issue({ label: "Laptop", scopes: ["admin", "client"] });
+    const other = pairDevice(server.sessions, { label: "Laptop", scopes: ["admin", "client"] });
     expect(await http(session, "GET", "/api/auth/session", { token: other.token }).then((r) => [r.status, json(r).error])).toEqual([401, "this connection belongs to another device"]);
     expect(json(await http(session, "GET", "/api/companion/endpoints", { token: reply.token }))).toEqual({ serverName: "VPS", endpoints: [], version: SERVER_VERSION, e2e: descriptor });
     session.shutdown();
@@ -223,7 +224,7 @@ describe("phones through MausBot Relay on a server", () => {
     const dir = mkdtempSync(join(tmpdir(), "omb-phone-relay-full-"));
     cleanup.push(() => removeTempDir(dir));
     const seed = new SessionRegistry({ file: join(dir, "sessions.json") });
-    const ids = Array.from({ length: MAX_RELAY_PHONES }, (_, n) => seed.issue({ label: `Phone ${n}`, scopes: ["client"] }).session.id);
+    const ids = Array.from({ length: MAX_RELAY_PHONES }, (_, n) => pairDevice(seed, { label: `Phone ${n}`, scopes: ["client"] }).session.id);
     seed.close();
     writeFileSync(join(dir, PHONE_RELAY_PHONES_FILE), JSON.stringify({ v: 1, phones: [...ids, "a-session-long-gone"] }));
     const server = await startServer({ dir });
@@ -421,7 +422,7 @@ describe("phones through MausBot Relay on a server", () => {
     const server = await startServer();
     await connected(server);
     const phone = await pairPhone(server);
-    const other = server.sessions.issue({ label: "Laptop", scopes: ["admin", "client"] });
+    const other = pairDevice(server.sessions, { label: "Laptop", scopes: ["admin", "client"] });
     const theirs = server.sessions.issueStreamTicket(other.session.id).ticket;
     const refused = await http(phone.session, "GET", `/api/events?ticket=${theirs}`);
     expect([refused.status, json(refused).error]).toEqual([401, "this connection belongs to another device"]);

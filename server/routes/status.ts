@@ -25,7 +25,6 @@ export interface StatusRouteDeps {
   store: Pick<Store, "bot" | "bots" | "tasks" | "groupByThread">;
   cfg: AppConfig;
   staticDir: string | null;
-  sharedWorkspaceFullAccessEnabled(): boolean;
   adminActivityRecording(): boolean;
   configStatus(): ConfigStatus;
   broadcast(payload: Record<string, unknown>): void;
@@ -42,7 +41,7 @@ export interface StatusRouteDeps {
 
 export function createStatusRoutes(deps: StatusRouteDeps): RouteHandler {
   const {
-    store, cfg, staticDir: STATIC_DIR, sharedWorkspaceFullAccessEnabled, adminActivityRecording,
+    store, cfg, staticDir: STATIC_DIR, adminActivityRecording,
     configStatus, broadcast, browserEngineInstall, browserEngineInstallError,
   } = deps;
   const version = reportableServerVersion();
@@ -54,7 +53,6 @@ export function createStatusRoutes(deps: StatusRouteDeps): RouteHandler {
     if (method === "GET" && path === "/api/health") {
       return json(res, 200, { app: "openmausbot", ...(version ? { version } : {}), pid: process.pid, static: Boolean(STATIC_DIR), capabilities: {
         guardedMessages: 1, guardedRequests: 1, guardedFullAccess: 1, guardedOnBehalfOf: 1,
-        ...(sharedWorkspaceFullAccessEnabled() ? { sharedWorkspaceFullAccess: 1 } : {}),
       }, ...(deps.boxOn ? { box: deps.boxOn() ? "on" : "off" } : {}) });
     }
     // JSON-only, so a form posted from another local page cannot start the install. One install at a time.

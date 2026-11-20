@@ -1,3 +1,4 @@
+import { pairDevice } from "./testing/paired-session.ts";
 // The fake ACP CLI in "permission" mode (every turn asks to run `echo hi`), and an email sign-in list naming one admin and
 // two members whose sessions are issued before boot.
 import { spawn, type ChildProcess } from "node:child_process";
@@ -119,13 +120,13 @@ posixOnly("who may answer a card on a shared workspace", () => {
       instances: { roomApi: { driver: "openai-compat", config: { tools: false } }, grok: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "permission" }, config: { cli: FAKE_CLI, fullAuto: false } } },
     }));
     const role = (email: string) => (email === BOSS ? ["admin", "client"] as const : ["client"] as const);
-    const registry = new SessionRegistry({ file: join(data, "sessions.json"), emailScopes: (email) => [...role(email)] });
+    const registry = new SessionRegistry({ file: join(data, "sessions.json") });
     for (const email of [BOSS, ADA, BOB]) {
-      const issued = registry.issue({ label: `${email.split("@")[0]}'s laptop`, email, scopes: [...role(email)] });
+      const issued = pairDevice(registry, { label: `${email.split("@")[0]}'s laptop`, scopes: [...role(email)] });
       tokens[email] = issued.token;
       sessionIds[email] = issued.session.id;
     }
-    registry.close(); // a clean close keeps account sessions across the server's boot
+    registry.close();
     await start();
   }, 40_000);
 
@@ -153,8 +154,8 @@ posixOnly("who may answer a card on a shared workspace", () => {
     expect(answered.status, JSON.stringify(answered.body)).toBe(200);
     expect(answered.body.outcome).not.toBe("unavailable");
     const row = await decision(requestId, "user-approved");
-    expect(row?.actor).toEqual({ kind: "session", sessionId: sessionIds[ADA], label: "ada's laptop", email: ADA });
-    expect((await settledCard(bot.threadId, requestId))?.card.answeredBy).toEqual({ kind: "session", name: "Ada", person: expect.stringMatching(/^p_/u) });
+    expect(row?.actor).toEqual({ kind: "session", sessionId: sessionIds[ADA], label: "ada's laptop" });
+    expect((await settledCard(bot.threadId, requestId))?.card.answeredBy).toEqual({ kind: "session", name: "ada's laptop", person: expect.stringMatching(/^p_/u) });
   }, 90_000);
 
   it("lets a member answer any card on a thread they started", async () => {
@@ -174,7 +175,7 @@ posixOnly("who may answer a card on a shared workspace", () => {
     const requestId = await cardFrom(bot, threadId, ADA);
     const answered = await api("POST", `/api/bots/${bot.id}/respond`, { requestId, behavior: "deny", threadId }, BOB);
     expect(answered.status, JSON.stringify(answered.body)).toBe(200);
-    expect((await decision(requestId, "user-denied"))?.actor).toMatchObject({ kind: "session", email: BOB });
+    expect((await decision(requestId, "user-denied"))?.actor).toMatchObject({ kind: "session", sessionId: sessionIds[BOB] });
   }, 90_000);
 
   it("follows a thread a bot opened for a member back to that member", async () => {
@@ -206,7 +207,7 @@ posixOnly("who may answer a card on a shared workspace", () => {
     expect(refused.status).toBe(403);
     expect(refused.body.error).toMatch(refusal);
     expect((await api("POST", `/api/threads/${helperThreadId}/respond`, { requestId, behavior: "allow" }, ADA)).status).toBe(200);
-    expect((await decision(requestId, "user-approved"))?.actor).toMatchObject({ kind: "session", email: ADA });
+    expect((await decision(requestId, "user-approved"))?.actor).toMatchObject({ kind: "session", sessionId: sessionIds[ADA] });
   }, 90_000);
 
   it("lets only who may answer in a member's chat answer the copy of a run's card there", async () => {
@@ -234,24 +235,23 @@ posixOnly("who may answer a card on a shared workspace", () => {
     }
     const answered = await api("POST", `/api/threads/${threadId}/respond`, { requestId, behavior: "allow" }, BOB);
     expect(answered.status, JSON.stringify(answered.body)).toBe(200);
-    expect((await decision(requestId, "user-approved"))?.actor).toMatchObject({ kind: "session", email: BOB });
-    expect((await settledCard(copy.automation.executionThreadId, requestId))?.card.answeredBy).toEqual({ kind: "session", name: "Bob", person: expect.stringMatching(/^p_/u) });
+    expect((await decision(requestId, "user-approved"))?.actor).toMatchObject({ kind: "session", sessionId: sessionIds[BOB] });
+    expect((await settledCard(copy.automation.executionThreadId, requestId))?.card.answeredBy).toEqual({ kind: "session", name: "bob's laptop", person: expect.stringMatching(/^p_/u) });
   }, 90_000);
 
-  it("lets any member answer a card that names nobody, as before", async () => {
-    const bot = await makeBot("Unnamed");
+  it("keeps an approval opened on the owner desktop with the owner", async () => {
+    const bot = await makeBot("Owner request");
     const requestId = await cardFrom(bot, bot.threadId);
-    const answered = await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId, behavior: "allow" }, BOB);
-    expect(answered.status, JSON.stringify(answered.body)).toBe(200);
-    expect((await decision(requestId, "user-approved"))?.actor).toMatchObject({ kind: "session", email: BOB });
+    expect((await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId, behavior: "allow" }, BOB)).status).toBe(403);
+    expect((await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId, behavior: "allow" }, BOSS)).status).toBe(200);
   }, 90_000);
 
   it("lets an admin and the owner on this machine answer anyone's card", async () => {
     const bot = await makeBot("Anyone");
     const first = await cardFrom(bot, bot.threadId, ADA);
     expect((await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: first, behavior: "allow" }, BOSS)).status).toBe(200);
-    expect((await decision(first, "user-approved"))?.actor).toMatchObject({ kind: "session", email: BOSS });
-    expect((await settledCard(bot.threadId, first))?.card.answeredBy).toEqual({ kind: "session", name: "Boss", person: expect.stringMatching(/^p_/u) });
+    expect((await decision(first, "user-approved"))?.actor).toMatchObject({ kind: "session", sessionId: sessionIds[BOSS] });
+    expect((await settledCard(bot.threadId, first))?.card.answeredBy).toEqual({ kind: "session", name: "User", person: expect.stringMatching(/^p_/u) });
 
     const second = await cardFrom(bot, bot.threadId, BOB);
     expect((await api("POST", `/api/threads/${bot.threadId}/respond`, { requestId: second, behavior: "deny" })).status).toBe(200);

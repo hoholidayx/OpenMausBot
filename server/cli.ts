@@ -21,14 +21,10 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 import { phonePairingLink } from "../shared/pairing-link.ts";
-import { parseAllowList } from "./account-signin.ts";
-import { appendAdminAction, flushAdminActivity, sharedSignIn } from "./admin-activity.ts";
-import { bindDecisionRetention, decisionRetentionDays } from "./decision-log.ts";
 import { hostedWorkspaceConfigured } from "./enterprise.ts";
 import { reportableServerVersion, serverVersion } from "./environment.ts";
 import { resolveLoopbackTrust } from "./request-auth.ts";
 import { CRASH_EXIT_CODE, crashed, restartLine, restartPolicy } from "./restart.ts";
-import { writeFileAtomic } from "./atomic.ts";
 import { ensureCaddy, normalizeDomainOption, startCaddy, type RunningCaddy } from "./caddy.ts";
 import { runServiceCommand } from "./service-cli.ts";
 import { runSentinelCli } from "./sentinel/cli.ts";
@@ -46,7 +42,7 @@ import { checkReach, envPublicUrl, lanProblem, localLinkBase, noRouteLines, publ
 import { lanUrl } from "./lan-address.ts";
 import { isLoopbackHost } from "../electron/server-address.mjs";
 import { parseDuration } from "./headless/args.ts";
-import { signInFromEnv, type AppConfig } from "./config.ts";
+import type { AppConfig } from "./config.ts";
 import {
   cleanupTunnelOrigin,
   createTunnelAccount,
@@ -256,7 +252,7 @@ async function api(port: number, path: string, init: { method?: string; body?: s
   return { status: res.status, body };
 }
 
-export const SERVICE_TRUST_HELP = "This server does not treat commands on this computer as its owner (OMB_LOOPBACK_TRUST=service, or a hosted workspace), so it will not pair devices or list sessions for them. Sign in as an admin and use Settings → Phone & devices, let people sign in with their email (openmausbot access add you@example.com), or restart the server with OMB_LOOPBACK_TRUST=owner.";
+export const SERVICE_TRUST_HELP = "This server does not treat commands on this computer as its owner (OMB_LOOPBACK_TRUST=service, or a hosted workspace), so it will not pair devices or list sessions for them. Sign in as an admin and use Settings → Phone & devices or start serve in an interactive terminal for a one-time pairing code.";
 
 function refusedAsService(status: number, body: any): boolean {
   return status === 403 && typeof body?.error === "string" && /shared server|Sign in through the workspace portal/.test(body.error);
@@ -429,69 +425,9 @@ export async function runStatus(options: CliOptions, io: CliIo = defaultIo()): P
   return body ? 0 : 1;
 }
 
-/** Edits the sign-in allow-list in config.json, server live or stopped (read per request); OMB_SIGNIN_EMAILS wins when it names someone. */
-export async function runAccess(options: CliOptions, io: CliIo = defaultIo()): Promise<number> {
-  const file = join(options.dataDir, "config.json");
-  let raw: Record<string, unknown> = {};
-  if (existsSync(file)) {
-    try {
-      const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
-      raw = Object.fromEntries(Object.entries(parsed));
-    } catch (error) {
-      io.error(`${file} could not be read (${message(error)}); fix it before changing who can sign in`);
-      return 1;
-    }
-  }
-  const current = typeof raw.signIn === "object" && raw.signIn !== null ? Object(raw.signIn) : {};
-  const list = (value: unknown) => parseAllowList(Array.isArray(value) ? value.map(String).join(",") : "");
-  const admins = list(Reflect.get(current, "admins"));
-  const members = list(Reflect.get(current, "members"));
-  const overridden = Object.keys(signInFromEnv()).length > 0; // a variable that names nobody leaves the list to this file
-  const write = async (next: { admins: string[]; members: string[] }) => {
-    mkdirSync(options.dataDir, { recursive: true, mode: 0o700 });
-    writeFileAtomic(file, `${JSON.stringify({ ...raw, signIn: next }, null, 2)}\n`, { mode: 0o600 });
-    if (!sharedSignIn({ admins, members }) && !sharedSignIn(next) && !hostedWorkspaceConfigured()) return;
-    const decisions = raw.decisions && typeof raw.decisions === "object" ? (raw.decisions as { retentionDays?: unknown }).retentionDays : undefined;
-    bindDecisionRetention(() => decisionRetentionDays(typeof decisions === "number" ? decisions : undefined));
-    const changed = (["admins", "members"] as const).filter((key) => next[key].join(",") !== (key === "admins" ? admins : members).join(","));
-    appendAdminAction(options.dataDir, {
-      category: "people", action: "people.update", target: { kind: "settings" }, actor: { kind: "cli" },
-      changed: changed.map((key) => `signIn.${key}`),
-      before: Object.fromEntries(changed.map((key) => [`signIn.${key}`, key === "admins" ? admins : members])),
-      after: Object.fromEntries(changed.map((key) => [`signIn.${key}`, next[key]])),
-    });
-    await flushAdminActivity(options.dataDir);
-  };
-  if (options.accessAction === "list") {
-    if (!admins.length && !members.length) {
-      io.log("nobody can sign in with an email yet; pairing codes only. Add someone with: openmausbot access add you@example.com");
-      return 0;
-    }
-    for (const entry of admins) io.log(`${entry.padEnd(40)} full access`);
-    for (const entry of members) io.log(`${entry.padEnd(40)} chat and approvals`);
-    if (overridden) io.log("(OMB_SIGNIN_EMAILS / OMB_SIGNIN_MEMBER_EMAILS are set in the environment and win over this list while the server runs)");
-    return 0;
-  }
-  const entry = (options.email ?? "").trim().toLowerCase();
-  if (!entry || (!entry.startsWith("@") && !entry.includes("@")) || /\s/.test(entry)) {
-    io.error("give an email address, or @domain for everyone at that domain");
-    return 2;
-  }
-  const without = (items: string[]) => items.filter((item) => item !== entry);
-  if (options.accessAction === "remove") {
-    if (!admins.includes(entry) && !members.includes(entry)) {
-      io.error(`${entry} is not on the list`);
-      return 1;
-    }
-    await write({ admins: without(admins), members: without(members) });
-    io.log(`${entry} can no longer sign in (existing sessions stay until they expire or are revoked with ${cliCommand("devices revoke ID")})`);
-    return 0;
-  }
-  await write(options.chatOnly ? { admins: without(admins), members: [...without(members), entry] } : { admins: [...without(admins), entry], members: without(members) });
-  io.log(`${entry} can sign in at /pair with an emailed code (${options.chatOnly ? "chat and approvals" : "full access"})`);
-  if (overridden) io.log("note: OMB_SIGNIN_EMAILS / OMB_SIGNIN_MEMBER_EMAILS are set in the environment and win over this list while the server runs");
-  return 0;
+export async function runAccess(_options: CliOptions, io: CliIo = defaultIo()): Promise<number> {
+  io.error(`This server has one owner. Use ${cliCommand("pair")} to connect a device.`);
+  return 1;
 }
 
 export async function runLogin(options: CliOptions, io: CliIo = defaultIo()): Promise<number> {
@@ -876,7 +812,7 @@ export async function runServe(options: CliOptions, log: (line: string) => void 
     } else if (!serviceTrust) {
       log(`Get a pairing code: ${prefix} pair`);
     }
-    if (serviceTrust && !(options.pair && interactive)) log(`This shared server takes no pairing commands from this machine. Let people sign in with their email: ${prefix} access add you@example.com`);
+    if (serviceTrust && !(options.pair && interactive)) log(`To pair a device with service trust, start ${prefix} serve in an interactive terminal.`);
     if (interactive && !options.guided) log(`New code later   ${prefix} pair\nStop with Ctrl+C`);
     if (options.guided) log(`\nKeep this terminal open while using your bots. Ctrl+C stops the server, not your saved work.\nNext time: ${prefix} · Change AI or phone setup: ${prefix} setup · Pair another device: ${prefix} pair`);
     return await childExit;

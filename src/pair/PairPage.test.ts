@@ -6,7 +6,7 @@ const f = vi.hoisted(() => ({ effects: [] as EffectCallback[], pair: vi.fn() }))
 vi.mock("react", async original => ({ ...await original<typeof import("react")>(), useEffect: (effect: EffectCallback) => { f.effects.push(effect); } }));
 vi.mock("../lib/session", async original => ({ ...await original<typeof import("../lib/session")>(), pairWithCode: f.pair, readSessionState: vi.fn().mockResolvedValue({ kind: "unauthenticated", error: "" }) }));
 vi.mock("../components/DesktopWorkspaceSwitcher", () => ({ DesktopWorkspaceSwitcher: () => null }));
-import { codeProblem, codeReady, openInAppLink, PairPage, pairIntro, pairsAutomatically, pairTitle, unencryptedPublic } from "./PairPage";
+import { codeProblem, codeReady, openInAppLink, PairPage, pairsAutomatically, pairTitle, unencryptedPublic } from "./PairPage";
 import en from "../locales/en.json";
 
 const code = "ABCD-EFGH-JK23";
@@ -52,10 +52,7 @@ it("a browser keeps the code in the form for the person to confirm", () => {
 });
 
 it("explains how to pair with this server", () => {
-  expect(pairIntro({ mode: "code", sent: false, email: "" })).toContain("from the server");
-  expect(pairIntro({ mode: "email", sent: true, email: "a@b.test" })).toContain("a@b.test");
-  expect(pairTitle({ environmentId: "e", label: "Acme Labs", platform: "linux", version: "1", capabilities: { remoteSessions: true, selfUpdate: "operator" } }, "email")).toBe("Sign in to Acme Labs");
-  expect(pairTitle(null, "code")).toBe("Connect to this MausBot");
+  expect(pairTitle(null)).toBe("Connect to this MausBot");
 });
 
 it("names a wrong kind of code instead of letting it be sent as a wrong one", () => {
@@ -78,7 +75,7 @@ it("warns only on plain http across the open internet", () => {
   expect(unencryptedPublic({ protocol: "https:", hostname: "maus.example.com" })).toBe(false);
 });
 
-it("asks for the code first, with email sign-in as a link below, and says how to get a code", async () => {
+it("offers only device pairing even for an old invitation", async () => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("location", { replace: () => {}, protocol: "http:", hostname: "203.0.113.9", origin: "http://203.0.113.9:8799" });
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ environmentId: "e", label: "hetzner-1", platform: "linux", version: "1", capabilities: { emailSignIn: true } }) }));
@@ -87,5 +84,6 @@ it("asks for the code first, with email sign-in as a link below, and says how to
   expect(html).toContain(en["pair.fromLink"]);
   expect(html).toContain("openmausbot://pair?address=http%3A%2F%2F203.0.113.9%3A8799&amp;code=ABCD-EFGH-JK23");
   expect(html).toContain("npx openmausbot pair");
+  expect(html).not.toContain('type="email"');
   expect(html.indexOf("<form")).toBeLessThan(html.indexOf(en["pair.code"]));
 });

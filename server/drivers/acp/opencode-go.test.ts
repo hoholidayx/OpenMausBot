@@ -493,7 +493,7 @@ describe("OpenCode catalog", () => {
     }
   });
 
-  it("is wired in index.ts before the first catalog probe, with the sign-in list", () => {
+  it("is wired in index.ts before the first catalog probe, including legacy shared installations", () => {
     const source = readFileSync(new URL("../../index.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const wired = source.indexOf("setOpenCodeProviderKeyPolicy(openCodeKeysAllowed);");
     const firstLoad = source.indexOf("await registry.load(providerConfigs());");
@@ -501,9 +501,9 @@ describe("OpenCode catalog", () => {
     expect(firstLoad).toBeGreaterThan(wired);
     expect(source.match(/setOpenCodeProviderKeyPolicy\(/g)).toHaveLength(1);
     const policy = source.slice(source.indexOf("const openCodeKeysAllowed = "), wired);
-    expect(policy).toContain("sharedSignIn: sharedSignIn(signInAllowList())");
-    expect(policy).toContain("cloudHome: Boolean(CLOUD_HOME)");
-    expect(policy).toContain("hostedWorkspace: HOSTED_WORKSPACE");
+    expect(policy).toContain("sharedSignIn: wasShared");
+    expect(policy).toContain("cloudHome: false");
+    expect(policy).toContain("hostedWorkspace: false");
     expect(policy).toContain("organisationManaged: false");
   });
 

@@ -3,22 +3,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { StoreProvider, type Bot } from "@/state/store";
-import { formFromVisibility, mixedRooms, visibilityFromForm, VisibilitySection } from "./VisibilitySection";
+import { visibilityMode, mixedRooms, VisibilitySection } from "./VisibilitySection";
 
 const render = (target: Bot) => renderToStaticMarkup(createElement(StoreProvider, null, createElement(VisibilitySection, { bot: target })));
 
 const bot = (visibility?: Bot["visibility"]) => ({ id: "b1", name: "Payroll", visibility } as unknown as Bot);
 
 describe("bot visibility form", () => {
-  it("round-trips the three settings", () => {
-    expect(formFromVisibility(undefined)).toEqual({ mode: "everyone", people: "" });
-    expect(formFromVisibility("everyone")).toEqual({ mode: "everyone", people: "" });
-    expect(formFromVisibility("admins")).toEqual({ mode: "admins", people: "" });
-    expect(formFromVisibility({ people: ["ada@example.test", "@acme.test"] })).toEqual({ mode: "people", people: "ada@example.test\n@acme.test" });
-    expect(visibilityFromForm("everyone", "ignored")).toEqual({ ok: true, visibility: "everyone" });
-    expect(visibilityFromForm("admins", "")).toEqual({ ok: true, visibility: "admins" });
-    expect(visibilityFromForm("people", " Ada@Example.test,\n@acme.test ; ada@example.test ")).toEqual({ ok: true, visibility: { people: ["ada@example.test", "@acme.test"] } });
-    expect(visibilityFromForm("people", " \n ")).toEqual({ ok: false });
+  it("maps existing email audiences to restricted device access", () => {
+    expect(visibilityMode(undefined)).toBe("everyone");
+    expect(visibilityMode("everyone")).toBe("everyone");
+    expect(visibilityMode("admins")).toBe("admins");
+    expect(visibilityMode({ people: ["ada@example.test"] })).toBe("admins");
   });
 
   it("names the rooms this bot shares with bots other people can see", () => {
@@ -38,11 +34,11 @@ describe("bot visibility form", () => {
     expect(mixedRooms(bots[1]!, groups, bots).map((room) => room.id)).toEqual(["g1", "g4"]);
   });
 
-  it("renders the stored choice, with the list when it names people", () => {
+  it("shows a restricted audience without an email editor", () => {
     const people = render(bot({ people: ["ada@example.test"] }));
-    expect(people).toContain("Only these people");
-    expect(people).toMatch(/checked="" value="people"/);
-    expect(people).toContain("ada@example.test</textarea>");
+    expect(people).not.toContain("ada@example.test");
+    expect(people).toMatch(/checked="" value="admins"/);
+    expect(people).not.toContain("<textarea");
     const everyone = render(bot());
     expect(everyone).toMatch(/checked="" value="everyone"/);
     expect(everyone).not.toContain("<textarea");

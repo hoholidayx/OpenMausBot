@@ -70,7 +70,6 @@ export interface BotMessageRouteDeps {
   directTurnDispatchClaims: { get(threadId: string): { threadId: string } | undefined };
   groupSpeakers: ReadonlyMap<string, { botId: string }>;
   desktopManaged: boolean;
-  cloudHome: boolean;
   DirectSendRefused: abstract new (...args: never[]) => { readonly status: number; readonly body: Record<string, unknown> };
   acceptDirectSend(input: DirectSendInput, guardedStart?: (currentAtStart: BotRecord) => Promise<DirectSendReceipt>): Promise<DirectSendReceipt>;
   directSendRefusal(botId: string, threadId: string): { status: number; body: Record<string, unknown> } | null;
@@ -82,8 +81,6 @@ export interface BotMessageRouteDeps {
   invalidateContext(threadId: string): void;
   usageTriggerFor(auth: RequestAuth): UsageTrigger;
   messageSender(auth: RequestAuth): ResolvedSender | undefined;
-  cloudGuestSendRefusal(auth: RequestAuth, threadId: string): string | null;
-  cloudThreadRefusal(auth: RequestAuth, threadId: string): string | null;
   cardAnswerRefusal(auth: RequestAuth, threadId: string, requestId: string, behavior: string): string | null;
   commandRememberRefusal(auth: RequestAuth, threadId: string, requestId: string, behavior: string): string | null;
   requestBehavior(value: unknown): Behavior | null;
@@ -171,8 +168,8 @@ const guardedSendSchema = z.object({
 export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler {
   const {
     store, registry, handoffs, liveTurn, phoneSecretSubmissions, directTurnDispatchClaims, groupSpeakers,
-    desktopManaged: DESKTOP_MANAGED, cloudHome: CLOUD_HOME, DirectSendRefused,
-    acceptDirectSend, directSendRefusal, startTurn, usageTriggerFor, messageSender, cloudGuestSendRefusal, cloudThreadRefusal,
+    desktopManaged: DESKTOP_MANAGED, DirectSendRefused,
+    acceptDirectSend, directSendRefusal, startTurn, usageTriggerFor, messageSender,
     cardAnswerRefusal, commandRememberRefusal, requestBehavior, requestedTaskBot, botForThread, threadBusy,
     botAtThreadCapacity, parksBehindCoordination, activeGroupTurnForBot, runningTurnInstance, engineSteersImages, resolveReplyTarget,
     turnSelection, policyModelRefusal, clearUnattended, drainQueuedSends, answeringCardAs, resolveAndSendTrust, resolveAndSendTeamSetup, resolveAndSendMcp,
@@ -239,8 +236,6 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       }
       const threadId = body.threadId ?? bot.threadId;
       if ((pressed || fromAnApp) && store.groupByThread(threadId)) return json(res, 409, { error: ROOM_VIEW_ONLY });
-      const notYours = cloudGuestSendRefusal(auth, threadId);
-      if (notYours) return json(res, 403, { error: notYours });
       if (body.mode !== undefined && body.mode !== "chat" && body.mode !== "goal") return json(res, 400, { error: "mode must be chat or goal" });
       if (body.mode === "goal") {
         if (deps.dotsDirect && !deps.dotsDirect(auth, bot, threadId, false)) return json(res, 403, { error: "Dots accepts direct chat or delegated work." });
@@ -481,8 +476,6 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       const body = await readBody(req);
       requirePinnedClientThread(m[1], body?.threadId);
       const bot = requestedTaskBot(m[1], body?.threadId);
-      const notYours = cloudThreadRefusal(auth, bot.threadId);
-      if (notYours) return json(res, 403, { error: notYours });
       const compacted = await deps.compactContext(bot);
       return json(res, 202, { ok: true, compacted, threadId: bot.threadId });
     }
@@ -492,8 +485,6 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       const body = await readBody(req);
       requirePinnedClientThread(m[1], body?.threadId);
       const bot = requestedTaskBot(m[1], body?.threadId);
-      const notYours = cloudThreadRefusal(auth, bot.threadId);
-      if (notYours) return json(res, 403, { error: notYours });
       // Synchronous from here: startTurn flips busy before the next request, so a turn cannot slip past this check.
       if (threadBusy(bot.id, bot.threadId)) return json(res, 409, userError("serverError.chat.busyFresh"));
       if (phoneSecretSubmissions.hasThread(bot.threadId)) return json(res, 409, userError("serverError.chat.savingCredential"));
@@ -507,8 +498,6 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       const body = await readBody(req);
       requirePinnedClientThread(m[1], body?.threadId);
       const bot = requestedTaskBot(m[1], body.threadId);
-      const notYours = owners.decidesRetry(bot.threadId) ? null : cloudThreadRefusal(auth, bot.threadId);
-      if (notYours) return json(res, 403, { error: notYours });
       const textRefused = messageTextRefusal(body.text);
       if (textRefused) return json(res, 400, { error: textRefused });
       const text = String(body.text ?? "").trim();
@@ -550,8 +539,7 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       const quoted = source.replyToId ? resolveReplyTarget(bot.threadId, source.replyToId) : undefined;
       const replyTo: ReplyTarget | undefined = quoted && source.reaction && text === source.text ? { ...quoted, reactedWith: source.reaction } : quoted;
       const dataContext = parseDataContext(body.dataContext) ?? (text === source.text ? source.dataContext : undefined);
-      const message = await startTurn(bot.id, text, { threadId: bot.threadId, editedMessageId: messageId, replyTo, sendId, trigger: usageTriggerFor(auth), dataContext,
-        ...(CLOUD_HOME ? { sender: messageSender(auth) } : {}) });
+      const message = await startTurn(bot.id, text, { threadId: bot.threadId, editedMessageId: messageId, replyTo, sendId, trigger: usageTriggerFor(auth), dataContext });
       return json(res, 202, { ok: true, message });
     }
 
@@ -560,8 +548,6 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       const body = await readBody(req);
       requirePinnedClientThread(m[1], body?.threadId);
       const bot = requestedTaskBot(m[1], body.threadId);
-      const notYours = cloudThreadRefusal(auth, bot.threadId);
-      if (notYours) return json(res, 403, { error: notYours });
       if (threadBusy(bot.id, bot.threadId)) return json(res, 409, userError("serverError.chat.busyVersion"));
       if (phoneSecretSubmissions.hasThread(bot.threadId)) {
         return json(res, 409, userError("serverError.chat.savingCredential"));

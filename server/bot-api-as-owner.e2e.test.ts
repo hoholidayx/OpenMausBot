@@ -92,17 +92,4 @@ it("runs a marked key's thread at the bot's level as the owner's work, keeps the
   const activity = () => readdirSync(join(dataDir, "admin-activity")).map((name) => readFileSync(join(dataDir, "admin-activity", name), "utf8")).join("\n");
   await expect.poll(activity, { timeout: 5_000 }).toContain("bot-api.acts-as-owner.off");
   expect(activity()).toContain("bot-api.acts-as-owner.on");
-
-  // Only on one person's server, read live: a second admin, or a whole domain as admin, switches the mark off at once,
-  // and it is back when the server is one person's again.
-  expect(await api("POST", `/api/bots/${bot.id}/bot-api/acts-as-owner`, { enabled: true })).toMatchObject({ actsAsOwner: true });
-  const status = async () => (await api("GET", `/api/bots/${bot.id}/bot-api`)) as { actsAsOwner: boolean; mayActAsOwner: boolean };
-  await api("PUT", "/api/config", { signIn: { admins: ["one@example.test"] } });
-  expect(await status()).toMatchObject({ actsAsOwner: true });
-  await api("PUT", "/api/config", { signIn: { admins: ["one@example.test", "two@example.test"] } });
-  expect(await status()).toMatchObject({ actsAsOwner: false, mayActAsOwner: false });
-  await api("PUT", "/api/config", { signIn: { admins: ["@example.test"] } });
-  expect(await status()).toMatchObject({ actsAsOwner: false, mayActAsOwner: false });
-  await api("PUT", "/api/config", { signIn: { admins: [] } });
-  expect(await status()).toMatchObject({ actsAsOwner: true });
 }, hostTimeout(120_000));

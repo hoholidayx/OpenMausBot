@@ -8,18 +8,10 @@ import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import type { BotVisibility } from "../../../shared/wire";
 import { useTeamName } from "../bot-access/ShareBotButton";
 
-export type VisibilityMode = "everyone" | "admins" | "people";
+export type VisibilityMode = "everyone" | "admins";
 
-export function formFromVisibility(visibility: BotVisibility | undefined): { mode: VisibilityMode; people: string } {
-  if (!visibility || visibility === "everyone") return { mode: "everyone", people: "" };
-  if (visibility === "admins") return { mode: "admins", people: "" };
-  return { mode: "people", people: visibility.people.join("\n") };
-}
-
-export function visibilityFromForm(mode: VisibilityMode, people: string): { ok: true; visibility: BotVisibility } | { ok: false } {
-  if (mode !== "people") return { ok: true, visibility: mode };
-  const entries = [...new Set(people.split(/[\s,;]+/).map((entry) => entry.trim().toLowerCase()).filter(Boolean))];
-  return entries.length ? { ok: true, visibility: { people: entries } } : { ok: false };
+export function visibilityMode(visibility: BotVisibility | undefined): VisibilityMode {
+  return !visibility || visibility === "everyone" ? "everyone" : "admins";
 }
 
 export function audienceKey(visibility: BotVisibility | undefined): string {
@@ -43,10 +35,9 @@ export function mixedRooms(
     .map((group) => ({ id: group.id, name: group.name }));
 }
 
-const OPTIONS: Array<{ mode: VisibilityMode; key: "botSettings.visibility.everyone" | "botSettings.visibility.admins" | "botSettings.visibility.people" }> = [
+const OPTIONS: Array<{ mode: VisibilityMode; key: "botSettings.visibility.everyone" | "botSettings.visibility.admins" }> = [
   { mode: "everyone", key: "botSettings.visibility.everyone" },
   { mode: "admins", key: "botSettings.visibility.admins" },
-  { mode: "people", key: "botSettings.visibility.people" },
 ];
 
 export function useChoosesVisibility(): boolean {
@@ -57,27 +48,21 @@ export function useChoosesVisibility(): boolean {
 }
 
 export function visibilityLabel(visibility: BotVisibility | undefined): string {
-  const { mode } = formFromVisibility(visibility);
+  const mode = visibilityMode(visibility);
   return t(OPTIONS.find((option) => option.mode === mode)!.key);
 }
 
 export function VisibilitySection({ bot }: { bot: Bot }) {
   const { state } = useStore();
   const mixed = mixedRooms(bot, state.groups, state.bots);
-  const saved = formFromVisibility(bot.visibility);
-  const [mode, setMode] = useState<VisibilityMode>(saved.mode);
-  const [people, setPeople] = useState(saved.people);
+  const saved = visibilityMode(bot.visibility);
+  const [mode, setMode] = useState<VisibilityMode>(saved);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<"saved" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const dirty = mode !== saved.mode || (mode === "people" && people.trim() !== saved.people.trim());
+  const dirty = mode !== saved;
 
-  const storedKey = JSON.stringify(bot.visibility ?? "everyone");
-  useEffect(() => {
-    const next = formFromVisibility(JSON.parse(storedKey) as BotVisibility);
-    setMode(next.mode);
-    setPeople(next.people);
-  }, [bot.id, storedKey]);
+  useEffect(() => { setMode(saved); }, [bot.id, saved]);
 
   const resetRoom = async (groupId: string) => {
     setBusy(true);
@@ -92,16 +77,11 @@ export function VisibilitySection({ bot }: { bot: Bot }) {
   };
 
   const save = async () => {
-    const value = visibilityFromForm(mode, people);
-    if (!value.ok) {
-      setError(t("botSettings.visibility.needPeople"));
-      return;
-    }
     setBusy(true);
     setError(null);
     setStatus(null);
     try {
-      await api(`/api/bots/${bot.id}`, { method: "PATCH", body: JSON.stringify({ visibility: value.visibility }) });
+      await api(`/api/bots/${bot.id}`, { method: "PATCH", body: JSON.stringify({ visibility: mode }) });
       setStatus("saved");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -128,19 +108,6 @@ export function VisibilitySection({ bot }: { bot: Bot }) {
           </label>
         ))}
       </div>
-      {mode === "people" && (
-        <label className="flex flex-col gap-1 text-[12px] text-ink-secondary">
-          {t("botSettings.visibility.peopleLabel")}
-          <textarea
-            value={people}
-            onChange={(e) => { setPeople(e.target.value); setStatus(null); }}
-            placeholder={t("botSettings.visibility.peoplePlaceholder")}
-            rows={4}
-            disabled={busy}
-            className="rounded-lg border border-hairline/40 bg-inset px-3 py-2 font-mono text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
-          />
-        </label>
-      )}
       <p className="text-[12px] leading-relaxed text-ink-secondary">{t("botSettings.visibility.rooms")}</p>
       {mixed.length > 0 && (
         <div className="flex flex-col gap-2 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2 text-[12px] leading-relaxed text-ink-secondary" data-visibility-mixed-rooms>

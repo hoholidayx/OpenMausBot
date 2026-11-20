@@ -47,10 +47,15 @@ export class DotsInbox {
     this.threadId = String(identity.thread);
   }
 
-  ownerMatches(key: string) {
+  ownerMatches(key: string, legacyKey?: string | null) {
     const digest = createHash("sha256").update(key).digest("hex");
     const owner = this.db.prepare("SELECT digest FROM binding_owner WHERE singleton=1").get();
-    if (owner) return owner.digest === digest;
+    if (owner) {
+      if (owner.digest === digest) return true;
+      if (!legacyKey || owner.digest !== createHash("sha256").update(legacyKey).digest("hex")) return false;
+      return this.db.prepare("UPDATE binding_owner SET digest=? WHERE singleton=1 AND digest=?").run(digest, owner.digest).changes === 1;
+    }
+    if (legacyKey === null) return false;
     this.db.prepare("INSERT INTO binding_owner VALUES(1,?)").run(digest);
     return true;
   }

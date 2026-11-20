@@ -4,7 +4,7 @@ import { setLocale } from "@/lib/i18n";
 import ptBr from "@/locales/pt-br.json";
 import { api, ApiError } from "@/state/api";
 import { saveLoginFromCard } from "./logins";
-import { pairWithCode, startEmailSignIn } from "./session";
+import { pairWithCode } from "./session";
 import { serverErrorText } from "./server-error";
 
 const WRONG = "pairing code is wrong or has expired; create a new one on the server";
@@ -69,8 +69,6 @@ describe("a refusal the server names by key", () => {
     setLocale("pt-br");
     expect(await pairWithCode({ code: "AAAA-BBBB-CCCC", label: "Phone" }, respond(401, { error: WRONG, errorKey: "serverError.pair.codeWrong" })))
       .toEqual({ ok: false, error: ptBr["serverError.pair.codeWrong"] });
-    expect(await startEmailSignIn("x", respond(400, { error: "enter a valid email address", errorKey: "serverError.email.invalid" })))
-      .toEqual({ ok: false, error: ptBr["serverError.email.invalid"] });
     setLocale("en");
     expect(await pairWithCode({ code: "AAAA-BBBB-CCCC", label: "Phone" }, respond(401, { error: WRONG, errorKey: "serverError.pair.codeWrong" })))
       .toEqual({ ok: false, error: WRONG });

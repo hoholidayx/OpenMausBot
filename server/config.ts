@@ -1,8 +1,7 @@
 // ~/.openmausbot/config.json, with env vars overriding its credentials.
 import { readFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
 import { dataHome } from "./data-dir.ts";
-import { signInFromEnv } from "./sign-in-env.ts";
-export { signInFromEnv };
+import { legacyOwnerKey } from "./sign-in-env.ts";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
@@ -692,6 +691,11 @@ export function ensureDirs() {
 let lastIgnoredConfigWarning = "";
 const storedConfig = settledFileCache(() => join(DATA_DIR, "config.json"), () => parseStoredConfig(parseJson(readFileSync(join(DATA_DIR, "config.json"), "utf8"))));
 
+export function legacySignInOwner(): string | null {
+  try { return legacyOwnerKey(storedConfig.read().signIn); }
+  catch (error) { return (error as NodeJS.ErrnoException)?.code === "ENOENT" ? legacyOwnerKey() : null; }
+}
+
 export function loadConfig(): AppConfig {
   let cfg: AppConfig = {};
   try {
@@ -748,8 +752,6 @@ export function loadConfig(): AppConfig {
   if (process.env.OMB_OPENAI_IMAGE_KEY !== undefined) cfg.imageGen.key = process.env.OMB_OPENAI_IMAGE_KEY;
   if (process.env.OMB_CUSTOM_IMAGE_KEY !== undefined) cfg.imageGen.customApiKey = process.env.OMB_CUSTOM_IMAGE_KEY;
   if (process.env.OMB_GEMINI_IMAGE_KEY !== undefined) cfg.imageGen.geminiKey = process.env.OMB_GEMINI_IMAGE_KEY;
-  const signInEnv = signInFromEnv();
-  if (signInEnv.admins || signInEnv.members) cfg.signIn = { ...cfg.signIn, ...signInEnv };
   return cfg;
 }
 

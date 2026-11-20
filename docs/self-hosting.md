@@ -180,7 +180,7 @@ npx openmausbot pair
 | `tailscale: HTTPS certificates are off for this tailnet, so this server listens on http://…` | Tailscale can't serve HTTPS yet, so the server listens on its own tailnet address. It works, and only your tailnet reaches it. | For an `https://` address, turn on HTTPS certificates at https://login.tailscale.com/admin/dns, then run `serve --tailscale` again. |
 | `No MausBot server is running here. Start it: … serve` | `pair` found no server on this port. | Start it, or pass the server's `--port` and `--data-dir`. |
 | `Get a pairing code: openmausbot pair` and no code | The server runs as a service or under `docker compose logs`, where codes stay out of logs. | Run that command in a terminal. |
-| "This shared server takes no pairing commands from this machine." | The server runs with `OMB_LOOPBACK_TRUST=service`. | Let people sign in with their email (`openmausbot access add you@example.com`), or pair from a signed-in admin's Settings. |
+| "This shared server takes no pairing commands from this machine." | The server runs with `OMB_LOOPBACK_TRUST=service`. | Pair from the owner’s device settings or start `openmausbot serve` in an interactive terminal. |
 
 ## Reference
 
@@ -890,12 +890,11 @@ local requests: service trust
 
 Under `service`, everything else from loopback needs a real session and
 answers 403: settings and keys (`/api/config`), instances, MCP servers,
-webhooks, sessions and pairing, people and sign-in lists, usage,
+webhooks, sessions and pairing, usage,
 the decision log, workspace backups, creating or loosening bots, and
-approving or answering any card. Email and pairing sessions retain their own scopes.
+approving or answering any card. Pairing sessions retain their own scopes.
 
-Set `OMB_LOOPBACK_TRUST=service` on a self-hosted server people share (with
-an email sign-in list, for example). The desktop app uses its own per-launch capability to authorize local changes.
+Set `OMB_LOOPBACK_TRUST=service` to restrict unauthenticated local processes to service routes. The desktop app uses its own per-launch capability to authorize local changes.
 
 With `service` on a self-hosted server:
 
@@ -904,12 +903,10 @@ With `service` on a self-hosted server:
   its environment, which every engine inherits), and that secret opens the
   pairing route for that CLI alone. Pass `--no-pair` to skip the code; if
   the server refuses one anyway, `serve` says why and keeps running. Not in
-  a terminal (a service), it prints no code and points at email sign-in.
+  a terminal (a service), it prints no code.
 - `openmausbot pair` and `openmausbot devices`, run later from another
   terminal, are refused like any other admin change and say so. Pair from
-  the server's Settings while signed in as an admin, or let people sign
-  in with their email (`openmausbot access add you@example.com`, which edits
-  the sign-in list on disk).
+  Phone & devices on an already paired owner device, or restart `serve` in an interactive terminal.
 - A browser on an SSH tunnel gets the sign-in page instead of the app.
 - The MCP server script works with `OPENMAUSBOT_TOKEN` set to a paired session.
 
@@ -928,108 +925,28 @@ have Full access. Files the server's user owns (`config.json`, the engine's
 environment) are also still readable from a bot's shell; that needs a
 second user for engines, a separate change.
 
-## Sign in with your email
+## Local owner and paired devices
 
-A pairing code is fine for the owner's own devices. For a workspace other
-people use every day, let them sign in with an emailed code instead: set an
-allow-list, and `/pair` on your server offers "Sign in with your email" first.
+Each installation has one owner. Its `userId` is derived from the persistent
+`environment-id` in its data directory. The desktop and full-access paired
+devices use the same ID across restarts and profile edits. Each device keeps
+its own revocable session. Chat-only devices and script tokens retain their
+own scopes. Use `openmausbot pair` to connect another device and
+`openmausbot devices` to review or revoke sessions.
 
-```sh
-OMB_SIGNIN_EMAILS="her@yourcompany.com, @yourcompany.com"   # full access
-OMB_SIGNIN_MEMBER_EMAILS="freelancer@example.com"          # chat and approvals only
-```
-
-Signed in as an admin? Settings → Remote access → **Who can sign in with an
-email** edits the same list in the browser, no command line needed. With the
-npm package, the same thing from the command line, with the server running
-or not, no restart needed:
-
-```sh
-npx openmausbot access add her@yourcompany.com
-npx openmausbot access add freelancer@example.com --chat-only
-npx openmausbot access list
-```
-
-An entry is an address or `@domain` (everyone at that domain). Admins get
-the same access as a pairing code from `openmausbot serve`; users get the
-chat-only scope, the same as `openmausbot pair --phone`. The same lists live
-in `config.json` under `signIn.admins` and `signIn.members` and can be changed
-through the settings API without a restart. An environment variable that
-names someone wins over its list, which is how a container or a service unit
-is bootstrapped; while it does, Settings refuses to change that list and says
-which variable to change instead. One that is empty, as `.env.example` and the
-Compose files leave them, leaves the list to Settings.
-
-The code itself comes from `accounts.openmausbot.com`, the OpenMausBot
-account service, so your server needs no email credentials. Your server asks
-it to send the code, checks the answer, and then issues its own session
-cookie: the browser only ever talks to your server, and who is welcome is
-decided only by your allow-list. Wrong codes count against a lockout of
-their own: ten in a minute from one address pause sign-in there for a minute. Sessions from a sign-in show the email in
-`openmausbot devices` and can be revoked the same way.
-
-To send the codes through your own mail server instead, so nobody signs in
-through the account service and no MausBot account is made, give the server
-an SMTP address:
-
-```sh
-OMB_SIGNIN_SMTP_URL="smtps://signin%40yourcompany.com:PASSWORD@smtp.yourcompany.com:465"
-OMB_SIGNIN_SMTP_FROM="OpenMausBot <signin@yourcompany.com>"   # else the user name, if it is an address
-```
-
-`smtps://` uses TLS from the start (port 465); `smtp://` upgrades with
-STARTTLS (port 587) and refuses a server that cannot, unless the mail server
-is on this machine (`smtp://localhost:25`). Write the user name and password
-URL-encoded (`@` is `%40`). Your server then makes each code itself: 8 digits,
-single use, ten minutes and five tries, kept only as a hash in memory (a
-restart ends the open ones), and at most one every 30 seconds per address.
-The allow-list, the lockout and the sessions work as above. Keep the URL in
-the service's environment file, never on a command line.
-
-### Inviting people
-
-**Settings → People** lists who may sign in, their role, when they were last
-seen, and what each person spent this month. **Invite** adds an address (or
-`@company.com` for everyone there) and shows a link like
-`https://your.host/pair?email=name%40company.com`: it opens the sign-in page
-with the address filled in, and the one-time code still goes to that address.
-Roles change with one click; removing someone stops new sign-ins.
-
-### Who may answer a card
-
-Approval cards are the provider's own (see the approval modes); OpenMausBot
-adds none. On a workspace several people share — portal membership, or an
-email sign-in list that names users — it narrows only whose answer counts,
-and only when the card can be traced to a person:
-
-- a card for a request a user sent, or in a thread a user opened, is
-  theirs to answer (admins and the owner may answer any card);
-- a thread a bot opened while working on someone's request (a job it handed
-  a teammate with `coordinate_bots`) is traced back to that person, so the cards of work done
-  for them are theirs too;
-- a card that names nobody — sent by the owner on this machine, by a
-  routine or webhook, from Slack (until Slack passes the asker through), or
-  in a thread from before this existed — may be answered by any user, as
-  before;
-- a session-less local caller under `service` trust may only decline.
-
-On a workspace with one person, anyone who can chat may answer, as before.
-Each answered card records who answered it (`card.answeredBy`), and so does
-its row in the decision log. Who a thread was opened for is kept in a
-server-private file (`<data dir>/thread-starters.json`), never sent to clients.
+When upgrading from email sign-in, email sessions expire. On an installation
+whose old access list included members, multiple admins, or a whole domain, or whose stored sessions show a former member,
+all previously issued devices and script tokens must be paired or issued
+again. Shared sign-in history also keeps automatic computer lending, owner-mode API keys and Dots inbox adoption disabled across restarts. Personal installations keep existing device pairings. Historical chats
+and approval records retain their original attribution. Email invitations and
+`openmausbot access` are retired.
 
 ### Who can see a bot
 
-On a workspace several people share, an admin can limit who sees a bot:
-**Bot settings → Who can see it** (in the browser, for admins), or when
-creating it — **New bot** offers the same choice, and `POST /api/bots` and
-`POST /api/teams/import?visibility=…` take it — so a bot for a sensitive job
-is never shown to everyone first. Over the API it is `visibility`:
-
-- `"everyone"` — every signed-in person, the default and today's behaviour;
-- `"admins"` — admin sessions only;
-- `{ "people": ["ada@company.com", "@hr.company.com"] }` — the listed
-  addresses and `@domain` entries, plus admins.
+In the browser, the owner chooses **Who can see it** when creating a bot or
+in **Bot settings**. Choose **Everyone** to include chat-only devices, or
+**Admins only** to require admin scope. Legacy email audiences keep their
+stored restrictions. A chat-only pairing cannot match an old email address.
 
 It is access control, not an approval step, and it applies at once. For a
 user who may not see a bot, the server answers the bot, its threads and
@@ -1404,20 +1321,17 @@ not as a sandbox.
 
 ### Admin activity
 
-On a workspace several people share — a hosted workspace, an email sign-in
-list that names more than one person or a whole `@domain`, or a device paired
-(or a pairing code open) with chat-only access, whether before or after the
-change — every admin change is recorded beside the decision
+When a chat-only session or pairing window is active, admin changes are recorded in the decision
 log, in `<data dir>/admin-activity/YYYY-MM.ndjson` (0600), and kept for the
 same window (`decisions.retentionDays` / `OMB_DECISION_RETENTION_DAYS`; a
 quiet server prunes on a timer, and pending rows are written out at
 shutdown): settings
-(which keys changed), sign-in lists and people, pairing codes and revoked
+(which keys changed), pairing codes and revoked
 sessions, webhooks, MCP servers, engines and keys, bots created, deleted or
 given different permissions, spend limits and prices, and who can see a bot.
-Each row names who acted — the session's email or device label, `This
+Each row names who acted — the device label, `This
 computer` for the owner, `Command line` for `openmausbot` commands such as
-`openmausbot access add` — and the values before and after. Values are
+`openmausbot devices revoke` — and the values before and after. Values are
 redacted: anything under a key that names a credential, every value in a
 headers or environment map, the value after a flag such as `--api-key` or
 `-k`, URL parameters such as `?key=`, a token before a URL's host

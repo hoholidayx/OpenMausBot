@@ -152,8 +152,6 @@ export function routeRunOwners(owners: RouteRunOwners | undefined, actorOf: ((au
   const by = (auth: RequestAuth): Actor => actorOf?.(auth) ?? { admin: false };
   return {
     admin: (auth: RequestAuth) => by(auth).admin,
-    /** Where several people write, who wrote a request decides who runs it again or rewords it, not who opened the conversation. */
-    decidesRetry: (threadId: string) => owners?.shared(threadId) ?? false,
     stopRefusal: (auth: RequestAuth, threadId: string) => owners?.stopRefusal(threadId, by(auth)) ?? null,
     removeRefusal: (auth: RequestAuth, threadId: string, sender: ResolvedSender | undefined) => owners?.removeRefusal(threadId, sender, by(auth)) ?? null,
     joinRefusal: (auth: RequestAuth, threadId: string, senders: ReadonlyArray<ResolvedSender | undefined>) => owners?.joinRefusal(threadId, senders, by(auth)) ?? null,

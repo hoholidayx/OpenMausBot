@@ -42,7 +42,6 @@ settings() {
 
   MODE=install
   DOMAIN=""
-  EMAIL=""
   CODE=""
   INSTALL_DOCKER="${OMB_INSTALL_DOCKER:-}"
   SANDBOX=yes
@@ -77,7 +76,6 @@ usage() {
   say "       $(command_line '--uninstall')                        stops the server; keeps your data"
   say ""
   say "  --domain NAME      the name people will open, already pointing at this server"
-  say "  --email ADDRESS    the first admin's email, so they can sign in with an emailed code"
   say "  --install-docker   install Docker with Docker's official script when it is missing, without asking"
   say "  --dir PATH         where the install lives (default /opt/openmausbot)"
   say "  --no-sandbox       do not prepare this server for the bots' sandbox (only for a server you alone sign in to)"
@@ -91,17 +89,15 @@ parse() {
       --uninstall) MODE=uninstall ;;
       --install-docker) INSTALL_DOCKER=1 ;;
       --no-sandbox) SANDBOX=no ;;
-      --domain | --email | --dir)
+      --domain | --dir)
         [ $# -ge 2 ] || fail "$1 needs a value. $(usage)"
         case "$1" in
           --domain) DOMAIN=$2 ;;
-          --email) EMAIL=$2 ;;
           --dir) INSTALL_DIR=$2 ;;
         esac
         shift
         ;;
       --domain=*) DOMAIN=${1#--domain=} ;;
-      --email=*) EMAIL=${1#--email=} ;;
       --dir=*) INSTALL_DIR=${1#--dir=} ;;
       -h | --help)
         usage
@@ -118,12 +114,6 @@ parse() {
     *[!a-z0-9.-]* | .* | *. | -* | *..*) fail "$DOMAIN is not a domain name. Give the name alone, like maus.example.com, without https:// or a path." ;;
     *.*) ;;
     *) fail "$DOMAIN is not a full domain name. Give a name like maus.example.com." ;;
-  esac
-  case "$EMAIL" in
-    "") ;;
-    *[!A-Za-z0-9@._+-]* | *@*@*) fail "That email address doesn't look right. Give one address, like you@example.com." ;;
-    ?*@?*.?*) ;;
-    *) fail "That email address doesn't look right. Give one address, like you@example.com." ;;
   esac
   case "$CODE" in
     *[!A-Za-z0-9-]*) fail "That code doesn't look right. Copy the install command from MausBot again." ;;
@@ -395,9 +385,7 @@ check_outbound() {
     return
   fi
   ok "outbound: the image registries and Let's Encrypt are reachable"
-  if ! reachable https://accounts.openmausbot.com/; then
-    note "accounts.openmausbot.com is not reachable, so signing in with an emailed code needs a mail server of your own (OMB_SIGNIN_SMTP_URL). Pairing codes work without it."
-  fi
+
 }
 
 check_userns() {
@@ -662,8 +650,6 @@ services:
       # Passed only when .env sets them: an empty one would still be set, and Settings' own lists are used when not.
       OMB_SIGNIN_EMAILS:
       OMB_SIGNIN_MEMBER_EMAILS:
-      OMB_SIGNIN_SMTP_URL:
-      OMB_SIGNIN_SMTP_FROM:
       # "1": phones pair by QR through MausBot Relay. Sign in once: docker compose exec omb openmausbot login --relay
       OMB_PHONE_RELAY:
     healthcheck:
@@ -752,18 +738,11 @@ write_settings() {
   if [ ! -f "$INSTALL_DIR/.env" ]; then
     write_file "$INSTALL_DIR/.env" 600 <<'ENV'
 # MausBot's settings on this server. The installer sets DOMAIN, OMB_IMAGE and COMPOSE_FILE and keeps every other line.
-# Who may sign in with an emailed code: OMB_SIGNIN_EMAILS (admins) and OMB_SIGNIN_MEMBER_EMAILS, comma-separated.
 ENV
   fi
   set_env DOMAIN "$DOMAIN"
   set_env OMB_IMAGE "$IMAGE"
-  if [ -n "$EMAIL" ]; then
-    current=$(env_value OMB_SIGNIN_EMAILS)
-    case ",$(printf '%s' "$current" | tr -d ' ')," in
-      *",$EMAIL,"*) ;;
-      *) set_env OMB_SIGNIN_EMAILS "${current:+$current,}$EMAIL" ;;
-    esac
-  fi
+
 }
 
 fetch() { # path-in-the-repository destination [mode]: 1 when SOURCE does not have it
@@ -1061,10 +1040,6 @@ finish() {
     say "To sign in as the first admin, make a one-time link on this server and open it in your browser:"
     say "  $pair_command"
     [ -t 1 ] || say "(The link is not made here because this output is not a terminal: a log must not hold a link that signs in as the admin.)"
-  fi
-  admins=$(env_value OMB_SIGNIN_EMAILS)
-  if [ -n "$admins" ]; then
-    say "Or open https://$DOMAIN/pair and sign in with an emailed code as: $admins"
   fi
   say ""
   if [ -x "$INSTALL_DIR/update.sh" ]; then

@@ -99,13 +99,11 @@ async function fixture(over: Partial<Record<keyof BotMessageRouteDeps, unknown>>
     store,
     routines: () => null,
     desktopManaged,
-    cloudHome: false,
     DirectSendRefused,
     acceptDirectSend: accept,
     directSendRefusal: (botId: string, thread: string) => (store.taskByThread(botId, thread) ? null : { status: 409, body: { error: "the bot switched tasks before it could receive the message" } }),
     usageTriggerFor: () => ({ kind: "user" }),
     messageSender: () => undefined,
-    cloudGuestSendRefusal: () => null,
     resolveReplyTarget: replyTarget,
     requestedTaskBot: (botId: string, rawThreadId: unknown) => store.projectBotForTask(botId, String(rawThreadId))!,
     startTurn,
@@ -113,7 +111,6 @@ async function fixture(over: Partial<Record<keyof BotMessageRouteDeps, unknown>>
     botAtThreadCapacity: () => false,
     parksBehindCoordination: () => false,
     activeGroupTurnForBot: () => null,
-    cloudThreadRefusal: () => null,
     phoneSecretSubmissions: { hasThread: () => false },
     turnSelection: () => undefined,
     registry: { get: () => ({ instanceId: "claude", driverKind: "claudeAgent" }) },
@@ -214,24 +211,16 @@ describe("running a request again where several people write", () => {
     expect((await edit(request.id, { threadId, text: request.text })).status).toBe(202);
   });
 
-  it("decides by who wrote the request, not by who started the conversation, and after a restart cut the run off", async () => {
-    const startedByOther = { cloudThreadRefusal: () => "On this Cloud you can only change conversations you started." };
+  it("checks who wrote the request when retrying a run interrupted by a restart", async () => {
     for (const [by, text] of [[PRIYA, "Draft the launch post"], [PRIYA, "Draft the launch note"]] as const) {
-      const { store, threadId, state, edit } = await fixture({ ...team({ person: by, admin: false }), ...startedByOther });
+      const { store, threadId, state, edit } = await fixture(team({ person: by, admin: false }));
       const request = asked(store, threadId);
       store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: "turn interrupted — OpenMausBot restarted", ok: false } });
       expect((await edit(request.id, { threadId, text })).status).toBe(202);
       expect(state.started).toMatchObject([{ text, opts: { editedMessageId: request.id } }]);
     }
-    const { store, threadId, edit } = await fixture({ ...team({ person: TOM, admin: false }), ...startedByOther });
+    const { store, threadId, edit } = await fixture(team({ person: TOM, admin: false }));
     expect((await edit(asked(store, threadId).id, { threadId, text: "Draft the launch post" })).body).toEqual({ error: "Only Priya or an admin can run this request again.", code: "retry_not_yours" });
-  });
-
-  it("leaves a private chat to whoever started it", async () => {
-    const { store, threadId, state, edit } = await fixture({ ...team({ person: PRIYA, admin: false }, false), cloudThreadRefusal: () => "On this Cloud you can only change conversations you started." });
-    const request = asked(store, threadId);
-    expect(await edit(request.id, { threadId, text: request.text })).toEqual({ status: 403, body: { error: "On this Cloud you can only change conversations you started." } });
-    expect(state.started).toEqual([]);
   });
 
   it("changes nothing in a private chat or on a personal install", async () => {

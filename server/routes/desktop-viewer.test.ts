@@ -1,3 +1,4 @@
+import { pairDevice } from "../testing/paired-session.ts";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { createServer, request, type IncomingHttpHeaders, type Server } from "node:http";
@@ -22,8 +23,8 @@ let app: Server;
 let desktop: Server;
 let appPort: number;
 let desktopPort: number;
-let admin: ReturnType<SessionRegistry["issue"]>;
-let member: ReturnType<SessionRegistry["issue"]>;
+let admin: ReturnType<typeof pairDevice>;
+let member: ReturnType<typeof pairDevice>;
 let vpsTarget: DesktopTarget | undefined;
 let inspected: string[];
 let seenHeaders: IncomingHttpHeaders;
@@ -80,8 +81,8 @@ beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "omb-viewer-"));
   now = Date.now();
   sessions = new SessionRegistry({ file: join(dir, "sessions.json"), now: () => now });
-  admin = sessions.issue({ label: "Mac", scopes: ["admin", "client"] });
-  member = sessions.issue({ label: "Member", scopes: ["client"] });
+  admin = pairDevice(sessions, { label: "Mac", scopes: ["admin", "client"] });
+  member = pairDevice(sessions, { label: "Member", scopes: ["client"] });
   inspected = []; touched = []; statusOverrides = {}; inspection = undefined; seenPath = undefined;
   vpsTarget = undefined;
   targetLookups = 0; handled = () => {};

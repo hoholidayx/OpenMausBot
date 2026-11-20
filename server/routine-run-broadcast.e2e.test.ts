@@ -1,3 +1,4 @@
+import { pairDevice } from "./testing/paired-session.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -82,8 +83,8 @@ posixOnly("a routine run's task on the event stream", () => {
       signIn: { admins: [OWNER], members: [] },
       instances: { grok: { driver: "grokAgent", config: { cli: FAKE_CLI, fullAuto: false } } },
     }));
-    const registry = new SessionRegistry({ file: join(data, "sessions.json"), emailScopes: () => ["admin", "client"] });
-    token = registry.issue({ label: "Owner's laptop", email: OWNER, scopes: ["admin", "client"] }).token;
+    const registry = new SessionRegistry({ file: join(data, "sessions.json") });
+    token = pairDevice(registry, { label: "Owner's laptop", scopes: ["admin", "client"] }).token;
     registry.close();
 
     child = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {

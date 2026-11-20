@@ -1,3 +1,4 @@
+import { pairDevice } from "./testing/paired-session.ts";
 import { createCipheriv, createHash, randomBytes, scryptSync } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -478,13 +479,13 @@ describe("encrypted full workspace backups", () => {
     }
   });
 
-  it("leaves the destination's session open-marker in place, so a crash before a restore still ends account sign-ins", async () => {
+  it("leaves the destination's session open-marker in place, and preserves the destination owner device", async () => {
     const source = directory(), target = directory();
     json(join(source, "bots.json"), [{ id: "bot" }]);
     writeFileSync(join(source, "sessions.json.open"), "Session registry is open.\n");
     const exported = await createWorkspaceBackup(source, { password: PASSWORD });
     const sessions = new SessionRegistry({ file: join(target, "sessions.json") });
-    sessions.issue({ label: "Member", scopes: ["client"], userId: "user-1" });
+    const device = pairDevice(sessions, { label: "Owner laptop", scopes: ["admin", "client"] });
     expect(existsSync(join(target, "sessions.json.open"))).toBe(true);
     const staged = await stageWorkspaceBackup(target, exported.path, { password: PASSWORD });
     expect(readJson(join(target, ".backups", staged.id, "staged", "manifest.json")).entries.map((entry: { path: string }) => entry.path)).not.toContain("sessions.json.open");
@@ -492,7 +493,7 @@ describe("encrypted full workspace backups", () => {
     expect(applyPendingWorkspaceRestore(target)).toMatchObject({ restored: true });
     expect(existsSync(join(target, "sessions.json.open"))).toBe(true);
     expect(existsSync(join(target, ".backups", `safety-${staged.id}`, "data", "sessions.json.open"))).toBe(false);
-    expect(new SessionRegistry({ file: join(target, "sessions.json") }).list()).toEqual([]);
+    expect(new SessionRegistry({ file: join(target, "sessions.json") }).authenticate(device.token)?.userId).toBe(sessions.userId);
   });
 
   it("never lets tar decompress a payload: zstd is refused like gzip", async () => {

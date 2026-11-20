@@ -9,8 +9,6 @@ import {
   pairWithCode,
   readSessionState,
   reasonWorthShowing,
-  startEmailSignIn,
-  verifyEmailSignIn,
   type EnvironmentDescriptor,
   type SessionState,
 } from "../lib/session";
@@ -26,11 +24,6 @@ const fieldLabel = "mt-4 block text-[12px] font-medium text-ink-secondary";
 /** Only the desktop app pairs from a link at once; a browser asks, so a sent link cannot sign it in unseen. */
 export function pairsAutomatically(initialCode: string | null, desktop = typeof window !== "undefined" && Boolean(window.ogb?.workspaces)): boolean {
   return Boolean(initialCode) && desktop;
-}
-
-export function pairIntro({ mode, sent, email }: { mode: "email" | "code" | null; sent: boolean; email: string }): string {
-  if (mode === "email") return sent ? t("pair.intro.emailSent", { email }) : t("pair.intro.email");
-  return t("pair.intro.code");
 }
 
 /** The sentence for a wrong kind of code (an email's sign-in code, an old six-digit code, a script key), else null. */
@@ -56,11 +49,11 @@ export function unencryptedPublic(where: { protocol: string; hostname: string })
   return where.protocol === "http:" && !isPrivateHost(where.hostname);
 }
 
-export function pairTitle(environment: EnvironmentDescriptor | null, mode: "email" | "code" | null): string {
-  return t(mode === "email" ? "pair.signInTo" : "pair.connectTo", { name: environment?.label ?? t("pair.thisOpenMausBot", { app: productName() }) });
+export function pairTitle(environment: EnvironmentDescriptor | null): string {
+  return t("pair.connectTo", { name: environment?.label ?? t("pair.thisOpenMausBot", { app: productName() }) });
 }
 
-export function PairPage({ initialCode, initialEmail = null, reason }: { initialCode: string | null; initialEmail?: string | null; reason?: string }) {
+export function PairPage({ initialCode, reason }: { initialCode: string | null; reason?: string }) {
   const [code, setCode] = useState(initialCode ?? "");
   const [label, setLabel] = useState(defaultDeviceLabel());
   const [environment, setEnvironment] = useState<EnvironmentDescriptor | null>(null);
@@ -68,10 +61,6 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attemptId, setAttemptId] = useState(() => newAttemptId());
-  const [mode, setMode] = useState<"email" | "code">(initialEmail && !initialCode ? "email" : "code");
-  const [email, setEmail] = useState(initialEmail ?? "");
-  const [otp, setOtp] = useState("");
-  const [sent, setSent] = useState(false);
   const [opening, setOpening] = useState(() => pairsAutomatically(initialCode));
 
   useEffect(() => {
@@ -100,7 +89,6 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
   }, []);
 
   const connected = isConnected(session);
-  const emailOffered = environment?.capabilities.emailSignIn === true;
   const problem = codeProblem(code);
   const where = typeof location !== "undefined" && typeof location.protocol === "string" ? location : null;
 
@@ -117,28 +105,6 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
     setError(result.error);
   }
 
-  async function submitEmail(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    const result = sent ? await verifyEmailSignIn({ email, code: otp, label }) : await startEmailSignIn(email);
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    if (sent) {
-      location.replace(pairedDestination(location.search));
-      return;
-    }
-    setSent(true);
-  }
-
-  function switchMode(next: "email" | "code") {
-    setMode(next);
-    setError(null);
-  }
-
   return (
     <main className="flex min-h-screen items-center justify-center bg-app px-6 text-ink">
       <div className="absolute left-3 top-12 max-w-[280px]"><DesktopWorkspaceSwitcher /></div>
@@ -147,10 +113,10 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
         {opening ? (
           <p role="status" className="text-[20px] font-semibold">{t("pair.connectingTo", { name: environment?.label ?? t("pair.thisOpenMausBot") })}</p>
         ) : <>
-        <h1 className="text-[20px] font-semibold">{pairTitle(environment, mode)}</h1>
+        <h1 className="text-[20px] font-semibold">{pairTitle(environment)}</h1>
         <p className="mt-1.5 text-[14px] leading-relaxed text-ink-secondary">
           {environment ? `${t("pair.version", { version: environment.version, platform: environment.platform })} ` : ""}
-          {pairIntro({ mode, sent, email })}
+          {t("pair.intro.code")}
         </p>
         {reasonWorthShowing(reason) && !connected ? <p className="mt-3 text-[13px] text-ink-secondary">{reasonWorthShowing(reason)}</p> : null}
         </>}
@@ -161,59 +127,6 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
               {t("pair.openApp")}
             </a>
           </p>
-        ) : mode === "email" ? (
-          <form onSubmit={submitEmail}>
-            <label className={fieldLabel} htmlFor="signin-email">
-              {t("cloudBuy.signIn.email")}
-            </label>
-            <input
-              id="signin-email"
-              type="email"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                setSent(false);
-                setOtp("");
-              }}
-              autoComplete="email"
-              inputMode="email"
-              spellCheck={false}
-              className={input}
-            />
-            {sent ? (
-              <>
-                <label className={fieldLabel} htmlFor="signin-code">
-                  {t("pair.emailCode")}
-                </label>
-                <input
-                  id="signin-code"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  placeholder="12345678"
-                  autoComplete="one-time-code"
-                  inputMode="numeric"
-                  spellCheck={false}
-                  className={`${input} font-mono text-[15px] tracking-[0.12em]`}
-                />
-                <label className={fieldLabel} htmlFor="signin-label">
-                  {t("pair.deviceLabel")}
-                </label>
-                <input id="signin-label" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={80} className={input} />
-              </>
-            ) : null}
-            {error ? <p className="mt-3 text-[13px] text-danger">{error}</p> : null}
-            <button type="submit" disabled={busy || !email.includes("@") || (sent && otp.replace(/\D/g, "").length < 8)} className={button}>
-              {t(busy ? (sent ? "pair.signingIn" : "pair.sending") : sent ? "pair.signIn" : "cloudBuy.signIn.send")}
-            </button>
-            {sent ? (
-              <button type="button" onClick={() => setSent(false)} className="mt-3 w-full text-[13px] text-ink-secondary underline">
-                {t("pair.resend")}
-              </button>
-            ) : null}
-            <button type="button" onClick={() => switchMode("code")} className="mt-3 w-full text-[13px] text-ink-secondary underline">
-              {t("pair.useCode")}
-            </button>
-          </form>
         ) : (
           <form onSubmit={submitCode}>
             <label className={fieldLabel} htmlFor="pair-code">
@@ -251,14 +164,6 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
             <p className="mt-3 text-[13px] text-ink-secondary">
               {t("pair.noCode")} <code className="select-all rounded bg-inset px-1.5 py-0.5 text-[12px] text-ink">npx openmausbot pair</code>
             </p>
-            {emailOffered ? (
-              <p className="mt-5 border-t border-hairline/40 pt-4 text-[13px] text-ink-secondary">
-                {t("pair.invitedByEmail")}{" "}
-                <button type="button" onClick={() => switchMode("email")} className="text-accent underline">
-                  {t("pair.useEmail")}
-                </button>
-              </p>
-            ) : null}
           </form>
         )}
       </div>

@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyStartupPreferences, parseArgs, runAccess, runLogin, runOnboardingCommand, serverEntry, type CliOptions, verifyPhoneEndpoint } from "./cli.ts";
 import { browserSignInLines, formatSessions, pairingBlock, qrToString, untilText } from "./cli-pairing.ts";
 import { reachableAddresses } from "./lan-address.ts";
-import { readAdminActivityRange } from "./admin-activity.ts";
 import { SetupCancelled } from "./cli-prompts.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { startControlPlaneStub } from "./testing/control-plane-stub.ts";
@@ -617,41 +616,14 @@ describe.skipIf(process.platform === "win32")("serve --tunnel", () => {
   }, 120_000);
 });
 
-describe("openmausbot access", () => {
-  it("edits the sign-in allow-list in config.json without a running server", async () => {
-    const home = mkdtempSync(join(tmpdir(), "omb-cli-access-"));
-    const dataDir = join(home, "data");
-    const out: string[] = [];
-    const err: string[] = [];
-    const io = { log: (line: string) => out.push(line), error: (line: string) => err.push(line), ask: async () => "" };
-    const base = { command: "access" as const, port: 1, dataDir, tailscale: false, tunnel: false, client: false, pair: true, json: false };
-    try {
-      expect(await runAccess({ ...base, accessAction: "list" }, io)).toBe(0);
-      expect(out.at(-1)).toMatch(/pairing codes only/);
-      expect(await runAccess({ ...base, accessAction: "add", email: "Her@Example.test" }, io)).toBe(0);
-      expect(await runAccess({ ...base, accessAction: "add", email: "@agentada.test", chatOnly: true }, io)).toBe(0);
-      expect(await runAccess({ ...base, accessAction: "add", email: "not-an-email" }, io)).toBe(2);
-      const saved = JSON.parse(readFileSync(join(dataDir, "config.json"), "utf8"));
-      expect(saved.signIn).toEqual({ admins: ["her@example.test"], members: ["@agentada.test"] });
-      expect(await runAccess({ ...base, accessAction: "add", email: "her@example.test", chatOnly: true }, io)).toBe(0);
-      expect(JSON.parse(readFileSync(join(dataDir, "config.json"), "utf8")).signIn).toEqual({ admins: [], members: ["@agentada.test", "her@example.test"] });
-      out.length = 0;
-      expect(await runAccess({ ...base, accessAction: "list" }, io)).toBe(0);
-      expect(out.join("\n")).toMatch(/@agentada.test\s+chat and approvals/);
-      expect(await runAccess({ ...base, accessAction: "remove", email: "her@example.test" }, io)).toBe(0);
-      expect(await runAccess({ ...base, accessAction: "remove", email: "her@example.test" }, io)).toBe(1);
-      expect(JSON.parse(readFileSync(join(dataDir, "config.json"), "utf8")).signIn).toEqual({ admins: [], members: ["@agentada.test"] });
-      const rows = readAdminActivityRange(dataDir, { from: new Date(Date.now() - 600_000), to: new Date(Date.now() + 600_000) });
-      expect(rows.map((row) => [row.action, row.actor.kind, row.changed])).toEqual([
-        ["people.update", "cli", ["signIn.members"]],
-        ["people.update", "cli", ["signIn.admins", "signIn.members"]],
-        ["people.update", "cli", ["signIn.members"]],
-      ]);
-      expect(rows[0]!.after).toEqual({ "signIn.members": ["@agentada.test"] });
-    } finally {
-      await removeTempDir(home);
-    }
-  });
+it("directs old access commands to pairing without writing a membership list", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "omb-retired-access-"));
+  try {
+    const io = { log: vi.fn(), error: vi.fn(), ask: vi.fn() };
+    expect(await runAccess(parseArgs(["access", "add", "other@example.test", "--data-dir", dataDir], {}) as CliOptions, io)).toBe(1);
+    expect(io.error).toHaveBeenCalledWith(expect.stringContaining("pair"));
+    expect(existsSync(join(dataDir, "config.json"))).toBe(false);
+  } finally { await removeTempDir(dataDir); }
 });
 
 describe.skipIf(process.platform === "win32")("serve --domain", () => {

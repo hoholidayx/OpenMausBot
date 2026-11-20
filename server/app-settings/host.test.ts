@@ -328,11 +328,11 @@ describe("secret tier", () => {
 });
 
 describe("owner-only tier", () => {
-  it("explains and refuses with where to change it: sign-in, logins, pairing, backups, the domain", async () => {
+  it("explains and refuses with where to change it: logins, pairing, backups, the domain", async () => {
     const { host, set, turn, cards, saved, routeCalls } = fixture();
     const got = await host.handle({ action: "get", id: "vault.logins" }, turn);
     expect(JSON.parse(String(got.body.text))).toMatchObject({ tier: "owner-only", change: "only the person, in Settings → Vault" });
-    for (const id of ["vault.logins", "phone.pairing", "data.backups", "people.signIn", "remote.domain", "remote.httpsAddress"]) {
+    for (const id of ["vault.logins", "phone.pairing", "data.backups", "remote.domain", "remote.httpsAddress"]) {
       const refused = await set(id, "on");
       expect(refused.status, id).toBe(403);
       expect(refused.body.error, id).toMatch(/ is changed only by the person, in Settings → .+\. Tell them where in one line; do not try another way\.$/);

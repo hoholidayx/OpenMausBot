@@ -215,7 +215,7 @@ export function parseUsageRange(from: string | null | undefined, to: string | nu
 }
 
 export function usageTriggerFor(auth: RequestAuth): UsageTrigger {
-  return auth.kind === "session"
+  return auth.kind === "session" && !auth.session.userId?.startsWith("p_")
     ? { kind: "user", ...(auth.session.email ? { email: auth.session.email } : {}), label: auth.session.label }
     : { kind: "owner" };
 }

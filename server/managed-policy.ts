@@ -2,8 +2,10 @@ import { z } from "zod";
 import { serviceSlugFor, serviceSlugForCandidates } from "./connector-verdict.ts";
 import { appLabel } from "./team-connections.ts";
 
-/** Received over Electron's private port, or on a Team Cloud from the Admin (cloud-team-policy.ts), and held in memory:
- * never merged into config.json, and adds no prompts. */
+export const REMOTE_ACCESS_PATHS: ReadonlySet<string> = new Set([
+  "/api/auth/pair", "/api/pair", "/api/auth/pairing", "/api/auth/email/start", "/api/auth/email/verify",
+]);
+
 const policySchema = z.object({
   organizationId: z.string().trim().min(1).max(128),
   organizationName: z.string().trim().min(1).max(100),

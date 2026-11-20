@@ -249,7 +249,7 @@ describe("new bot default model selection while enrolled in an organisation", ()
 });
 
 // The server's own wiring, not a copy: run index.ts's actual defaultSelection
-// and policyModelRefusal against a synthetic registry, enrolment and policy.
+// and policyModelRefusal against a synthetic registry and desktop policy.
 describe("new bot default model selection wiring in index.ts", () => {
   // Windows checkouts may use CRLF; match on normalised line endings.
   const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
@@ -267,17 +267,15 @@ describe("new bot default model selection wiring in index.ts", () => {
   };
   const companyClaude = { ...claude, instanceId: "company.fixture.anthropic", models: { default: "company-claude", options: [{ id: "company-claude", label: "Company" }] } };
   const signedOut = { ...claude, snapshot: { state: "available", authenticated: false } satisfies ProviderSnapshot };
-  function server(instances: unknown[], { enrolled = false, companyModelsOnly = false, saved, credit = null, configs = {}, answered }: { enrolled?: boolean; companyModelsOnly?: boolean; saved?: ModelSelection; credit?: string | null; configs?: Record<string, { enabled?: boolean; access?: EngineAccess }>; answered?: (instance: SelectableInstance) => boolean | undefined } = {}) {
+  function server(instances: unknown[], { companyModelsOnly = false, saved, configs = {}, answered }: { companyModelsOnly?: boolean; saved?: ModelSelection; configs?: Record<string, { enabled?: boolean; access?: EngineAccess }>; answered?: (instance: SelectableInstance) => boolean | undefined } = {}) {
     const managedPolicy = new ManagedDesktopPolicy();
     if (companyModelsOnly) managedPolicy.apply({ organizationId: "11111111-1111-4111-8111-111111111111", organizationName: "Fixture Company", expiresAt: Date.now() + 60_000,
       version: 1, companyModelsOnly: true, allowedEngines: "all", mcp: { allowCustom: true, allowlist: [] },
       computers: { thisComputer: true, localVm: true, box: true, vps: true }, remoteAccess: true });
-    const managedDesktop = { owns: (instanceId: string) => enrolled && instanceId.startsWith("company.") };
-    const cloudCredit = credit ? { owns: (instanceId: string) => instanceId === credit } : null;
     const describe = vi.fn(async () => instances);
-    const defaultSelection = new Function("hostedModels", "cfg", "registry", "managedDesktop", "managedPolicy", "BUILT_IN_DRIVERS", "selectDefaultModelSelection", "cloudCredit", "providerConfigs", "heldKeys", "withInstanceConfig", "testedAi",
-      `${code}; return defaultSelection;`)(undefined, { defaultModelSelection: saved }, { describe }, managedDesktop, managedPolicy,
-      [{ driverKind: "claudeAgent", metadata: { displayName: "Claude" } }], selectDefaultModelSelection, cloudCredit, () => configs, null, withInstanceConfig,
+    const defaultSelection = new Function("cfg", "registry", "managedPolicy", "BUILT_IN_DRIVERS", "selectDefaultModelSelection", "providerConfigs", "withInstanceConfig", "testedAi",
+      `${code}; return defaultSelection;`)({ defaultModelSelection: saved }, { describe }, managedPolicy,
+      [{ driverKind: "claudeAgent", metadata: { displayName: "Claude" } }], selectDefaultModelSelection, () => configs, withInstanceConfig,
       { answered: answered ?? (() => undefined) }) as (saved?: ModelSelection | null, instances?: readonly SelectableInstance[]) => Promise<ModelSelection>;
     return { defaultSelection, describe, close: () => managedPolicy.close() };
   }
@@ -302,23 +300,11 @@ describe("new bot default model selection wiring in index.ts", () => {
     fixture.close();
   });
 
-  it("on a Cloud home, the trial's Claude credit runs a new bot only while nothing of the person's own can", async () => {
-    const credit = { instanceId: "trial-credit", driverKind: "openai-compat", snapshot: { state: "available", authenticated: true } satisfies ProviderSnapshot,
-      models: { default: "claude-haiku-4-5", options: [{ id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }] } };
-    // Their Claude is signed out: the credit, not a sign-in screen.
-    await expect(server([signedOut, credit], { credit: "trial-credit" }).defaultSelection()).resolves.toEqual({ instanceId: "trial-credit", model: "claude-haiku-4-5" });
-    await expect(server([credit, claude], { credit: "trial-credit" }).defaultSelection()).resolves.toEqual({ instanceId: "claude", model: "claude-default" });
-    await expect(server([credit, codex], { credit: "trial-credit" }).defaultSelection()).resolves.toMatchObject({ instanceId: "codex" });
-  });
-
-  it("passes the enrolment into the choice, and is the plain choice without one", async () => {
-    // Not enrolled, the Company id is an ordinary engine that can run.
-    const notEnrolled = server([signedOut, companyClaude]);
-    await expect(notEnrolled.defaultSelection()).resolves.toEqual({ instanceId: "company.fixture.anthropic", model: "company-claude" });
+  it("treats a saved company engine as an ordinary configured engine", async () => {
+    const available = server([signedOut, companyClaude]);
+    await expect(available.defaultSelection()).resolves.toEqual({ instanceId: "company.fixture.anthropic", model: "company-claude" });
     const nothingReady = server([signedOut]);
     await expect(nothingReady.defaultSelection()).resolves.toEqual({ instanceId: "claude", model: "claude-default" });
-    const enrolled = server([signedOut, companyClaude], { enrolled: true });
-    await expect(enrolled.defaultSelection()).resolves.toEqual({ instanceId: "company.fixture.anthropic", model: "company-claude" });
   });
 
   it("leaves the saved default out only when asked, for a bot moved off a removed engine", async () => {
@@ -335,10 +321,10 @@ describe("new bot default model selection wiring in index.ts", () => {
       .resolves.toEqual({ instanceId: "claude", model: "claude-default" });
   });
 
-  it("passes the organisation's policy into the choice", async () => {
-    const policy = server([claude, companyRouter], { enrolled: true, companyModelsOnly: true });
-    await expect(policy.defaultSelection()).resolves.toEqual({ instanceId: "company.fixture.openrouter", model: "company/router" });
-    const saved = server([claude, companyRouter], { enrolled: true, companyModelsOnly: true, saved: { instanceId: "claude", model: "claude-default" } });
+  it("refuses self-hosted engines when a desktop policy requires a company-owned model", async () => {
+    const policy = server([claude, companyRouter], { companyModelsOnly: true });
+    await expect(policy.defaultSelection()).resolves.toEqual({ instanceId: "", model: "" });
+    const saved = server([claude, companyRouter], { companyModelsOnly: true, saved: { instanceId: "claude", model: "claude-default" } });
     await expect(saved.defaultSelection()).resolves.toEqual({ instanceId: "", model: "" });
     policy.close(); saved.close();
   });

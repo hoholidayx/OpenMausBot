@@ -1,3 +1,4 @@
+import { pairDevice } from "./testing/paired-session.ts";
 // Archive work is mocked so revocation can be held at a deterministic boundary.
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -25,7 +26,7 @@ let server: Server;
 let url: string;
 let sessions: SessionRegistry;
 let maintenance: WorkspaceBackupMaintenance;
-let admin: ReturnType<SessionRegistry["issue"]>;
+let admin: ReturnType<typeof pairDevice>;
 
 function fakeArchive() {
   const id = randomUUID();
@@ -42,7 +43,7 @@ beforeEach(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "omb-backup-http-"));
   maintenance = new WorkspaceBackupMaintenance();
   sessions = new SessionRegistry({ file: join(dataDir, "sessions.json") });
-  admin = sessions.issue({ label: "Fixture admin", scopes: ["admin", "client"] });
+  admin = pairDevice(sessions, { label: "Fixture admin", scopes: ["admin", "client"] });
   archive.create.mockImplementation(async () => fakeArchive());
   archive.stage.mockImplementation(async () => fakeArchive());
   archive.commit.mockImplementation((_dataDir: string, id: string) => ({ id, restartRequired: true }));
@@ -129,7 +130,7 @@ it.each(["revoke", "logout"])("keeps session controls authenticated and usable d
   try {
     await starting;
     expect(maintenance.active).toBe(true);
-    const member = sessions.issue({ label: "Fixture member", scopes: ["client"] });
+    const member = pairDevice(sessions, { label: "Fixture member", scopes: ["client"] });
     expect((await fetch(`${url}/api/auth/sessions`, { headers: { authorization: `Bearer ${member.token}` } })).status).toBe(403);
     expect((await fetch(`${url}/api/auth/sessions`)).status).toBe(200);
     expect((await fetch(`${url}/api/bots`)).status).toBe(503);

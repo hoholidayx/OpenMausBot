@@ -270,24 +270,6 @@ export function botChangeRows(
 }
 
 
-export interface SignInLists {
-  admins: readonly string[];
-  members: readonly string[];
-}
-
-/** An email sign-in list that lets more than one person in: any member, a
- * second admin, or a whole @domain. */
-export function sharedSignIn(lists: SignInLists): boolean {
-  return lists.members.length > 0 || lists.admins.length > 1 || [...lists.admins, ...lists.members].some((entry) => entry.trim().startsWith("@"));
-}
-
-export function signInListsOf(config: unknown): SignInLists {
-  const signIn = isPlainObject(config) && isPlainObject(config.signIn) ? config.signIn : {};
-  const list = (value: unknown) => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []);
-  return { admins: list(signIn.admins), members: list(signIn.members) };
-}
-
-
 const isRow = (value: unknown): value is AdminActionRow =>
   isPlainObject(value) &&
   typeof value.at === "string" &&

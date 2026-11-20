@@ -1,3 +1,4 @@
+import { pairDevice } from "./testing/paired-session.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -109,9 +110,9 @@ posixOnly("admin activity log", () => {
       { at: new Date(Date.now() - 50_000).toISOString(), threadId: "t1", requestId: "r2", tool: "Read", decision: "auto-approved", source: "full-access" },
     ].map((row) => JSON.stringify(row)).join("\n") + "\n");
     const role = (email: string) => (email === BOSS ? ["admin", "client"] as const : ["client"] as const);
-    const registry = new SessionRegistry({ file: join(data, "sessions.json"), emailScopes: (email) => [...role(email)] });
-    for (const email of [BOSS, ADA]) tokens[email] = registry.issue({ label: `${email.split("@")[0]}'s laptop`, email, scopes: [...role(email)] }).token;
-    oldPhone = registry.issue({ label: "Old phone", scopes: ["client"] }).session.id;
+    const registry = new SessionRegistry({ file: join(data, "sessions.json") });
+    for (const email of [BOSS, ADA]) tokens[email] = pairDevice(registry, { label: email, scopes: [...role(email)] }).token;
+    oldPhone = pairDevice(registry, { label: "Old phone", scopes: ["client"] }).session.id;
     registry.close();
     await start();
   }, 40_000);
@@ -128,16 +129,14 @@ posixOnly("admin activity log", () => {
     expect((await api("GET", "/api/admin-activity?from=2026-02-31", undefined, BOSS)).status).toBe(400);
   });
 
-  it("records settings, people, keys and budgets with who changed them, never a secret", async () => {
-    expect((await api("PUT", "/api/config", { signIn: { admins: [BOSS], members: [ADA, "carol@example.test"] } }, BOSS)).status).toBe(200);
+  it("records settings, keys and budgets with who changed them, never a secret", async () => {
+    expect((await api("PUT", "/api/config", { signIn: { admins: [BOSS], members: [ADA, "carol@example.test"] } }, BOSS)).status).toBe(410);
     expect((await api("PUT", "/api/config", { anthropic: { key: SECRET } }, BOSS)).status).toBe(200);
     expect((await api("PUT", "/api/config", { budgets: { monthlyUsd: 75 } }, BOSS)).status).toBe(200);
     expect((await api("PUT", "/api/config", { decisions: { retentionDays: 400 } })).status).toBe(200); // the owner, on this machine
     expect((await api("PUT", "/api/config", { profile: { name: "Ops desk" } }, undefined, { "x-openmausbot-cli": "1" })).status).toBe(200);
 
-    const people = (await activity("?what=people"))[0];
-    expect(people).toMatchObject({ type: "admin", who: BOSS, what: "people", action: "people.update", changed: ["signIn.members"],
-      before: { "signIn.members": [ADA] }, after: { "signIn.members": [ADA, "carol@example.test"] } });
+    expect(await activity("?what=people")).toEqual([]);
     const engine = (await activity("?what=engine"))[0];
     expect(engine).toMatchObject({ who: BOSS, action: "engine.update", changed: ["anthropic.key"], after: { "anthropic.key": "[hidden]" } });
     const budget = (await activity("?what=budget"))[0];
@@ -161,7 +160,7 @@ posixOnly("admin activity log", () => {
     const botId = bot.body.bot.id as string;
     expect((await api("PATCH", `/api/bots/${botId}`, { visibility: { people: [ADA] } }, BOSS)).status).toBe(200);
     expect((await api("PATCH", `/api/bots/${botId}`, { parkDirectMessages: true }, BOSS)).status).toBe(200);
-    expect((await api("PATCH", `/api/bots/${botId}`, { pinned: true }, ADA)).status).toBe(200);
+    expect((await api("PATCH", `/api/bots/${botId}`, { pinned: true }, ADA)).status).toBe(404);
     expect((await api("PATCH", `/api/bots/${botId}`, { visibility: { people: ["nope"] } }, BOSS)).status).toBe(400);
     const signOut = await api("POST", "/api/instances/no-such-engine/auth/sign-out", {}, BOSS);
     expect(signOut.status, JSON.stringify(signOut.body)).toBeGreaterThanOrEqual(400);
@@ -257,8 +256,8 @@ posixOnly("admin activity log", () => {
   });
 
   it("records only while the workspace is shared, including the change that ends or starts sharing", async () => {
-    expect((await api("PUT", "/api/config", { signIn: { admins: [BOSS], members: [] } }, BOSS)).status).toBe(200);
-    expect((await activity("?what=people"))[0]).toMatchObject({ who: BOSS, changed: ["signIn.members"] });
+    const phoneId = (await api("GET", "/api/auth/session", undefined, ADA)).body.id;
+    expect((await api("DELETE", `/api/auth/sessions/${phoneId}`, undefined, BOSS)).status).toBe(200);
     // (an unused chat-only pairing code from earlier also counts as sharing)
     for (const pairing of (await api("GET", "/api/auth/pairing", undefined, BOSS)).body.pairings ?? []) {
       expect((await api("DELETE", `/api/auth/pairing/${pairing.id}`, undefined, BOSS)).status).toBe(200);

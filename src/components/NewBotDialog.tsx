@@ -14,7 +14,7 @@ import { useAdvancedMode } from "@/lib/interface-mode";
 import { announceNewBot, reportsToFor, startingTemplate, type BotDefaultsAnswer } from "@/lib/new-bot";
 import { useShowThreads } from "@/lib/thread-preferences";
 import { useTeamPeople } from "@/state/team-people";
-import { visibilityFromForm, type VisibilityMode } from "./bot-settings/VisibilitySection";
+import type { VisibilityMode } from "./bot-settings/VisibilitySection";
 import type { Routine } from "@/lib/routines";
 import { IdentitySection } from "./bot-settings/IdentitySection";
 import { SoulSection } from "./bot-settings/SoulSection";
@@ -66,7 +66,6 @@ function NewBotEditor({ defaultsMode = false, onClose, onCreated, readyBotId }: 
   const [error, setError] = useState("");
   const [warning, setWarning] = useState<"local" | null>(null);
   const [audience, setAudience] = useState<VisibilityMode>("everyone");
-  const [people, setPeople] = useState("");
   const team = useTeamPeople();
   const teamName = parent.state.config?.team?.name;
   const [chosenOwner, setChosenOwner] = useState<string | null>(null);
@@ -123,14 +122,13 @@ function NewBotEditor({ defaultsMode = false, onClose, onCreated, readyBotId }: 
   const save = async () => {
     if (!ready || savingRef.current || parent.state.botCreationPending) return;
     if (!defaultsMode && draft.bot.approvalMode === "auto" && draft.bot.computer === "local" && !draft.consent.acknowledgeLocalAuto) { setWarning("local"); return; }
-    const visibility = choosesVisibility ? visibilityFromForm(audience, people) : team && everyone ? { ok: true as const, visibility: "everyone" as const } : null;
-    if (visibility && !visibility.ok) { setError(t("botSettings.visibility.needPeople")); return; }
+    const visibility = choosesVisibility ? audience : team && everyone ? "everyone" : undefined;
     savingRef.current = true; setSaving(true); setError("");
     parent.dispatch({ type: "botCreationPending", on: true });
     try {
       if (defaultsMode) await api("/api/config", { method: "PATCH", body: JSON.stringify({ newBotDefaults: await preparedBotTemplate(draft) }) });
       else {
-        const { bot, warnings, paused } = await createConfiguredBot(draft, undefined, undefined, undefined, visibility?.ok ? visibility.visibility : undefined,
+        const { bot, warnings, paused } = await createConfiguredBot(draft, undefined, undefined, undefined, visibility,
           team ? reportsToFor(chosenOwner, draft.bot.section, parent.state.bots, team) ?? undefined : undefined);
         announceNewBot(parent.dispatch, bot, warnings, { showThreads, source: draft.preset ? "preset" : draft.role ? "template" : "blank", role: draft.role, paused });
         try { await onCreated?.(bot); }
@@ -180,19 +178,8 @@ function NewBotEditor({ defaultsMode = false, onClose, onCreated, readyBotId }: 
               >
                 <option value="everyone">{t("botSettings.visibility.everyone")}</option>
                 <option value="admins">{t("botSettings.visibility.admins")}</option>
-                <option value="people">{t("botSettings.visibility.people")}</option>
               </Select>
             </label>
-            {audience === "people" && (
-              <input
-                value={people}
-                disabled={saving}
-                onChange={(event) => setPeople(event.target.value)}
-                placeholder={t("botSettings.visibility.peoplePlaceholder")}
-                aria-label={t("botSettings.visibility.peopleLabel")}
-                className="min-w-[16rem] flex-1 rounded-lg border border-hairline/40 bg-inset px-3 py-1.5 text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
-              />
-            )}
           </div>
         )}
       <div className="flex min-h-0 flex-1 flex-col sm:flex-row">

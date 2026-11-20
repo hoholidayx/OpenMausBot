@@ -139,10 +139,7 @@ export function cloudLendingVerdict(binding, current, env) {
   return { allow: true };
 }
 
-/** A server of the person's own, by this desktop's sign-in there: its admin (owner) pairing on a server nobody else signs
- * in to, as the server says (`own`, server/own-home.ts), and no Cloud, team or hosted server. Lent only once the person
- * allows it here (lendOwn), without the maintainer flag. Security: never a non-admin pairing, a server others sign in to,
- * a team's server or a Cloud (a Cloud is lent as one, by its own rules). */
+/** The remote server must explicitly identify a full-access pairing as eligible for local computer lending. */
 export function ownServerSession(auth) {
   return auth?.kind === "session" && auth.own === true && Array.isArray(auth.scopes) && auth.scopes.includes("admin") && auth.cloudHome !== true && !auth.team && auth.hosted !== true;
 }

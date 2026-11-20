@@ -49,8 +49,6 @@ services:
       # names someone decides that list, and Settings refuses to change it.
       OMB_SIGNIN_EMAILS:
       OMB_SIGNIN_MEMBER_EMAILS:
-      OMB_SIGNIN_SMTP_URL:
-      OMB_SIGNIN_SMTP_FROM:
       # "1": phones pair by QR through MausBot Relay (docs/phone-relay-server.md). Sign the
       # container in once first: docker compose exec omb openmausbot login --relay
       OMB_PHONE_RELAY:

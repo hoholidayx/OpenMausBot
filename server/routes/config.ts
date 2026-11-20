@@ -1,6 +1,5 @@
 import { liveSavePatch } from "../live-config.ts";
 import { LEGACY_MEMORY_DISABLED } from "../legacy-memory.ts";
-import { signInEnvRefusal } from "../sign-in-env.ts";
 import type { ManagedVpsOwner } from "../vps-computer.ts";
 import { browserEngineStatus, browserSessionId } from "../browser-engine.ts";
 import { browserEngineKind } from "../browser/config.ts";
@@ -27,14 +26,11 @@ import {
 import type { InstanceConfigMap, ModelSelection } from "../contracts.ts";
 import type { RequestAuth } from "../request-auth.ts";
 import { parseConfigPatchForPerson } from "../decider/config-errors.ts";
-import { TEAM_PERSONAL_HINTS } from "../../shared/cloud-hints.ts";
 import { DECIDER_KEY_ERROR, deciderIncludedHere, deciderPatchKey, deciderSavePatch, deciderBorrowedKey, type Decider } from "../decider/index.ts";
 import type { ProviderRegistry } from "../harness/registry.ts";
-import { HOSTED_PROVIDER_SETTINGS_ERROR } from "../hosted-models.ts";
 import { forgetKey } from "../key-rejections.ts";
 import type { ComputerIdleTimer } from "../computer-idle.ts";
 import { PROVIDER_KEY_KINDS } from "../provider-key-check.ts";
-import type { SessionRegistry } from "../sessions.ts";
 import type { SharedComputerControl } from "../shared-computer-control.ts";
 import type { SharedComputers } from "../shared-computers.ts";
 import { parseSkillMd } from "../skills.ts";
@@ -61,7 +57,6 @@ export interface ConfigRouteDeps {
   store: Pick<Store, "bots" | "patchBot" | "clearVoiceSelections">;
   cfg: AppConfig;
   registry: Pick<ProviderRegistry, "get" | "forgetSnapshots">;
-  sessions: Pick<SessionRegistry, "revalidateEmailSessions">;
   browserCleanup: Pick<BrowserCleanupCoordinator, "hasPendingProfile" | "prepare" | "abort" | "commit" | "ensure">;
   browserLive: Pick<BrowserLive, "closeAll" | "closeForSession">;
   browserRuntime: Pick<BrowserRuntime, "heldBy">;
@@ -72,11 +67,7 @@ export interface ConfigRouteDeps {
   decider: Pick<Decider, "testKey">;
   sharedComputers: Pick<SharedComputers, "close">;
   sharedComputerControl: Pick<SharedComputerControl, "close">;
-  hostedModels: boolean;
-  cloudHome: boolean;
-  /** A Team Cloud shares one browser egress policy across every member. */
-  cloudTeam?: boolean;
-  /** Security: a Team Cloud never takes over another installation's Composio user, since every member's bots would then get that person's apps. */
+  /** A shared installation must not inherit another installation's connected accounts. */
   sharedMembership: () => boolean;
   lendingEnabled(): boolean;
   providerConfigs(): InstanceConfigMap;
@@ -97,15 +88,7 @@ export interface ConfigRouteDeps {
   policyModelRefusal(instance: { instanceId: string; driverKind: string }): string | undefined;
   browserSessionSpec(binaryPath: string, session: string, profile: string | undefined): { command: string; env: Record<string, string> };
   configStatus(): ConfigStatus;
-  /** What this caller is shown: a client sees configured-or-not only; on a Team Cloud the profile is the caller's own. */
   configForAccess(status: ConfigStatus, auth: RequestAuth): unknown;
-  /** A Team Cloud only: Settings → Profile saves the signed-in person's own profile, never the server's. False: nobody
-   * signed in to save it for. */
-  ownProfile?(auth: RequestAuth, profile: { name?: string; avatarUrl?: string; aboutMe?: string }): boolean;
-  /** On a Team Cloud: the welcome's own hints (TEAM_PERSONAL_HINTS) go to this person's record, never the team's; false
-   * for a caller with no team session. */
-  ownHints?(auth: RequestAuth, hints: string[]): boolean;
-  resyncOpenCodeProviderKeys(): void;
   revokeEngineCapabilities(engines: ReadonlySet<string>): void;
   reloadProviders(before: Record<string, unknown>): Promise<void>;
   broadcast(payload: Record<string, unknown>): void;
@@ -116,12 +99,12 @@ export interface ConfigRouteDeps {
 
 export function createConfigRoutes(deps: ConfigRouteDeps): RouteHandler {
   const {
-    store, cfg, registry, sessions, browserCleanup, browserLive, browserRuntime, usedBrowserSessions, decider,
-    closeBrowser, browserEngineSwitched, sharedComputers, sharedComputerControl, hostedModels, cloudHome: CLOUD_HOME, sharedMembership, lendingEnabled, providerConfigs,
+    store, cfg, registry, browserCleanup, browserLive, browserRuntime, usedBrowserSessions, decider,
+    closeBrowser, browserEngineSwitched, sharedComputers, sharedComputerControl, sharedMembership, lendingEnabled, providerConfigs,
     localVmIdleMs, localVmIdles, localVmActiveThreads, localVmLifecycleBusy, localVmImageBusy, localVmModeChangeBusy, localVmModeChanging,
     providerConfigBusy, computerProviderConfigTransitions, managedComputerOwners, providerOperationConflict,
     perBotLocalVmCountForModeChange, checkedModelSelection, policyModelRefusal, browserSessionSpec, configStatus,
-    configForAccess, resyncOpenCodeProviderKeys, revokeEngineCapabilities, reloadProviders, broadcast, drainQueuedSends, ownProfile, ownHints, postiz,
+    configForAccess, revokeEngineCapabilities, reloadProviders, broadcast, drainQueuedSends, postiz,
   } = deps;
   return async ({ req, res, url, path, method, auth, json, readBody }) => {
     // API keys are never echoed back: booleans only.
@@ -130,39 +113,12 @@ export function createConfigRoutes(deps: ConfigRouteDeps): RouteHandler {
     }
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
       const body = await readBody(req);
-      if (hostedModels && ["instances", "anthropic", "openai", "openrouter", "openaiCompat", "xai", "mistral", "cerebras", "groq", "greenference", "modelgo", "meta", "opencodeGo"].some(key => Object.hasOwn(body, key))) return json(res, 403, { error: HOSTED_PROVIDER_SETTINGS_ERROR });
       const patch = parseConfigPatchForPerson(body);
       if (patch.box !== undefined) return json(res, 400, { error: "Choose a self-hosted VPS or a local computer." });
       if (patch.profile?.aboutMe !== undefined) {
         return json(res, 409, { error: LEGACY_MEMORY_DISABLED });
       }
-      if (deps.cloudTeam && patch.browserEngine?.egress?.proxy !== undefined && !(auth.kind === "session" && auth.session.teamRole === "owner")) {
-        return json(res, 403, { error: "Only the Team Cloud owner can configure the browser proxy." });
-      }
-      if (patch.profile && ownProfile) {
-        // The address is the verified claim's; a profile names no other.
-        const { email: _email, ...own } = patch.profile;
-        if (!ownProfile(auth, own)) return json(res, 403, { error: "Sign in to this team to have a profile." });
-        delete patch.profile;
-        if (!Object.keys(patch).length) {
-          broadcast({ kind: "config", ...configStatus() });
-          return json(res, 200, configForAccess(configStatus(), auth));
-        }
-      }
-      if (patch.onboarding?.hintsSeen && ownHints) {
-        const mine = patch.onboarding.hintsSeen.filter((hint) => TEAM_PERSONAL_HINTS.has(hint));
-        if (mine.length && ownHints(auth, mine)) {
-          // The team's record keeps what it had of these; only this person's changes.
-          const kept = (cfg.onboarding?.hintsSeen ?? []).filter((hint) => TEAM_PERSONAL_HINTS.has(hint));
-          patch.onboarding = { ...patch.onboarding, hintsSeen: [...new Set([...patch.onboarding.hintsSeen.filter((hint) => !TEAM_PERSONAL_HINTS.has(hint)), ...kept])] };
-        }
-      }
-      if (CLOUD_HOME && (patch.signIn?.admins?.length || patch.signIn?.members?.length)) {
-        return json(res, 403, { ...userError("serverError.cloud.personal"), code: "cloud_personal" });
-      }
-      // Saved, it would be overruled by the environment at once: say so instead of answering 200 with nothing changed.
-      const signInPinned = signInEnvRefusal(patch.signIn);
-      if (signInPinned) return json(res, 409, { error: signInPinned, code: "signin_env" });
+      if (patch.signIn !== undefined) return json(res, 410, { error: "Email sign-in lists have been retired. Pair a device instead." });
       if (patch.newBotDefaults) {
         patch.newBotDefaults.memory = cfg.newBotDefaults?.memory ?? {};
         if (patch.newBotDefaults.profile.modelSelection) {
@@ -174,10 +130,6 @@ export function createConfigRoutes(deps: ConfigRouteDeps): RouteHandler {
           const parsed = parseSkillMd(skill.text);
           if ("error" in parsed || parsed.name !== skill.name) return json(res, 400, { error: "Skill name does not match its contents" });
         }
-      }
-      if (hostedModels && patch.defaultModelSelection) {
-        const checked = checkedModelSelection(patch.defaultModelSelection);
-        if (!checked.ok) return json(res, checked.status, refusalBody(checked));
       }
       if (patch.automaticRecovery?.enabled) {
         const checked = checkedModelSelection(patch.automaticRecovery.backup, undefined, true);
@@ -465,10 +417,6 @@ export function createConfigRoutes(deps: ConfigRouteDeps): RouteHandler {
         for (const idle of localVmIdles.values()) idle.setIdleMs(localVmIdleMs());
       }
       let browserReferenceCleanupError: unknown = null;
-      if (patch.signIn !== undefined) {
-        sessions.revalidateEmailSessions();
-        resyncOpenCodeProviderKeys();
-      }
       if (!lendingEnabled()) {
         sharedComputers.close();
         sharedComputerControl.close();

@@ -3,8 +3,10 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
+import { loadEnvironmentId } from "./environment.ts";
+import { localUserId } from "./person-key.ts";
 import { writeFileAtomic } from "./atomic.ts";
-import { teamSessionExpiresAt, type TeamMember, type TeamRole } from "./cloud-team.ts";
+import type { TeamMember, TeamRole } from "./cloud-team.ts";
 import {
   formatPairingCode,
   normalizePairingCode,
@@ -35,8 +37,6 @@ export const SESSION_TTL_MS = daysMs(process.env.OMB_SESSION_TTL_DAYS, 30);
 /** OMB_SESSION_MAX_DAYS (default 180): renewal never passes this, so a stolen cookie has a bounded life. */
 export const SESSION_MAX_AGE_MS = daysMs(process.env.OMB_SESSION_MAX_DAYS, 180);
 export const SESSION_RENEW_WHEN_LEFT_MS = SESSION_TTL_MS / 2;
-/** A team session the roster check keeps alive was used within this long. */
-const TEAM_ACTIVE_MS = 60 * 60_000;
 
 export function cookieMaxAgeSeconds(session: { expiresAt: number }, now = Date.now()): number {
   return Math.max(1, Math.floor((session.expiresAt - now) / 1000));
@@ -79,7 +79,7 @@ const sessionSchema = z.object({
   /** A team session opened with a code its member made (their phone): when the Admin last vouched for that member. The
    * session ends within the hour of it; each new Admin-signed pairing of the same member, in the same role, moves it. */
   memberCheckedAt: z.number().optional(),
-  /** A team session the Admin's roster check (cloud-team-roster.ts) last found its member in the team, at this role: it ends
+  /** A team session the Admin's roster check last found its member in the team, at this role: it ends
    * within the hour of that, so a browser or app in use stays signed in with no new pairing. */
   vouchedAt: z.number().optional(),
   /** A browser sign-in (PairingCode `browser`): accepted only as its browser's cookie, never as a bearer token. */
@@ -91,9 +91,20 @@ const sessionSchema = z.object({
   token: z.literal(true).optional(),
 });
 
-const fileSchema = z.object({ version: z.literal(1), sessions: z.array(sessionSchema) });
+const fileSchema = z.object({ version: z.union([z.literal(1), z.literal(2)]), ownerId: z.string().optional(), wasShared: z.literal(true).optional(), sessions: z.array(sessionSchema) });
 
 export type SessionRecord = z.infer<typeof sessionSchema>;
+
+function hasRetiredAuthority(record: SessionRecord): boolean {
+  return record.membershipAuthority !== undefined || record.teamRole !== undefined || record.owner !== undefined ||
+    record.moveIn !== undefined || record.cookieOnly === true || record.memberCheckedAt !== undefined || record.vouchedAt !== undefined;
+}
+
+function hasOtherLegacyIdentity(record: SessionRecord, owner: string | undefined): boolean {
+  if (hasRetiredAuthority(record) || record.userId?.startsWith("portal:")) return true;
+  if (record.email === undefined) return record.userId !== undefined;
+  return !record.scopes.includes("admin") || record.email.trim().toLowerCase() !== owner;
+}
 
 /** What the UI may see: never the hash. */
 export interface PublicSession {
@@ -103,6 +114,7 @@ export interface PublicSession {
   createdAt: number;
   lastSeenAt: number;
   expiresAt: number;
+  userId?: string;
   email?: string;
   owner?: string;
   teamRole?: TeamRole;
@@ -117,10 +129,6 @@ export interface PairingCode {
   label: string;
   createdAt: number;
   expiresAt: number;
-  /** A Team Cloud's pairing: the Admin's signed member claim, bound to the session it opens. */
-  member?: TeamMember;
-  /** A code a member made from their own session: when the Admin last vouched for them. Absent on the Admin's own. */
-  memberCheckedAt?: number;
   /** The session it opens is an access token that lasts exactly this long. */
   tokenTtlMs?: number;
 }
@@ -183,6 +191,7 @@ function publicSession(record: SessionRecord): PublicSession {
     lastSeenAt: record.lastSeenAt,
     expiresAt: record.expiresAt,
   };
+  if (record.userId?.startsWith("p_") && !record.email) view.userId = record.userId;
   if (record.email) view.email = record.email;
   if (record.owner) view.owner = record.owner;
   if (record.teamRole) view.teamRole = record.teamRole;
@@ -216,16 +225,16 @@ export function pairingRequest(body: unknown): PairingRequest | { error: string 
   };
 }
 
-export type EmailScopesResolver = (email: string) => readonly Scope[] | null;
 export interface SessionStoreOptions {
   file: string;
   now?: () => number;
-  emailScopes?: EmailScopesResolver;
-  emailScopesSnapshot?: () => EmailScopesResolver;
-  portalMembership?: boolean;
-  /** Between membershipChanged() calls, the hot paths (each request, stream frame and liveness check) recheck email
-   * membership at most this often. Default 0: every call. */
-  recheckMs?: number;
+  legacyOwner?: string | null;
+}
+
+/** The member a team session was opened for, and when the Admin last vouched for them; null for any other session. */
+export function sessionMember(session: Pick<SessionRecord, "membershipAuthority" | "email" | "teamRole" | "createdAt" | "memberCheckedAt">): { member: TeamMember; checkedAt: number } | null {
+  if (session.membershipAuthority !== "team" || !session.email || !session.teamRole) return null;
+  return { member: { email: session.email, role: session.teamRole }, checkedAt: session.memberCheckedAt ?? session.createdAt };
 }
 
 export class SessionRegistry {
@@ -243,14 +252,17 @@ export class SessionRegistry {
   private readonly openMarker: string;
   private closed = false;
   private adminOnly: UserError | null = null;
-  private membershipCheckedAt = -Infinity;
+  private sharedInstallation: boolean;
+  get wasShared(): boolean { return this.sharedInstallation; }
+  readonly userId: string;
 
   // No parameter properties: Node's strip-only TypeScript mode only erases types.
   constructor(options: SessionStoreOptions) {
     this.options = options;
+    this.sharedInstallation = options.legacyOwner === null;
     this.now = options.now ?? Date.now;
     this.openMarker = `${options.file}.open`;
-    const unclean = existsSync(this.openMarker);
+    this.userId = localUserId(loadEnvironmentId(dirname(options.file)));
     try {
       mkdirSync(dirname(options.file), { recursive: true, mode: 0o700 });
       // Write the guard before accepting any persisted bearer, so an unclean restart sees it.
@@ -259,20 +271,40 @@ export class SessionRegistry {
     } catch {
       throw new Error("Could not establish safe session storage.");
     }
-    this.load(!unclean);
-    this.revalidateEmailSessions();
+    this.load();
   }
 
-  private load(restoreAccounts: boolean): void {
+  private load(): void {
     if (!existsSync(this.options.file)) return;
     let raw: unknown;
     try {
       raw = JSON.parse(readFileSync(this.options.file, "utf8"));
     } catch {
+      this.sharedInstallation = true;
       return;
     }
     const parsed = fileSchema.safeParse(raw);
-    if (parsed.success) this.sessions = parsed.data.sessions.filter(session => !session.moveIn && (restoreAccounts || (session.email === undefined && session.userId === undefined)));
+    if (!parsed.success) {
+      this.sharedInstallation = true;
+      return;
+    }
+    const legacy = parsed.data.version === 1;
+    const records = parsed.data.sessions;
+    const owner = this.options.legacyOwner;
+    const sameOwner = parsed.data.ownerId === this.userId;
+    if (legacy && owner !== null && records.some(record => hasOtherLegacyIdentity(record, owner))) this.sharedInstallation = true;
+    if (!legacy && (!sameOwner || parsed.data.wasShared)) this.sharedInstallation = true;
+    const belongsHere = legacy ? !this.sharedInstallation : sameOwner;
+    if (belongsHere) {
+      for (const record of records) {
+        if (hasRetiredAuthority(record) || record.email !== undefined) continue;
+        const ownerId = record.scopes.includes("admin") && !record.token ? this.userId : undefined;
+        if (record.userId !== (legacy ? undefined : ownerId)) continue;
+        if (ownerId) record.userId = ownerId;
+        this.sessions.push(record);
+      }
+    }
+    if (legacy || !sameOwner || this.wasShared !== Boolean(parsed.data.wasShared) || this.sessions.length !== records.length) this.persist();
   }
 
   private syncDirectory(): void {
@@ -287,7 +319,7 @@ export class SessionRegistry {
     if (this.closed) throw new Error("Session registry is closed.");
     const dir = dirname(this.options.file);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    writeFileAtomic(this.options.file, JSON.stringify({ version: 1, sessions: this.sessions }, null, 2) + "\n", { mode: 0o600 });
+    writeFileAtomic(this.options.file, JSON.stringify({ version: 2, ownerId: this.userId, ...(this.wasShared ? { wasShared: true } : {}), sessions: this.sessions }, null, 2) + "\n", { mode: 0o600 });
     this.syncDirectory();
   }
 
@@ -295,7 +327,6 @@ export class SessionRegistry {
   close(): void {
     if (this.closed) return;
     try {
-      this.revalidateEmailSessions();
       this.persist();
       unlinkSync(this.openMarker);
       this.closed = true;
@@ -305,7 +336,6 @@ export class SessionRegistry {
   }
 
   private prune(): void {
-    this.recheckMembership();
     const now = this.now();
     this.pairings = this.pairings.filter((p) => p.expiresAt > now);
     this.replays = this.replays.filter((r) => r.expiresAt > now);
@@ -361,7 +391,7 @@ export class SessionRegistry {
     }
   }
 
-  openPairing(input: { scopes?: Scope[]; label?: string; ttlMs?: number; tokenTtlMs?: number; member?: TeamMember; memberCheckedAt?: number } = {}): { id: string; code: string; credential: string; expiresAt: number } {
+  openPairing(input: { scopes?: Scope[]; label?: string; ttlMs?: number; tokenTtlMs?: number } = {}): { id: string; code: string; credential: string; expiresAt: number } {
     this.prune();
     const now = this.now();
     const code = generatePairingCode();
@@ -376,8 +406,7 @@ export class SessionRegistry {
       label: (input.label ?? "").trim().slice(0, 80),
       createdAt: now,
       expiresAt: now + (input.ttlMs ?? PAIRING_CODE_TTL_MS),
-      ...(input.member ? { member: input.member, ...(input.memberCheckedAt !== undefined ? { memberCheckedAt: input.memberCheckedAt } : {}) } : {}),
-      ...(input.tokenTtlMs !== undefined && !input.member ? { tokenTtlMs: input.tokenTtlMs } : {}),
+      ...(input.tokenTtlMs !== undefined ? { tokenTtlMs: input.tokenTtlMs } : {}),
     };
     this.pairings.push(pairing);
     return { id: pairing.id, code, credential, expiresAt: pairing.expiresAt };
@@ -457,7 +486,6 @@ export class SessionRegistry {
     this.codeFailures.delete(input.source);
     if (this.personal(pairing.scopes)) return { ok: false, status: 403, code: "cloud_personal", ...this.adminOnly! };
     const token = `omb_sess_${randomBytes(32).toString("base64url")}`;
-    const checkedAt = pairing.memberCheckedAt ?? now;
     const record: SessionRecord = {
       id: randomUUID(),
       tokenHash: sha256(token),
@@ -465,12 +493,10 @@ export class SessionRegistry {
       scopes: [...pairing.scopes],
       createdAt: now,
       lastSeenAt: now,
-      expiresAt: pairing.member ? teamSessionExpiresAt(checkedAt, now + SESSION_TTL_MS) : now + Math.min(pairing.tokenTtlMs ?? SESSION_TTL_MS, SESSION_MAX_AGE_MS),
+      expiresAt: now + Math.min(pairing.tokenTtlMs ?? SESSION_TTL_MS, SESSION_MAX_AGE_MS),
       ...(pairing.tokenTtlMs !== undefined ? { token: true as const } : {}),
-      ...(pairing.member ? { email: pairing.member.email, teamRole: pairing.member.role, membershipAuthority: "team" as const } : {}),
-      ...(pairing.member && pairing.memberCheckedAt !== undefined ? { memberCheckedAt: pairing.memberCheckedAt } : {}),
     };
-    if (pairing.member && pairing.memberCheckedAt === undefined) this.memberChecked(pairing.member, now);
+    if (!record.token && record.scopes.includes("admin")) record.userId = this.userId;
     this.sessions.push(record);
     this.lastSeenWrites.set(record.id, now);
     this.persist();
@@ -478,85 +504,6 @@ export class SessionRegistry {
     const result: ExchangeResult = { ok: true, token, session: publicSession(record) };
     if (attemptId) this.replays.push({ codeHash: presented, attemptId, result, expiresAt: now + EXCHANGE_REPLAY_MS });
     return result;
-  }
-
-  /** The Admin vouched for a member just now: the sessions their own codes opened (their phones) live on another hour.
-   * One whose role changed since is left to end. */
-  private memberChecked(member: TeamMember, now: number): void {
-    for (const session of this.sessions) {
-      if (session.memberCheckedAt === undefined || session.membershipAuthority !== "team" || session.email !== member.email || session.teamRole !== member.role || session.expiresAt <= now) continue;
-      session.memberCheckedAt = now;
-      session.expiresAt = Math.max(session.expiresAt, teamSessionExpiresAt(now, Math.min(now + SESSION_TTL_MS, session.createdAt + SESSION_MAX_AGE_MS)));
-    }
-  }
-
-  /** The team members the roster check asks about: those with a session used within the last hour (never a script's token
-   * or a move-in sign-in, which end as they were made to). At most `max` people, the soonest to end first. */
-  membersToVouch(max: number): string[] {
-    this.prune();
-    const now = this.now(), soonest = new Map<string, number>();
-    for (const session of this.sessions) {
-      if (!this.vouchable(session, now)) continue;
-      soonest.set(session.email!, Math.min(soonest.get(session.email!) ?? Infinity, session.expiresAt));
-    }
-    return [...soonest].sort((a, b) => a[1] - b[1]).slice(0, max).map(([email]) => email);
-  }
-
-  /** A team session the roster check may keep: live, used within the last hour, and not a token or a move-in sign-in. */
-  private vouchable(session: SessionRecord, now: number): boolean {
-    return session.membershipAuthority === "team" && Boolean(session.email) && !session.token && !session.moveIn
-      && session.expiresAt > now && now - session.lastSeenAt <= TEAM_ACTIVE_MS;
-  }
-
-  /** The Admin's roster check found this member in the team at `role` just now. Their sessions at another role end (a role
-   * change the Admin's own pairing didn't reach; never an upgrade). Each of their sessions at that role that was used within
-   * the hour, phones included, ends no later than an hour after its last use: an idle one, left on another computer, still
-   * ends on schedule however much the person uses another device. */
-  vouchMember(email: string, role: TeamRole): void {
-    const address = email.trim().toLowerCase(), now = this.now();
-    this.revokeMember(address, role);
-    let changed = false;
-    for (const session of this.sessions) {
-      if (session.email !== address || session.teamRole !== role || !this.vouchable(session, now)) continue;
-      if (session.memberCheckedAt !== undefined) session.memberCheckedAt = now; else session.vouchedAt = now;
-      const next = Math.min(teamSessionExpiresAt(now, Math.min(now + SESSION_TTL_MS, session.createdAt + SESSION_MAX_AGE_MS)), session.lastSeenAt + TEAM_ACTIVE_MS);
-      if (next > session.expiresAt) { session.expiresAt = next; changed = true; }
-    }
-    if (changed) this.persist();
-  }
-
-  issue(input: { label: string; scopes: Scope[]; userId?: string; email?: string }): { token: string; session: PublicSession } {
-    return this.issueAccount(input);
-  }
-
-  /** Call only after consuming a verified, workspace-bound PKCE grant; no HTTP route accepts this marker as input. */
-  issuePortal(input: { email: string; grant: string; scopes: Scope[] }): { token: string; session: PublicSession } {
-    if (!/^[A-Za-z0-9_-]{43}$/.test(input.grant) || !input.email) throw new Error("A verified portal identity is required");
-    return this.issueAccount({ label: "Hosted workspace", email: input.email, userId: `portal:${input.grant}`, scopes: input.scopes }, "portal");
-  }
-
-  private issueAccount(input: { label: string; scopes: Scope[]; userId?: string; email?: string }, membershipAuthority?: "portal"): { token: string; session: PublicSession } {
-    this.refusePersonal(input.scopes);
-    this.prune();
-    const now = this.now();
-    const token = `omb_sess_${randomBytes(32).toString("base64url")}`;
-    const record: SessionRecord = {
-      id: randomUUID(),
-      tokenHash: sha256(token),
-      label: (deviceLabel(input.label) || "Unnamed device").slice(0, 80),
-      scopes: [...new Set(input.scopes)],
-      createdAt: now,
-      lastSeenAt: now,
-      expiresAt: now + Math.min(SESSION_TTL_MS, SESSION_MAX_AGE_MS),
-    };
-    if (input.userId) record.userId = input.userId;
-    if (input.email) record.email = input.email;
-    if (membershipAuthority) record.membershipAuthority = membershipAuthority;
-    this.sessions.push(record);
-    this.lastSeenWrites.set(record.id, now);
-    this.persist();
-    for (const listener of this.onIssued) listener(record);
-    return { token, session: publicSession(record) };
   }
 
   attemptAllowed(source: string): { ok: true } | { ok: false; retryAfterMs: number } {
@@ -572,53 +519,8 @@ export class SessionRegistry {
     this.failures.delete(source);
   }
 
-  /** The sign-in lists may have changed: the next recheckMembership() reads them. */
-  membershipChanged(): void {
-    this.membershipCheckedAt = -Infinity;
-  }
-
-  /** revalidateEmailSessions(), unless one ran within `recheckMs` and membershipChanged() has not been called since. */
-  recheckMembership(): void {
-    if (this.now() - this.membershipCheckedAt < (this.options.recheckMs ?? 0)) return;
-    this.revalidateEmailSessions();
-  }
-
-  /** Email membership is live: losing any scope revokes the token and its streams; promotions never widen existing credentials. */
-  revalidateEmailSessions(): void {
-    if (this.closed) throw new Error("Session registry is closed.");
-    this.membershipCheckedAt = this.now();
-    // A team session's membership is the Admin's signed claim, checked at each pairing (cloud-team.ts), never the sign-in list.
-    const eligible = this.sessions.filter(session => session.email !== undefined && session.membershipAuthority !== "team" && !(this.options.portalMembership && session.membershipAuthority === "portal"));
-    if (!eligible.length) return;
-    let resolveScopes = this.options.emailScopes;
-    try {
-      if (this.options.emailScopesSnapshot) resolveScopes = this.options.emailScopesSnapshot();
-    } catch {
-      resolveScopes = undefined; // Never fall back to stale membership after a failed snapshot.
-    }
-    const revoked = eligible.filter((session) => {
-      try {
-        const allowed = resolveScopes?.(session.email!);
-        return !allowed || session.scopes.some((scope) => !allowed.includes(scope));
-      } catch {
-        return true; // missing or unreadable membership must fail closed
-      }
-    });
-    if (!revoked.length) return;
-    const ids = new Set(revoked.map((session) => session.id));
-    this.sessions = this.sessions.filter((session) => !ids.has(session.id));
-    for (const session of revoked) this.forget(session.id);
-    try {
-      this.persist();
-    } catch {
-      // Revocation holds in memory and streams close; the boot marker stops old bearers reviving after an unclean restart.
-      console.error("Could not persist email session revocation.");
-    }
-  }
-
   authenticate(token: string | undefined): SessionRecord | null {
     if (!token) return null;
-    this.recheckMembership();
     const hash = sha256(token);
     const now = this.now();
     const record = this.sessions.find((s) => sameDigest(s.tokenHash, hash));
@@ -634,13 +536,11 @@ export class SessionRegistry {
 
   /** Call only after origin and scope checks pass; never revives an expired session. */
   renew(sessionId: string): boolean {
-    this.recheckMembership();
     const record = this.sessions.find((s) => s.id === sessionId);
     const now = this.now();
     if (!record || record.expiresAt <= now || record.token) return false;
     if (record.expiresAt - now > SESSION_RENEW_WHEN_LEFT_MS) return false;
-    const proposed = Math.min(now + SESSION_TTL_MS, record.createdAt + SESSION_MAX_AGE_MS);
-    const next = record.membershipAuthority === "team" ? teamSessionExpiresAt(Math.max(record.memberCheckedAt ?? record.createdAt, record.vouchedAt ?? 0), proposed) : proposed;
+    const next = Math.min(now + SESSION_TTL_MS, record.createdAt + SESSION_MAX_AGE_MS);
     if (next <= record.expiresAt) return false;
     record.expiresAt = next;
     record.lastSeenAt = now;
@@ -675,53 +575,6 @@ export class SessionRegistry {
   pairingDigests(max: number): string[] {
     this.prune();
     return [...this.pairings].sort((a, b) => b.createdAt - a.createdAt).slice(0, max).map((p) => p.credentialHash);
-  }
-
-  /** The live sessions a Team Cloud member's own codes opened: their phones. Never an Admin-signed pairing (an app). */
-  memberPhones(): PublicSession[] {
-    this.prune();
-    return this.sessions.filter((s) => s.membershipAuthority === "team" && s.memberCheckedAt !== undefined).map(publicSession);
-  }
-
-  /** Every code a member made for a phone stops working, and every phone such a code opened signs out. Never an Admin-signed pairing (an app). */
-  closeMemberPhones(): number {
-    this.pairings = this.pairings.filter((pairing) => !(pairing.member && pairing.memberCheckedAt !== undefined));
-    return this.memberPhones().filter((phone) => this.revoke(phone.id)).length;
-  }
-
-  /** The credentials of a person no longer in the team, for a day, by digest only (memory, never stored): their page can say
-   * why it was signed out. */
-  private readonly left = new Map<string, number>();
-  private noteLeft(address: string): void {
-    const now = this.now();
-    for (const [hash, until] of this.left) if (until <= now) this.left.delete(hash);
-    for (const session of this.sessions) {
-      if (session.membershipAuthority === "team" && session.email?.toLowerCase() === address && this.left.size < 5_000) this.left.set(session.tokenHash, now + 86_400_000);
-    }
-  }
-  /** Whether this credential's session ended because its person is no longer in the team. */
-  leftTeam(token: string): boolean {
-    const until = this.left.get(sha256(token));
-    return until !== undefined && until > this.now();
-  }
-
-  /** Remote access turned off on a Team Cloud: every User's browser sign-in signs out. An Owner's and an Admin's stay. */
-  closeMemberBrowsers(): number {
-    this.prune();
-    return this.sessions.filter((session) => session.membershipAuthority === "team" && session.cookieOnly && session.teamRole === "member").map((session) => session.id)
-      .filter((id) => this.revoke(id)).length;
-  }
-
-  /** A person who left a Team Cloud: every session of theirs (app windows, phones) ends now, and no open code of theirs
-   * can open another. With `keepRole` (the Admin vouched for them at that role), only those at another role end. Returns
-   * how many sessions ended. */
-  revokeMember(email: string, keepRole?: TeamRole): number {
-    const address = email.trim().toLowerCase();
-    if (keepRole === undefined) this.noteLeft(address);
-    this.pairings = this.pairings.filter((pairing) => pairing.member?.email.toLowerCase() !== address || pairing.member.role === keepRole);
-    const ended = this.sessions.filter((session) => session.membershipAuthority === "team" && session.email?.toLowerCase() === address && (keepRole === undefined || session.teamRole !== keepRole));
-    for (const session of ended) this.revoke(session.id);
-    return ended.length;
   }
 
   revoke(id: string): boolean {

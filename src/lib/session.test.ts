@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   isConnected, isOwnerOrAdmin, profileForSession, readSessionState, reasonWorthShowing, SERVICE_TRUST_REASON,
-  takeInvitedEmailFromLocation, takePairingCodeFromLocation,
+  takePairingCodeFromLocation,
   type SessionState,
 } from "./session";
 
@@ -13,21 +13,6 @@ describe("what the pair page says about why it was shown", () => {
     expect(reasonWorthShowing("403")).toBeNull();
     expect(reasonWorthShowing(undefined)).toBeNull();
     expect(reasonWorthShowing("unauthorized: this session has expired or was revoked; pair this device again")).toMatch(/expired or was revoked/);
-  });
-});
-
-describe("the invited address on a pair link", () => {
-  it("prefills a valid address, drops it from the address bar, and ignores junk", () => {
-    const replaceState = vi.fn();
-    vi.stubGlobal("location", { search: "?email=Ada%40Example.test&x=1", pathname: "/pair", hash: "#code=ABCD" });
-    vi.stubGlobal("history", { replaceState });
-    expect(takeInvitedEmailFromLocation()).toBe("ada@example.test");
-    expect(replaceState).toHaveBeenCalledWith(null, "", "/pair?x=1#code=ABCD");
-    vi.stubGlobal("location", { search: "?email=not-an-address", pathname: "/pair", hash: "" });
-    expect(takeInvitedEmailFromLocation()).toBeNull();
-    vi.stubGlobal("location", { search: "", pathname: "/pair", hash: "" });
-    expect(takeInvitedEmailFromLocation()).toBeNull();
-    vi.unstubAllGlobals();
   });
 });
 
@@ -50,6 +35,13 @@ describe("who the served UI is on its own machine", () => {
     expect(await readSessionState(answer({ ...shared, reactor: "p_ada" }))).toEqual({ ...shared, reactor: "p_ada" });
     expect(await readSessionState(answer({ ...shared, reactor: 7 }))).toEqual(shared);
     expect(await readSessionState(answer(shared))).toEqual(shared);
+  });
+  it("requires an explicit session kind before showing owner controls", async () => {
+    for (const body of [{}, { kind: "session", userId: "p_test" }]) {
+      const state = await readSessionState(answer(body));
+      expect(state.kind).toBe("unreachable");
+      expect(isOwnerOrAdmin(state)).toBe(false);
+    }
   });
   it("is the owner on loopback unless the server says local requests are only a service", async () => {
     const owner = await readSessionState(answer({ kind: "loopback", scopes: ["admin", "client"] }));

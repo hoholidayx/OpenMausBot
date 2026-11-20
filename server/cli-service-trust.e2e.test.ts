@@ -44,7 +44,7 @@ describe.skipIf(process.platform === "win32")("openmausbot serve under service l
     serve.stdout!.on("data", (chunk) => (output += chunk));
     serve.stderr!.on("data", (chunk) => (output += chunk));
     const deadline = Date.now() + 40_000;
-    while (!output.includes("access add you@example.com")) {
+    while (!output.includes("in an interactive terminal")) {
       if (serve.exitCode !== null) throw new Error(`serve exited:\n${output}`);
       if (Date.now() > deadline) throw new Error(`serve never finished starting:\n${output}`);
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -56,10 +56,10 @@ describe.skipIf(process.platform === "win32")("openmausbot serve under service l
     await removeTempDir(home);
   });
 
-  it("not in a terminal, prints no code into a log; points at email sign-in, and keeps running", async () => {
+  it("not in a terminal, prints no code into a log; explains how to pair, and keeps running", async () => {
     expect(output).toContain("local requests: service trust (OMB_LOOPBACK_TRUST)");
     expect(output).not.toMatch(/Pairing code {3}[A-Z0-9]{4}-/);
-    expect(output).toContain("Let people sign in with their email: openmausbot access add you@example.com");
+    expect(output).toContain("start openmausbot serve in an interactive terminal");
     expect(serve.exitCode).toBeNull();
     expect((await fetch(`http://127.0.0.1:${PORT}/api/health`)).status).toBe(200);
   });

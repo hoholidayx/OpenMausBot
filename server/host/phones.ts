@@ -34,7 +34,7 @@ export interface PhonesDeps {
   loopbackTrust: LoopbackTrust;
   sharedMembership(): boolean;
   store: Pick<Store, "appendMessage" | "bot" | "groupByThread" | "messagesFor">;
-  sessions: Pick<SessionRegistry, "list" | "isLive" | "onSessionRevoked">;
+  sessions: Pick<SessionRegistry, "list" | "isLive" | "onSessionRevoked" | "userId">;
   routines(): { listRoutines(): Routine[] } | null;
   ownerOrAdmin(auth: RequestAuth): boolean;
   cloudOwnerSession(auth: RequestAuth): boolean;
@@ -85,7 +85,7 @@ export function createPhones(deps: PhonesDeps) {
     if (deps.cloudHome) return deps.cloudLendingRefusal(turn) === null ? deps.cloudOwnerKey : null;
     if (!desktopPhones()) return null;
     const lending = desktopLendingTurn({ ...deps.cloudLendingTurn(turn), thread: store.messagesFor(turn.threadId) }, {
-      adminPersons: () => new Set(deps.sessions.list().filter((session) => session.scopes.includes("admin")).map((session) => personKey(session))),
+      adminPersons: () => new Set([deps.sessions.userId, ...deps.sessions.list().filter(session => session.userId === deps.sessions.userId).map(session => personKey({ id: session.id }))]),
       originIsUser: () => deps.originIsUser(turn),
       ownerWrote: (id) => {
         const routine = deps.routines()?.listRoutines().find((candidate) => candidate.id === id);

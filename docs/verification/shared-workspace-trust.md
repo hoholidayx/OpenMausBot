@@ -52,11 +52,6 @@ description is in [self-hosting](../self-hosting.md#loopback-trust-owner-or-serv
   their last write. `GET /api/decisions?limit=` is unchanged; `GET
   /api/decisions.csv?from=&to=` (admin) exports a date range with formula
   cells neutralised and secrets redacted.
-- **Settings on a portal-membership workspace.** `GET /api/config` reports
-  `membership {authority, pairingCodes, peopleUrl}`. Settings → People turns
-  read-only (who signed in, their spend, "Manage people in Admin" linking to
-  `<OMB_ADMIN_URL>/people?workspace=<slug>`); Remote access offers no pairing
-  code and says people sign in through the organization's portal.
 
 ## Driving it
 
@@ -64,7 +59,7 @@ description is in [self-hosting](../self-hosting.md#loopback-trust-owner-or-serv
 pnpm exec vitest run server/request-auth.test.ts server/decision-log.test.ts \
   server/card-answerers.e2e.test.ts server/cli-service-trust.e2e.test.ts \
   server/decision-log-wiring.test.ts \
-  src/components/PeopleSection.test.ts src/components/ServerPairingCard.test.ts src/lib/session.test.ts
+  server/local-identity.e2e.test.ts src/components/ServerPairingCard.test.ts src/lib/session.test.ts
 ```
 
 - `server/request-auth.test.ts` runs the worker's calls and a list of admin

@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  readSessionState, takePairingCodeFromLocation, takeInvitedEmailFromLocation,
+  readSessionState, takePairingCodeFromLocation,
 } from "./lib/session";
 import { bootstrapBrand, productName } from "./lib/brand";
 import { t } from "./lib/i18n";
@@ -37,7 +37,7 @@ async function chooseRoot(): Promise<React.ReactNode> {
   const home = window.ogb?.home;
   if (location.pathname === "/home" && home) return <HomeScreen bridge={home} manage={window.ogb?.cloudPlan?.manage} />;
   if (location.pathname === "/pair") {
-    return <PairPage initialCode={takePairingCodeFromLocation()} initialEmail={takeInvitedEmailFromLocation()} />;
+    return <PairPage initialCode={takePairingCodeFromLocation()} />;
   }
   const session = await readSessionState();
   if (session.kind === "unauthenticated") {

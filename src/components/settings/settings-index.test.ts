@@ -98,7 +98,7 @@ describe("the pages", () => {
   it("shows People to admins of a team or a self-hosted server only, and Plan & billing where the plan can be read", () => {
     expect(ids(PEOPLE["a team admin"])).toContain("people");
     expect(ids(PEOPLE["a team member"])).not.toContain("people");
-    expect(ids(fullContext({ desktop: false, here: false, admin: true }))).toContain("people");
+    expect(ids(fullContext({ desktop: false, here: false, admin: true }))).not.toContain("people");
     expect(ids(PEOPLE["My Cloud's page in the desktop window"])).not.toContain("people");
     expect(ids(PEOPLE["a team member"])).not.toContain("plan");
     expect(ids(fullContext({ plan: false }))).not.toContain("plan");

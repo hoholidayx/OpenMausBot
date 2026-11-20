@@ -214,9 +214,8 @@ The [Data viewer fixture](data.md) checks real DuckDB loading, querying, export,
 restart persistence, result history and the full renderer's 100,000-row grid
 in a disposable workspace with synthetic data.
 
-The [people invitation fixture](people.md) checks hosted workspace sign-in,
-roles and device revocation through the real HTTP API with a stubbed email
-service. It does not drive the People settings UI through `control-omb`.
+The [local owner fixture](local-owner.md) checks the installation identity, device scopes,
+revocation and migration from email sign-in.
 
 The [sidebar fixture](sidebar.md) checks archive and delete confirmations, their
 default focus, keyboard wrapping and focus return against two disposable bots;

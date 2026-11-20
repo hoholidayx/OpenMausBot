@@ -1,3 +1,4 @@
+import { pairDevice } from "./testing/paired-session.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
@@ -148,10 +149,9 @@ beforeAll(async () => {
   config.instances.gmailFixture = { ...config.instances.claude, displayName: "Gmail continuation fixture",
     environment: { FAKE_CLAUDE_ROOM_PLAN: join(fixture.info.dataDir, "gmail-plan.json") } };
   writeFileSync(configFile, JSON.stringify(config));
-  const sessions = new SessionRegistry({ file: join(fixture.info.dataDir, "sessions.json"),
-    emailScopes: email => email === "admin@fixture.test" ? ["admin", "client"] : ["client"] });
-  admin = sessions.issue({ label: "isolated admin", email: "admin@fixture.test", scopes: ["admin", "client"] }).token;
-  member = sessions.issue({ label: "isolated member", email: "member@fixture.test", scopes: ["client"] }).token;
+  const sessions = new SessionRegistry({ file: join(fixture.info.dataDir, "sessions.json") });
+  admin = pairDevice(sessions, { label: "isolated admin", scopes: ["admin", "client"] }).token;
+  member = pairDevice(sessions, { label: "isolated member", scopes: ["client"] }).token;
   sessions.close();
   const log = openSync(fixture.info.logPath, "a", 0o600);
   child = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {

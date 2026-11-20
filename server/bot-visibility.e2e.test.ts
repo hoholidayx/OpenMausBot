@@ -1,3 +1,4 @@
+import { pairDevice } from "./testing/paired-session.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -155,8 +156,8 @@ posixOnly("per-bot visibility on a shared workspace", () => {
       },
     }));
     const role = (email: string) => (email === BOSS ? ["admin", "client"] as const : ["client"] as const);
-    const registry = new SessionRegistry({ file: join(data, "sessions.json"), emailScopes: (email) => [...role(email)] });
-    for (const email of [BOSS, ADA, BOB]) tokens[email] = registry.issue({ label: `${email.split("@")[0]}'s laptop`, email, scopes: [...role(email)] }).token;
+    const registry = new SessionRegistry({ file: join(data, "sessions.json") });
+    for (const email of [BOSS, ADA, BOB]) tokens[email] = pairDevice(registry, { label: `${email.split("@")[0]}'s laptop`, scopes: [...role(email)] }).token;
     registry.close();
     await start();
 
@@ -225,10 +226,8 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     for (const hidden of [ids.hr, ids.hrThread, ids.board, ids.roomMixed, "Payroll Zebra", "Board Heron"]) expect(text).not.toContain(hidden);
 
     const ada = (await api("GET", "/api/bots?messages=5", undefined, ADA)).body;
-    expect(ada.bots.map((bot: any) => bot.id).sort()).toEqual([...bobBots, ids.hr].sort());
-    expect(ada.groups.map((group: any) => group.id).sort()).toEqual([ids.roomPub, ids.roomMixed].sort());
-    expect(ada.sections.sort()).toEqual(["Ops", "People"]);
-    expect(ada.bots.find((bot: any) => bot.id === ids.hr).visibility).toBeUndefined();
+    expect(ada.bots.map((bot: any) => bot.id).sort()).toEqual([...bobBots].sort());
+    expect(ada.groups.map((group: any) => group.id)).toEqual([ids.roomPub]);
 
     const boss = (await api("GET", "/api/bots?messages=0", undefined, BOSS)).body;
     expect(boss.bots.map((bot: any) => bot.id).sort()).toEqual([...bobBots, ids.hr, ids.board].sort());
@@ -275,14 +274,14 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     expect((await api("GET", "/api/routines", undefined, BOSS)).body.routines.find((r: any) => r.id === ids.hrRoutine).enabled).toBe(false);
     expect((await api("GET", `/api/bots?messages=0`, undefined, BOSS)).body.groups.find((g: any) => g.id === ids.roomMixed).name).toBe("Pay questions");
 
-    expect(await status("GET", `/api/threads/${ids.hrThread}/messages`, ADA)).toBe(200);
-    expect(await status("GET", `/api/threads/${ids.hrThread}/export`, ADA)).toBe(200);
-    expect(await status("GET", `/api/attachments/${ids.hrImage}`, ADA)).toBe(200);
-    const hrImage = await fetch(`${BASE}/api/attachments/${ids.hrImage}`, { headers: headers(ADA, false) });
+    expect(await status("GET", `/api/threads/${ids.hrThread}/messages`, ADA)).toBe(404);
+    expect(await status("GET", `/api/threads/${ids.hrThread}/export`, ADA)).toBe(404);
+    expect(await status("GET", `/api/attachments/${ids.hrImage}`, ADA)).toBe(404);
+    const hrImage = await fetch(`${BASE}/api/attachments/${ids.hrImage}`, { headers: headers(BOSS, false) });
     expect(hrImage.status).toBe(200);
     expect(hrImage.headers.get("cache-control")).toBe("private, no-store");
-    expect(await status("GET", `/api/attachments/${ids.avatar}`, ADA)).toBe(200);
-    expect(await status("GET", `/api/threads/${ids.hrThread}/messages`, ADA)).toBe(200);
+    expect(await status("GET", `/api/attachments/${ids.avatar}`, ADA)).toBe(404);
+    expect(await status("GET", `/api/threads/${ids.hrThread}/messages`, ADA)).toBe(404);
     expect(await status("GET", `/api/threads/${ids.hrThread}/messages`, BOSS)).toBe(200);
     expect(await status("GET", `/api/attachments/${ids.fresh}`, BOB)).toBe(200);
     expect(await status("GET", `/api/threads/${ids.pubThread}/messages`, BOB)).toBe(200);
@@ -291,17 +290,17 @@ posixOnly("per-bot visibility on a shared workspace", () => {
 
   it("narrows search, routines, webhooks and the team map", async () => {
     const hits = async (as: string) => (await api("GET", `/api/search?q=${PAYROLL_SEARCH}`, undefined, as)).body.hits as Array<{ threadId: string }>;
-    expect((await hits(ADA)).some((hit) => hit.threadId === ids.hrThread)).toBe(true);
+    expect((await hits(BOSS)).some((hit) => hit.threadId === ids.hrThread)).toBe(true);
     expect(await hits(BOB)).toEqual([]);
     expect((await api("GET", `/api/search?q=${HELPDESK_SEARCH}`, undefined, BOB)).body.hits).toEqual(expect.arrayContaining([
       expect.objectContaining({ threadId: ids.pubThread }),
     ]));
 
     const routines = async (as: string) => (await api("GET", "/api/routines", undefined, as)).body.routines.map((r: any) => r.id);
-    expect(await routines(ADA)).toContain(ids.hrRoutine);
+    expect(await routines(BOSS)).toContain(ids.hrRoutine);
     expect(await routines(BOB)).not.toContain(ids.hrRoutine);
     const hooks = async (as: string) => (await api("GET", "/api/webhooks", undefined, as)).body.webhooks.map((w: any) => w.id);
-    expect(await hooks(ADA)).toContain(ids.hrHook);
+    expect(await hooks(BOSS)).toContain(ids.hrHook);
     expect(await hooks(BOB)).not.toContain(ids.hrHook);
 
     const map = (await api("GET", "/api/team-map", undefined, BOB)).body;
@@ -333,12 +332,13 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     expect((await runOf(shown)).seenAt).toEqual(expect.any(Number));
     expect((await runOf(hidden)).seenAt).toBeUndefined();
 
-    const adaSwept = await api("POST", "/api/routine-runs/seen-all", undefined, ADA);
-    expect(adaSwept.body.runs.map((run: any) => run.routineId)).toContain(hidden);
+    const ownerSwept = await api("POST", "/api/routine-runs/seen-all", undefined, BOSS);
+    expect(ownerSwept.body.runs.map((run: any) => run.routineId)).toContain(hidden);
     expect((await runOf(hidden)).seenAt).toEqual(expect.any(Number));
   });
 
   it("withdraws real scan results when an audience changes before the response", async () => {
+    expect((await api("PATCH", `/api/bots/${ids.hr}`, { visibility: "everyone" }, BOSS)).status).toBe(200);
     const hold = join(home, ".openmausbot", "hold-search-result");
     let pending: Promise<{ status: number; body: any }> | undefined;
     try {
@@ -386,15 +386,15 @@ posixOnly("per-bot visibility on a shared workspace", () => {
       expect(await ada.ready()).toBeTruthy();
       expect((await api("POST", `/api/bots/${ids.hr}/messages`, { text: "Quarterly bonus plan", threadId: ids.hrThread }, BOSS)).status).toBe(202);
       expect(await settledReply(ids.hrThread, "Quarterly bonus plan")).not.toBeNull();
-      expect(await waitFor(() => ada.frames.some((f) => f.kind === "message" && f.threadId === ids.hrThread && f.message?.text?.includes("Quarterly bonus plan")))).toBe(true);
-      expect(await waitFor(() => ada.frames.some((f) => f.kind === "runtime" && f.event?.threadId === ids.hrThread))).toBe(true);
+      expect(ada.frames.some(f => f.threadId === ids.hrThread)).toBe(false);
+      expect(ada.frames.some(f => f.event?.threadId === ids.hrThread)).toBe(false);
       expect((await api("POST", `/api/bots/${ids.pub}/messages`, { text: "Printer help", threadId: ids.pubThread }, BOSS)).status).toBe(202);
       expect(await waitFor(() => bob.frames.some((f) => f.kind === "message" && f.threadId === ids.pubThread))).toBe(true);
       for (const hidden of [ids.hr, ids.hrThread, ids.board, ids.roomMixed, "Quarterly bonus plan", "Payroll Zebra"]) expect(JSON.stringify(bob.frames)).not.toContain(hidden);
 
       const admin = openStream(BOSS);
       expect(await admin.ready()).toBeTruthy();
-      expect((await api("PATCH", `/api/bots/${ids.hr}`, { visibility: { people: [ADA, BOB] } }, BOSS)).status).toBe(200);
+      expect((await api("PATCH", `/api/bots/${ids.hr}`, { visibility: "everyone" }, BOSS)).status).toBe(200);
       const arrived = await waitFor(() => bob.frames.find((f) => f.kind === "bot" && f.bot?.id === ids.hr));
       expect(arrived?.bot.name).toBe("Payroll Zebra");
       expect(arrived?.bot.visibility).toBeUndefined();
@@ -464,26 +464,28 @@ posixOnly("per-bot visibility on a shared workspace", () => {
   }, 90_000);
 
   it("sends a member every bot without its audience list or hidden teammates, whichever route answers", async () => {
-    const task = await api("POST", `/api/bots/${ids.hr}/tasks`, { title: "Ada's thread" }, ADA);
+    const visible = await makeBot("Public support desk");
+    const task = await api("POST", `/api/bots/${visible.id}/tasks`, { title: "Ada's thread" }, ADA);
     expect(task.status).toBe(201);
     const answers = [
-      ["read", await api("POST", `/api/bots/${ids.hr}/read`, { threadId: ids.hrThread }, ADA)],
-      ["display", await api("PATCH", `/api/bots/${ids.hr}`, { pinned: true }, ADA)],
-      ["profile", await api("PATCH", `/api/bots/${ids.hr}/profile`, { title: "Payroll desk" }, ADA)],
+      ["read", await api("POST", `/api/bots/${visible.id}/read`, { threadId: visible.threadId }, ADA)],
+      ["display", await api("PATCH", `/api/bots/${visible.id}`, { pinned: true }, ADA)],
+      ["profile", await api("PATCH", `/api/bots/${visible.id}/profile`, { title: "Payroll desk" }, ADA)],
       ["task", task],
-      ["switch", await api("POST", `/api/bots/${ids.hr}/tasks/${ids.hrThread}`, {}, ADA)],
+      ["switch", await api("POST", `/api/bots/${visible.id}/tasks/${visible.threadId}`, {}, ADA)],
       ["list", await api("GET", "/api/bots?messages=0", undefined, ADA)],
     ] as const;
     for (const [route, answer] of answers) {
       expect(answer.status, `${route}: ${JSON.stringify(answer.body)}`).toBeLessThan(300);
-      const bots = [answer.body.bot, ...(answer.body.bots ?? [])].filter((bot: any) => bot?.id === ids.hr);
+      const bots = [answer.body.bot, ...(answer.body.bots ?? [])].filter((bot: any) => bot?.id === visible.id);
       expect(bots.length, route).toBeGreaterThan(0);
       for (const bot of bots) {
         expect(bot.visibility, route).toBeUndefined();
       }
       expect(JSON.stringify(answer.body), route).not.toContain(ADA);
     }
-    expect((await api("PATCH", `/api/bots/${ids.hr}`, { pinned: false }, BOSS)).body.bot).toMatchObject({ visibility: { people: [ADA] } });
+    expect((await api("GET", "/api/bots?messages=0", undefined, BOSS)).body.bots.find((bot: { id: string }) => bot.id === ids.hr)?.visibility).toEqual({ people: [ADA] });
+    expect((await api("DELETE", `/api/bots/${visible.id}`, undefined, BOSS)).status).toBe(200);
   });
 
   it("keeps a room fewer people can see out of a visible bot's search, and refuses to mix audiences in a room", async () => {
@@ -588,8 +590,8 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     expect(bobKey).toMatch(/^p_[\w-]{22}$/);
     expect(adaKey).not.toBe(bobKey);
     expect(bob.body.message.reactions).toEqual([
-      { emoji: "👍", by: adaKey, name: "Ada", at: expect.any(Number) },
-      { emoji: "👍", by: bobKey, name: "Bob", at: expect.any(Number) },
+      { emoji: "👍", by: adaKey, name: "ada's laptop", at: expect.any(Number) },
+      { emoji: "👍", by: bobKey, name: "bob's laptop", at: expect.any(Number) },
     ]);
     const changed = await react(ADA, "👎");
     expect(changed.body.message.reactions.map((reaction: any) => [reaction.by, reaction.emoji])).toEqual([[bobKey, "👍"], [adaKey, "👎"]]);
@@ -600,7 +602,7 @@ posixOnly("per-bot visibility on a shared workspace", () => {
       return !bot.busy && reactions.length === 3 ? reactions : null;
     });
     const thread = (await api("GET", `/api/threads/${ids.pubThread}/messages`, undefined, BOSS)).body.messages;
-    expect(lines?.map((line: any) => [line.reaction, line.sender?.name]), JSON.stringify(thread.map((m: any) => [m.role, m.kind, m.text?.slice(0, 60), m.reaction]))).toEqual([["👍", "Ada"], ["👍", "Bob"], ["👎", "Ada"]]);
+    expect(lines?.map((line: any) => [line.reaction, line.sender?.name]), JSON.stringify(thread.map((m: any) => [m.role, m.kind, m.text?.slice(0, 60), m.reaction]))).toEqual([["👍", "ada's laptop"], ["👍", "bob's laptop"], ["👎", "ada's laptop"]]);
   }, 90_000);
 
   it("keeps bots with different audiences from reaching each other", async () => {
@@ -624,7 +626,7 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     expect((await api("GET", "/api/bots?messages=0", undefined, BOB)).body.groups.map((g: any) => g.id)).not.toContain(ids.roomMixed);
     const floor = (await api("GET", "/api/bots?messages=0", undefined, BOSS)).body.groups.find((g: any) => g.id === ids.roomMixed).audienceFloor;
     expect(floor).toEqual({ people: [ADA] });
-    expect(await status("GET", `/api/threads/${ids.roomMixedThread}/messages`, ADA)).toBe(200);
+    expect(await status("GET", `/api/threads/${ids.roomMixedThread}/messages`, ADA)).toBe(404);
     expect(JSON.stringify((await api("GET", "/api/bots?messages=0", undefined, ADA)).body.groups)).not.toContain("audienceFloor");
     const minted = await fetch(`${BASE}/api/testing/internal-capability`, {
       method: "POST", headers: { "content-type": "application/json", "x-openmausbot-test-capability": CAPABILITY_KEY },
@@ -634,13 +636,13 @@ posixOnly("per-bot visibility on a shared workspace", () => {
       headers: { authorization: `Bearer ${(await minted.json() as { token: string }).token}` },
     });
     expect(((await search.json()) as { hits: Array<{ threadId: string }> }).hits.map((hit) => hit.threadId)).not.toContain(ids.roomMixedThread);
-    expect((await api("PATCH", `/api/groups/${ids.roomMixed}`, { resetAudience: true }, ADA)).status).toBe(403);
+    expect((await api("PATCH", `/api/groups/${ids.roomMixed}`, { resetAudience: true }, ADA)).status).toBe(404);
     expect((await api("PATCH", `/api/groups/${ids.roomMixed}`, { resetAudience: true }, BOSS)).status).toBe(200);
     expect(await status("GET", `/api/threads/${ids.roomMixedThread}/messages`, BOB)).toBe(200);
     // Audit writes run after the response: the earlier admins → Ada reset may
     // be the newest row until this reset reaches disk. Wait for this receipt.
     const reset = await waitFor(async () => (await api("GET", "/api/admin-activity?what=visibility", undefined, BOSS)).body.entries.find((entry: any) =>
       entry.action === "room.audience-reset" && entry.target?.id === ids.roomMixed && entry.after?.audienceFloor === "everyone"), 3_000);
-    expect(reset).toMatchObject({ who: BOSS, target: { id: ids.roomMixed }, before: { audienceFloor: { people: [ADA] } }, after: { audienceFloor: "everyone" } });
+    expect(reset).toMatchObject({ who: "boss's laptop", target: { id: ids.roomMixed }, before: { audienceFloor: { people: [ADA] } }, after: { audienceFloor: "everyone" } });
   });
 });
