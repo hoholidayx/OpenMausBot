@@ -14,6 +14,8 @@ import type {
   TextGenerationOptions,
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
+import { dreamTools } from "../dream-tools.ts";
+import { runOpenAIDream } from "./openai-dream.ts";
 import { ASK_USER_TOOL, ASK_USER_TOOL_DEFINITION, askQuestionSummary, parseAskQuestions, questionChoices } from "../../shared/ask-question.ts";
 import { allowsTool, parseToolScope } from "../../shared/tool-scope.ts";
 import { redactSecretsInText } from "../redact.ts";
@@ -40,7 +42,7 @@ import { toolSchemaProfileFor } from "../tool-schema-profile.ts";
 import { classifyContinuable, writeTurnHandoff } from "../turn-continuation.ts";
 import { KEY_REJECTED_REASON, keyRejected, noteKeyAccepted, noteKeyRejected, rejectsKey } from "../key-rejections.ts";
 import { FETCH_LIMIT_MS, fetchPastLimit, prepareChatModel } from "./openai-chat-fetch.ts";
-import { addUsage, chatUsageFrom, usageCount, type OpenAIChatTokenUsage, type OpenAIUsage } from "./openai-usage.ts";
+import { addUsage, chatUsageFrom, reportedChatUsage, type OpenAIChatTokenUsage, type OpenAIUsage } from "./openai-usage.ts";
 import { traceProviderFinish, type ProviderOutputLimit } from "../output-truncation.ts";
 import { announcesAction } from "./chat-announcement.ts";
 
@@ -276,6 +278,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       if (route === "responses") {
         const reply = await readResponsesStream(response.body, { reasoning: Boolean(options.reasoning), onBytes: resetIdleTimer, onDelta: (text, kind) => onDelta?.(text, kind), fail: failure, onOutputLimit });
         activeSignal.throwIfAborted();
+        onUsage?.({ model, ...reply.usage });
         return reply;
       }
 
@@ -284,13 +287,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         const tokenUsage = completionUsage(json);
         if (onUsage) {
           activeSignal.throwIfAborted();
-          onUsage({
-            model: typeof json.model === "string" && json.model.trim() ? json.model : model,
-            input: usageCount(tokenUsage?.prompt_tokens),
-            output: usageCount(tokenUsage?.completion_tokens),
-            cachedInput: usageCount(tokenUsage?.prompt_tokens_details?.cached_tokens),
-            costUsd: usageCount(tokenUsage?.cost),
-          });
+          onUsage(reportedChatUsage(model, json.model, tokenUsage));
         }
         const bodyError = completionError(json, "completion error");
         if (bodyError) throw bodyError;
@@ -976,6 +973,11 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         return () => listeners.delete(listener);
       },
     },
+    runDream: (request, { signal, model = options.models().default, onUsage }) => runOpenAIDream(
+      request,
+      messages => complete(messages, model, { tools: dreamTools, stream: false, idleTimeoutMs: options.timeoutMs, signal, onUsage }),
+      reply => assistantReply(model, reply, reply.text || null, reply.toolCalls),
+    ),
     generateText: async (prompt, { signal, onUsage, model: named, minIdleTimeoutMs } = {}) => {
       const model = named ?? options.generateModel?.() ?? options.models().default;
       const idleTimeoutMs = Math.max(options.timeoutMs, minIdleTimeoutMs ?? 0);

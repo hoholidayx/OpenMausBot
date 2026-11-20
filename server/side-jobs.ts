@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { runDreamTextTools, type DreamRequest } from "./dream-tools.ts";
 
 import { backgroundTextSlots, type JobSlots } from "./job-slots.ts";
 import type { ProviderAdapter, ProviderInstance, SmallModelFallback, TextGenerationOptions } from "./contracts.ts";
@@ -8,7 +9,7 @@ import type { UsageRow } from "./usage-ledger.ts";
 /** "representative": a person's assistant answering a teammate's question for them, which must never get tools. */
 export type SideJob = "skill-review" | "setup-suggestions" | "representative" | "status-reply";
 
-export type SideJobInstance = Pick<ProviderInstance, "instanceId" | "driverKind" | "generateText" | "generateMemoryText" | "models" | "quickModelsUsable"> & {
+export type SideJobInstance = Pick<ProviderInstance, "instanceId" | "driverKind" | "generateText" | "generateMemoryText" | "runDream" | "models" | "quickModelsUsable"> & {
   adapter: { capabilities: Pick<ProviderAdapter["capabilities"], "agentsMcp"> };
 };
 
@@ -36,7 +37,7 @@ export interface SideJobsDeps {
   smallModels: { refused(instanceId: string): ReadonlySet<string>; remember(instanceId: string, model: string): void };
   /** Hosted workspaces only. */
   modelAllowed?: (selection: { instanceId: string; model: string }) => boolean;
-  assertWithinBudget: () => void;
+  assertWithinBudget: (backgroundBotId?: string) => void;
   book: (row: Omit<UsageRow, "at" | "costSource">, tokensReported: boolean, notificationThreadId: string) => void;
   log?: (line: string) => void;
   /** How many background jobs run at once, across bots. */
@@ -45,6 +46,7 @@ export interface SideJobsDeps {
 
 export interface SideJobs {
   text(job: SideJob, botId: string): SideJobText | null;
+  dream(botId: string): ((request: DreamRequest, signal: AbortSignal) => Promise<void>) | null;
 }
 
 type TextCall = (prompt: string, options?: TextGenerationOptions) => Promise<string>;
@@ -82,27 +84,27 @@ export function createSideJobs(deps: SideJobsDeps): SideJobs {
       }
     };
 
+  const usageFor = (job: SideJob | "dream", bot: SideJobBot, instance: SideJobInstance): NonNullable<TextGenerationOptions["onUsage"]> => {
+    const threadId = `${job}-${randomUUID()}`;
+    return (usage) => deps.book({
+      botId: bot.id,
+      botName: bot.name,
+      threadId,
+      instanceId: instance.instanceId,
+      driverKind: instance.driverKind,
+      model: usage.model,
+      input: usage.input ?? 0,
+      output: usage.output ?? 0,
+      ...(usage.cachedInput !== undefined ? { cachedInput: usage.cachedInput } : {}),
+      costUsd: usage.costUsd ?? null,
+      trigger: { kind: "bot", botId: bot.id },
+    }, usage.input !== undefined && usage.output !== undefined, bot.threadId);
+  };
+
   const booked = (job: SideJob, bot: SideJobBot, instance: SideJobInstance, call: TextCall, fixed: () => TextGenerationOptions): SideJobText["generateText"] =>
     async (prompt, options) => {
       deps.assertWithinBudget();
-      const threadId = `${job}-${randomUUID()}`;
-      return call(prompt, {
-        ...options,
-        ...fixed(),
-        onUsage: (usage) => deps.book({
-          botId: bot.id,
-          botName: bot.name,
-          threadId,
-          instanceId: instance.instanceId,
-          driverKind: instance.driverKind,
-          model: usage.model,
-          input: usage.input ?? 0,
-          output: usage.output ?? 0,
-          ...(usage.cachedInput !== undefined ? { cachedInput: usage.cachedInput } : {}),
-          costUsd: usage.costUsd ?? null,
-          trigger: { kind: "bot", botId: bot.id },
-        }, usage.input !== undefined && usage.output !== undefined, bot.threadId),
-      });
+      return call(prompt, { ...options, ...fixed(), onUsage: usageFor(job, bot, instance) });
     };
 
   const slots = deps.slots ?? backgroundTextSlots;
@@ -130,5 +132,24 @@ export function createSideJobs(deps: SideJobsDeps): SideJobs {
   }
   return {
     text: (job, botId) => queued(job, find(job, botId)),
+    dream(botId) {
+      const bot = deps.bot(botId);
+      const instance = bot && deps.instance(bot.modelSelection.instanceId);
+      if (!bot || !instance || deps.refusal(instance)) return null;
+      const model = bot.modelSelection.model || instance.models.default;
+      const helper = instance.generateMemoryText ?? instance.generateText;
+      if ((!instance.runDream && !helper) || !model || (deps.modelAllowed && !deps.modelAllowed({ instanceId: instance.instanceId, model }))) return null;
+      return (request, signal) => slots.run(async () => {
+        const options = { model, signal, onUsage: usageFor("dream", bot, instance) };
+        const guarded = { ...request, checkpoint() {
+          signal.throwIfAborted();
+          request.checkpoint();
+          if (deps.instance(instance.instanceId) !== instance || deps.refusal(instance)) throw new Error("Dream's engine changed");
+          deps.assertWithinBudget(bot.id);
+        } };
+        if (instance.runDream) await instance.runDream(guarded, options);
+        else await runDreamTextTools(guarded, helper!.bind(instance), options);
+      }, { signal });
+    },
   };
 }

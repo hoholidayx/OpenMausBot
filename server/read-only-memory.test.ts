@@ -19,14 +19,15 @@ afterEach(() => {
 });
 
 it("bounds the combined prompt and keeps UTF-8 character boundaries", () => {
-  notes(LAYER, "room\n".repeat(199));
-  notes(BOT, "first\nsecond");
-  const layered = readOnlyMemoryPrompt([LAYER, BOT]);
+  const limits = { maxEntries: 20, maxBytes: 4_000 };
+  notes(LAYER, "# Room\n" + "- room\n".repeat(19));
+  notes(BOT, "- first\n- second");
+  const layered = readOnlyMemoryPrompt([LAYER, BOT], limits);
   expect(layered).toContain("first");
   expect(layered).not.toContain("second");
   notes(BOT, "🍊".repeat(70_000));
-  const single = readOnlyMemoryPrompt([BOT]);
-  expect(single.match(/🍊/gu)).toHaveLength(6_000);
+  const single = readOnlyMemoryPrompt([BOT], limits);
+  expect(single.match(/🍊/gu)).toHaveLength(1_000);
   expect(single).not.toContain("�");
   expect(single).toContain('"truncated":true');
 });

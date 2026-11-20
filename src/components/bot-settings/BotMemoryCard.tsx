@@ -4,11 +4,15 @@ import { t } from "@/lib/i18n";
 import type { Bot } from "@/state/store";
 import { Switch } from "../SettingsPrimitives";
 import { useBotEditor } from "./BotEditorContext";
+import { CoreMemoryEditor } from "./CoreMemoryEditor";
 import { Mem0ConnectionForm } from "../Mem0Connection";
 
 export function BotMemoryCard({ bot, supported }: { bot: Bot; supported?: boolean }) {
   const { draft } = useBotEditor();
-  return draft ? null : <MemorySettings key={bot.id} botId={bot.id} supported={supported} />;
+  return draft ? null : <div key={bot.id} className="space-y-3">
+    <CoreMemoryEditor botId={bot.id} />
+    <MemorySettings botId={bot.id} supported={supported} />
+  </div>;
 }
 
 function MemorySettings({ botId, supported }: { botId: string; supported?: boolean }) {

@@ -1,5 +1,7 @@
 # MEMORY.md 只读注入与旧记忆退役
 
+日常聊天沿用本计划的只读注入。此后接入的后台逐条整理和条目管理见 [Dream 核心记忆实施记录](../finished_plans/dream-core-memory.md)。
+
 ## 目标
 
 保留维护者提供的 `MEMORY.md` 作为 bot 的背景资料。项目和工作区约束

@@ -1,24 +1,16 @@
 # Bot memory
 
-## Read-only bot notes
+## Core memory and Dream
 
-Place a maintainer-approved `MEMORY.md` at
-`<data directory>/bots/<botId>/MEMORY.md`. OpenMausBot reads it as reference
-material for that bot's direct and room turns. The prompt preview shows the
-same reference notes. Project and workspace rules and the bot's standing
-instructions take precedence. The reader has a 200-line and 24,000-byte
-prompt budget and skips expired dated entries.
+Each bot keeps its standing notes in `<data directory>/bots/<botId>/MEMORY.md`. Its ordinary direct and room turns read the same notes shown in the prompt preview. The user's current request, standing instructions and project rules take precedence. Notes can hold up to **200 entries and 40,000 UTF-8 bytes**, whichever fills first. The byte count includes headings, Markdown markers and newlines. The prompt reader continues to skip expired dated entries.
 
-Edit the file on the server as the maintainer. Put the bot's working folder
-outside the notes directory and use a sandbox or operating-system permissions
-to protect the notes from engines that can run local commands. The bot's
-memory editor, writing tools, background learning and Markdown work logs
-have been retired.
+Dream starts with the bot’s existing accessible chat history and processes new messages while the bot is idle. It reads messages in batches, with their speaker and conversation boundaries, using its role, SOUL and current notes. It uses the bot’s selected model. OpenAI-compatible engines receive native function tools. Isolated command-line helpers return structured calls for the host to validate and execute. A bot whose engine offers neither resumes when a compatible model is selected. Its only write operations add, update or remove one Markdown entry. An update matches the complete old text. Handwritten headings and paragraphs are preserved. An interrupted batch resumes from the saved position and sees edits already made. A batch with no lasting change still advances. Personal Mem0 records keep their own write tools and storage.
 
-Previously saved `workspaces/<botId>/MEMORY.md`, topic files and daily logs
-remain available as files. Review the old notes before copying any content into
-the maintainer's file. Chats and tools still use the message database.
-`session_search` searches accessible conversations and rooms.
+- To adjust what a bot remembers, open **Bot settings → Prompts → Dream criteria**. Save or restore the default there. The next batch uses the saved text.
+- To correct an entry, open **Bot settings → Apps it can use → Core memory**, or **Access → Core memory** in Advanced mode. Expand the list to add, edit or delete an entry and see both capacity counters.
+- An existing oversized file can be shortened in place. To merge two entries, keep the wording you need in one and remove the redundant one. Normal chats receive a bounded excerpt while the file is oversized.
+
+The bot’s working directory should stay outside the notes directory. Existing `workspaces/<botId>/MEMORY.md`, topic files and daily logs are available for manual migration. Use `session_search` to find original conversations and rooms. Implementation decisions and verification cases are in the [Dream plan](finished_plans/dream-core-memory.md) and [verification guide](verification/memory-layer.md).
 
 ## Private long-term memory with Mem0
 

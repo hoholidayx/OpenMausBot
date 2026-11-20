@@ -88,6 +88,12 @@ function open(): DatabaseSync {
       thread_id TEXT PRIMARY KEY,
       active_leaf_id TEXT
     );
+    CREATE TABLE IF NOT EXISTS dream_cursors (
+      bot_id TEXT PRIMARY KEY, at INTEGER NOT NULL, seq INTEGER NOT NULL,
+      thread_id TEXT NOT NULL, message_id TEXT NOT NULL, offset INTEGER NOT NULL,
+      after_seq INTEGER NOT NULL, through_seq INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS dream_cursors_through ON dream_cursors(through_seq);
     CREATE TABLE IF NOT EXISTS conversation_summaries (
       thread_id TEXT NOT NULL,
       bot_id TEXT NOT NULL,
@@ -154,10 +160,14 @@ function ensureRecallIndex(db: DatabaseSync): void {
   }
 }
 
+// SQLite can reuse deleted rowids. An active Dream snapshot reserves its upper bound even if the source thread disappears.
+const INSERT_MESSAGE = `INSERT INTO messages (rowid, thread_id, id, at, role, kind, text, json, search_text)
+  VALUES (1 + max((SELECT coalesce(max(rowid), 0) FROM messages), (SELECT coalesce(max(through_seq), 0) FROM dream_cursors)),
+    ?, ?, ?, ?, ?, ?, ?, ?)`;
+
 // INSERT OR REPLACE skips the delete trigger (SQLite fires it only with recursive triggers on), so upsert to keep FTS in step.
-const UPSERT_MESSAGE =
-  "INSERT INTO messages (thread_id, id, at, role, kind, text, json, search_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
-  "ON CONFLICT(thread_id, id) DO UPDATE SET at = excluded.at, role = excluded.role, kind = excluded.kind, " +
+const UPSERT_MESSAGE = INSERT_MESSAGE +
+  " ON CONFLICT(thread_id, id) DO UPDATE SET at = excluded.at, role = excluded.role, kind = excluded.kind, " +
   "text = excluded.text, json = excluded.json, search_text = excluded.search_text";
 const messageRow = (threadId: string, message: Message) =>
   [threadId, message.id, message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), cjkSearchText(message.text)] as const;
@@ -470,7 +480,7 @@ export function importThread(threadId: string, messages: Message[], activeLeafId
         database.prepare("SELECT 1 FROM thread_state WHERE thread_id = ?").get(threadId))) {
       throw new Error("Cannot import over an existing conversation");
     }
-    const insert = relinked && database.prepare("INSERT INTO messages (thread_id, id, at, role, kind, text, json, search_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    const insert = relinked && database.prepare(INSERT_MESSAGE);
     for (const message of messages) {
       if (insert) insert.run(...messageRow(threadId, message));
       else insertMessage(threadId, message);
@@ -955,6 +965,7 @@ export function deleteBotMemoryFiles(botId: string): void {
   const database = db();
   const table = database.prepare("SELECT 1 FROM sqlite_master WHERE name = 'memory_files' AND type = 'table'").get();
   if (table) database.prepare("DELETE FROM memory_files WHERE bot_id = ?").run(botId);
+  prepared("DELETE FROM dream_cursors WHERE bot_id = ?").run(botId);
 }
 
 /** Await before maintenance replaces the database or shutdown releases its lease. */

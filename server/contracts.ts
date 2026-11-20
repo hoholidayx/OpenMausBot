@@ -602,6 +602,8 @@ export interface ProviderInstance {
   generateMemoryText?(prompt: string, options?: TextGenerationOptions): Promise<string>;
   /** Isolated, tool-free permission review; separate from generateText so no security capability is inferred from a generic helper. */
   reviewPermission?(prompt: string, signal?: AbortSignal): Promise<string>;
+  /** Isolated background turn with only the three host-bound core memory tools. */
+  runDream?(request: import("./dream-tools.ts").DreamRequest, options: TextGenerationOptions): Promise<void>;
   dispose(): Promise<void>;
 }
 

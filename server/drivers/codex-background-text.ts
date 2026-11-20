@@ -49,7 +49,8 @@ export interface CodexBackgroundRoute {
 /** Background text stays on the provider the bot's own model runs on (a person's gateway when OpenAI is blocked
  * where they are). A sign-in that cannot use small models, or one OpenAI already turned away here, writes on the bot's
  * own model, or the account's default without one. */
-export function codexBackgroundRoute(catalog: ModelCatalog, smallModelsUsable: boolean, fallback?: SmallModelFallback, openaiUnreachable = false): CodexBackgroundRoute | null {
+export function codexBackgroundRoute(catalog: ModelCatalog, smallModelsUsable: boolean, fallback?: SmallModelFallback, openaiUnreachable = false, named?: string): CodexBackgroundRoute | null {
+  if (named) return { model: named };
   const own = fallback?.model || accountDefault(catalog);
   const provider = own ? providerOf(own) : OFFICIAL_CODEX_PROVIDER;
   const small = smallModelsUsable && !(openaiUnreachable && provider === OFFICIAL_CODEX_PROVIDER);

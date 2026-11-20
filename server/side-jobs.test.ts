@@ -53,6 +53,19 @@ function setup(options: { modelAllowed?: SideJobsDeps["modelAllowed"]; quickMode
 }
 
 describe("which engine writes a side job", () => {
+  it("books Dream to the selected bot model and leaves a capped job unstarted", async () => {
+    const { jobs, codex, state } = setup();
+    codex.state.reply = () => '{"calls":[]}';
+    const request = { system: "criteria", input: "history", checkpoint() {}, execute: () => "ok" };
+    const write = jobs.dream("codex")!;
+    await write(request, new AbortController().signal);
+    expect(codex.calls[0].options?.model).toBe("x-large");
+    expect(state.booked[0].row).toMatchObject({ botId: "codex", model: "x-large", input: 120, output: 30, threadId: expect.stringMatching(/^dream-/) });
+    state.overBudget = true;
+    await expect(write(request, new AbortController().signal)).rejects.toThrow(/spend limit/);
+    expect(codex.calls).toHaveLength(1);
+    expect(jobs.dream("missing-bot")).toBeNull();
+  });
   it("uses the bot's engine when it supplies one-off text", async () => {
     const { jobs, claude, api, state } = setup();
     for (const job of allJobs) await expect(jobs.text(job, "claude")?.generateText(job)).resolves.toBe("claude wrote this");

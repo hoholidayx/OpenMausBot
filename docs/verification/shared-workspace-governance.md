@@ -170,7 +170,7 @@ above; not production qualification.
 ## Second review round — 2026-09-23
 
 - **Daily memory log.** This review covered the legacy memory writer.
-  See [Read-only bot notes](memory-layer.md) for the current checks.
+  See [Bot core memory](memory-layer.md) for the current checks.
 - **Chief-made bots.** `/api/internal/create-bot` and reviewed team setup
   give the new bot the Chief's audience ("gives a bot a restricted Chief
   creates the Chief's own audience").

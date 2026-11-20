@@ -15,6 +15,16 @@ export function usageCount(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
+export function reportedChatUsage(requested: string, served: string | undefined, usage: OpenAIChatTokenUsage | undefined) {
+  return {
+    model: typeof served === "string" && served.trim() ? served : requested,
+    input: usageCount(usage?.prompt_tokens),
+    output: usageCount(usage?.completion_tokens),
+    cachedInput: usageCount(usage?.prompt_tokens_details?.cached_tokens),
+    costUsd: usageCount(usage?.cost),
+  };
+}
+
 export function chatUsageFrom(usage: OpenAIChatTokenUsage | undefined): OpenAIUsage | null {
   if (!usage) return null;
   const cachedInput = usageCount(usage.prompt_tokens_details?.cached_tokens);

@@ -129,6 +129,8 @@ import { signInCardText } from "./connector-card-text.ts";
 import { BOT_HELD_CODE, BOT_PAUSED_CODE } from "../shared/bot-limit.ts"; import { createBotHolds } from "./host/bot-holds.ts"; import { createBotHoldRoutes } from "./routes/bot-holds.ts"; import { createStarterAwake } from "./host/starter-awake.ts"; import { createStarterCaps } from "./host/starter-caps.ts"; import { createStarterAwakeRoutes } from "./routes/starter-awake.ts"; import { chiefOfStaffPrompt, chiefOfStaffSystemPrompt } from "./chief-of-staff.ts"; import { coordinateTooLong } from "./too-long.ts"; import { chiefAbsentFrom, createChiefRooms } from "./host/chief-rooms.ts"; import { chiefLevel } from "./chief-level.ts"; import { defaultBotRefusal, ensureDefaultBot } from "./default-bot.ts";
 import { recallRooms, recallThreadIds, sessionSearchPrompt } from "./recall.ts";
 import { readOnlyMemoryPrompt } from "./read-only-memory.ts";
+import { createDream } from "./dream.ts";
+import { coreMemoryRoutes } from "./routes/core-memory.ts";
 import { hostTimeZone, takesTurnClock, turnClockLine, withTurnClock } from "./turn-clock.ts";
 import {
   LEGACY_MEMORY_DISABLED,
@@ -2715,7 +2717,7 @@ function previewSystemPrompt(bot: BotRecord) {
     { id: "profile", label: "Profile changes", text: agentsMounted ? PROFILE_PROMPT : "" },
     { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
     teamAvailabilityPart(agentsMounted && coordination ? peers : []),
-    { id: "memory", label: "Maintainer notes (MEMORY.md)", text: readOnlyMemoryPrompt([bot.id]) },
+    { id: "memory", label: "Core memory (MEMORY.md)", text: readOnlyMemoryPrompt([bot.id]) },
     { id: "skills", label: "Skills index", text: privateWorkspace ? skillsHost.skillsIndex(bot, undefined, instance) : "" },
   ], agentsMounted ? { env: agentsToolBridgeEnv(cfg, bot, instance && turnEngine(instance, providerConfigs(), registry.lastSnapshot(instance.instanceId), bot.cwd ?? undefined)) } : undefined, { rules: cfg.everyBotRules, overrides: bot.promptOverrides });
   const built = modelSystemPrefixes.apply(basePrompt, instance, bot.modelSelection.model, bot.modelPrefixOverrides);
@@ -4892,9 +4894,16 @@ const sideJobs = createSideJobs({
   bot: (botId) => store.bot(botId),
   instance: (instanceId) => registry.get(instanceId),
   refusal: (instance) => policyModelRefusal(instance), smallModels: refusedModels,
-  assertWithinBudget: () => usageCapGate.assertTurn(undefined, true),
+  assertWithinBudget: (botId) => usageCapGate.assertTurn(botId, botId === undefined),
   book: bookTurnUsage,
   log: (line) => console.log(line),
+});
+
+const dream = createDream({
+  bots: () => store.bots, persona: botPersona, writer: sideJobs.dream,
+  threads: (bot: BotRecord) => recallThreads(bot).ownThreads.filter(id => !cloudGuestDriven(id)),
+  available: () => !companyShutdown && !workspaceMaintenance.active && !retiredCopy.frozen() && !store.bots.some(bot => botHasActiveTurn(bot.id)),
+  idle: id => !botHolds.held(id) && !routines?.activeRunForBot(id),
 });
 
 const setupSuggestions = setupSuggestionsFor({ store, config: () => cfg, shared: () => false, languageCode: () => appLanguage() ?? Intl.DateTimeFormat().resolvedOptions().locale, engine: (bot) => registry.get(bot.modelSelection.instanceId)?.adapter.capabilities, browserOn: () => builtInBrowserEnabled(cfg),
@@ -7341,8 +7350,10 @@ async function beginTurn(
       // What a resumed session keeps from its launch; Codex reasserts model and provider on resume, but an in-flight turn and an omitted effort keep the prior selection.
       const persistentConfig = [bot.name, bot.title, bot.description, sectionContextSystemPrompt(bot.section), ...(cfg.everyBotRules?.trim() ? [cfg.everyBotRules.trim()] : []),
         ...(instance.driverKind === "codex" ? [model, effort ?? null] : [])];
-      const sessionConfig = (profile: BotRecord) =>
-        createHash("sha256").update(JSON.stringify([...persistentConfig, profile.soul, ...(profile.promptOverrides ? [profile.promptOverrides] : [])])).digest("hex").slice(0, 16);
+      const sessionConfig = (profile: BotRecord) => {
+        const { dream: _dream, ...chatOverrides } = profile.promptOverrides ?? {};
+        return createHash("sha256").update(JSON.stringify([...persistentConfig, profile.soul, ...(Object.keys(chatOverrides).length ? [chatOverrides] : [])])).digest("hex").slice(0, 16);
+      };
       const plannedConfig = sessionConfig(bot);
       const skillAuthoring = skillAuthoringEnabled(cfg) && agentsMounted;
       const skillCommandText = supportsWorkspaceFiles(instance.driverKind)
@@ -7886,7 +7897,7 @@ async function beginTurn(
         { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
         // Volatile, so a teammate starting or finishing never changes the stable half.
         teamAvailabilityPart(coordinationPrompt ? sectionPeers : []),
-        { id: "memory", label: "Maintainer notes (MEMORY.md)", text: apiFenced || confined || guestConfined || cloudGuestDriven(threadId) ? "" : turnMemoryPrompt(bot.id, threadId) },
+        { id: "memory", label: "Core memory (MEMORY.md)", text: apiFenced || confined || guestConfined || cloudGuestDriven(threadId) ? "" : turnMemoryPrompt(bot.id, threadId) },
         // liveBot predates awaited setup work; an assignment PUT in that window must still reach this prompt.
         { id: "skills", label: "Skills index", text: privateWorkspace ? skillsHost.skillsIndex(store.bot(bot.id) ?? bot, threadId, instance, cwd ?? null) : "" },
         { id: "skill-instructions", label: "Skill instructions", text: skillInstructions },
@@ -9540,7 +9551,7 @@ async function runClaimedGroupMemberTurn(
     { id: "recall", label: "Conversation search", text: integrations.agents ? sessionSearchPrompt() : "" }, { id: "just-do-it", label: "Just do it", text: preparedApprovalMode === "full" && !isUnattended(bot.id, threadId) ? JUST_DO_IT_PROMPT : "" },
     teamAvailabilityPart(outsideRoom),
     { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
-    { id: "memory", label: "Maintainer notes (MEMORY.md)", text: roomMemory ? `\n${roomMemory.trim()}` : "" },
+    { id: "memory", label: "Core memory (MEMORY.md)", text: roomMemory ? `\n${roomMemory.trim()}` : "" },
     { id: "skills", label: "Skills index", text: workspace ? skillsHost.skillsIndex(bot, threadId, instance, cwd ?? null) : "" },
     { id: "skill-instructions", label: "Skill instructions", text: renderSkillInstructions(selectedSkills, { includeRoot: Boolean(workspace) }) },
     { id: "playbooks", label: "Playbooks", text: installedPlaybookInstructions(text, bot.playbooks) },
@@ -11435,6 +11446,7 @@ ROUTES.push(workPartnerRoutes({ store,
   },
   candidates: (auth, bot, thread) => personalReach.peers(store.bots, bot, thread).filter(peer => visibleTo(viewerFor(auth)).bot(peer.id)),
 }));
+ROUTES.push(coreMemoryRoutes(id => Boolean(store.bot(id))));
 ROUTES.push(createBotPromptRoutes({
   store, preview: previewSystemPrompt,
   prefix: (bot) => modelSystemPrefixes.setting(bot, registry.get(bot.modelSelection.instanceId)),
@@ -14427,7 +14439,7 @@ server.listen(PORT, listenHost(server), async () => {
     if (companyShutdown) return;
   }
   // Only once every registry is initialized and the endpoint listens: earlier dispatch can hit uninitialized bindings.
-  if (!retiredCopy.frozen()) { asyncImages.start(); routines!.start(); botWaits.start(); proactive.start(); }
+  if (!retiredCopy.frozen()) { asyncImages.start(); routines!.start(); botWaits.start(); proactive.start(); dream.start(); }
   limitClock.start(); burst.recover();
 });
 
@@ -14494,6 +14506,7 @@ const gracefulShutdown = createGracefulShutdown({
       calendarCalls?.stop(); botWaits.stop();
       cacheKeepWarm.dispose(); conversationContext.forget();
       skillReview.stop();
+      dream.stop();
       webhookIngress?.server.close(); webhookIngress?.socketServer?.close();
       tunnelListener?.close(); void tailnetShare.close(); phoneRelay?.stop();
     },

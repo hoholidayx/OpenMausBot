@@ -30,9 +30,9 @@ type ChatRequest = {
   tools?: Array<{ function: { name: string; description?: string } }>;
 };
 
-// Maintainer notes belong to the turn so editing the file does not change the provider's cached system message.
+// Core memory belongs to the turn so editing the file does not change the provider's cached system message.
 const CONTEXT_NOTE = "Context from OpenMausBot updated since this conversation started; it replaces any earlier copy:";
-const MEMORY = "Maintainer-provided reference notes (MEMORY.md)";
+const MEMORY = "This bot's core memory (MEMORY.md)";
 // Team availability changes whenever a teammate starts or finishes, so it must never reach the cached system message.
 const AVAILABILITY = "Team availability";
 const ANNOUNCEMENT = "I'm working in the Cua Local VM and will launch XFCE Terminal first.";

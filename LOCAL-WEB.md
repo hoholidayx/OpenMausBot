@@ -28,10 +28,10 @@ Set the same data directory for every management command. `OPENMAUSBOT_NODE` sel
 executable. `start` chooses an installed Node 24+ when it is not set. The
 process record preserves the chosen ports and executable for status and stop.
 
-To give a bot background notes, place a maintainer-edited `MEMORY.md` in
-`<data directory>/bots/<botId>/`. The server reads the file for the bot's
-turns. See [the memory guide](docs/memory.md) for file limits and how to
-review and carry over older notes.
+Dream maintains each bot’s `<data directory>/bots/<botId>/MEMORY.md` while the
+service is idle. The bot reads these notes in ordinary conversations. You can
+review individual entries and adjust the Dream prompt in the bot’s settings.
+See [the memory guide](docs/memory.md) for limits and existing notes.
 
 Run the service-manager regression checks with
 `python3 -m unittest discover -s tests -p test_manage.py`.

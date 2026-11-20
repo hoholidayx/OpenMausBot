@@ -1,5 +1,6 @@
 // One builder for every turn's system prompt, so what a bot receives and the "what the model sees" preview are the same bytes.
 import { BOT_PROMPT_FIELDS, type BotPromptOverrides, type BotPromptSetting } from "../shared/bot-prompts.ts";
+import { DREAM_CRITERIA } from "./dream-tools.ts";
 import { soulSystemPrompt } from "./bot-folder.ts";
 import { lentComputersLine, theirComputer } from "./lent-computers.ts";
 import { agentsToolBridged } from "./drivers/agents-bridge.ts";
@@ -96,7 +97,7 @@ export function roomReplyStyle(bot: PromptProfile) {
 export function botPromptSettings(bot: PromptProfile): BotPromptSetting[] {
   const defaults = {
     soul: "", persona: defaultPersona(bot), "reply-style": "",
-    "reply-habits": REPLY_HABITS_PROMPT.trim(), "room-style": ROOM_REPLY_STYLE,
+    "reply-habits": REPLY_HABITS_PROMPT.trim(), "room-style": ROOM_REPLY_STYLE, dream: DREAM_CRITERIA,
   };
   return BOT_PROMPT_FIELDS.map((id) => ({
     id, defaultText: defaults[id], override: id === "soul" ? bot.soul || null : bot.promptOverrides?.[id] ?? null,
