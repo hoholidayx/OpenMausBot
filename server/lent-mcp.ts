@@ -15,7 +15,7 @@ import type { McpServerSpec } from "./contracts.ts";
 import { augmentedPath } from "./env-path.ts";
 import { deviceWord, type LentPlatform } from "./lent-computers.ts";
 import type { McpProbeResult } from "./mcp-probe.ts";
-import { isRemoteMcpServer, mcpServerServes, parseStoredMcpServer, type McpRunsOn, type StoredMcpServer } from "./mcp-registry.ts";
+import { dedicatedImageConnection, isRemoteMcpServer, mcpServerServes, parseStoredMcpServer, type McpRunsOn, type StoredMcpServer } from "./mcp-registry.ts";
 import { PASS } from "./routes/table.ts";
 import type { LentMcpServer, McpCaller, SharedComputers } from "./shared-computers.ts";
 import type { McpKeys } from "./vault/mcp-keys.ts";
@@ -93,7 +93,7 @@ export function elsewhereServers(cfg: Pick<AppConfig, "mcpServers">, bot: Bot): 
   return Object.entries(cfg.mcpServers ?? {}).flatMap(([name, raw]): Array<[string, ElsewhereServer]> => {
     if (bot.mcpServers && !bot.mcpServers.includes(name)) return [];
     const parsed = parseStoredMcpServer(name, raw);
-    if (!parsed.ok || !parsed.server.enabled || !parsed.server.runsOn || !mcpServerServes(parsed.server, bot.id) || !canUseMcpServer(bot.toolScope, name)) return [];
+    if (dedicatedImageConnection(cfg, name) || !parsed.ok || !parsed.server.enabled || !parsed.server.runsOn || !mcpServerServes(parsed.server, bot.id) || !canUseMcpServer(bot.toolScope, name)) return [];
     return [[name, parsed.server as ElsewhereServer]];
   });
 }

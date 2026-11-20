@@ -7,7 +7,7 @@ export const IMAGE_TOOL_NAMES: ReadonlySet<string> = new Set(["generate_image", 
 export async function callImageTool(name: string, args: Json, context: ToolCallContext): Promise<ToolCallResult> {
   const { ok, body } = await context.client.apiResponse(name === "generate_image_async" ? "/api/internal/images/enqueue" : "/api/internal/images/generate", {
     method: "POST",
-    body: JSON.stringify({ fromBotId: context.botId, fromThreadId: context.threadId, ...args }),
+    body: JSON.stringify({ ...args, fromBotId: context.botId, fromThreadId: context.threadId }),
   });
   return ok ? { text: String(body.text ?? "") } : { text: String(body.error ?? "The image was not generated. Try again shortly."), isError: true };
 }

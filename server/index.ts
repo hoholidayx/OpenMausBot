@@ -76,9 +76,10 @@ import {
   messageFileRoots,
 } from "./message-file.ts";
 import { avatarImageStatus } from "./avatar-image.ts";
+import { dedicatedImageConnection } from "./mcp-registry.ts";
 import { AsyncImageJobs, type ImageTarget } from "./async-image-jobs.ts";
 import { ImageBridge, imageDigest } from "./image-bridge.ts";
-import { imageDownloadVisible, pendingImageFiles, syncImageReservation } from "./image-job-store.ts";
+import { imageDownloadVisible, imageSlotsUsed, pendingImageFiles, syncImageReservation } from "./image-job-store.ts";
 import { IMAGE_MAX_PER_TURN_DEFAULT } from "../shared/image-generation.ts";
 import { imageJobRoutes } from "./routes/image-jobs.ts";
 import { imageGenerationReady } from "./image-generation.ts";
@@ -822,14 +823,14 @@ function memoryDevice(auth: RequestAuth): string | undefined {
 function imageDevice(auth: RequestAuth): string | undefined {
   if (!cfg.imageGen?.asyncMcp) return undefined;
   if (auth.kind === "session") return !auth.session.token && sessions.isLive(auth.session.id) ? auth.session.id : undefined;
-  return localOwnerRequest(auth) ? "local-owner" : undefined;
+  return DESKTOP_MANAGED && localOwnerRequest(auth) ? "desktop:" + ENVIRONMENT_ID : undefined;
 }
 
 function imageSource(bot: string, thread: string, generation: string): string | undefined {
   const request = directRequestOwners.get(thread);
   if (!request?.imageDevice || request.stopped || request.generation !== generation || request.origin?.kind !== "user" ||
       store.botByThread(thread)?.id !== bot || store.groupByThread(thread) || store.taskByThread(bot, thread)?.botApi) return undefined;
-  if (request.imageDevice !== "local-owner") {
+  if (request.imageDevice !== (DESKTOP_MANAGED ? "desktop:" + ENVIRONMENT_ID : "")) {
     const session = sessions.record(request.imageDevice);
     if (!session || session.token || !visibleTo(viewerFor({ kind: "session", session, via: "bearer", scopes: session.scopes })).thread(thread)) return undefined;
   }
@@ -2506,13 +2507,19 @@ const { stopThreadForPerson, stopOnTypedCommand, restartForPerson } = createPers
   store, routines: () => routines, handoffs: () => handoffs, interruptDirectThread, stopping: (botId, threadId) => idleThreads.stopping(botId, threadId), clearUnattended,
   stopGoal: (threadId) => oneOnOneGoals.stop(threadId), markStopped: (threadId, by) => personStops.stop(threadId, liveTurns.running(threadId), directTurnDispatchClaims.has(threadId), by), working: (botId, threadId) => threadBusy(botId, threadId) || coordinator.activeDirect(threadId), asking: (threadId) => coordinator.awaitingAnswer(threadId) || Boolean(openPersonCard(threadId)), language: threadLanguage, stopRefusal: (threadId, by) => runOwners.stopRefusal(threadId, by),
 }); const teamMessages = createTeamMessages({ place: createPlaceInbox({ dataDir: DATA_DIR, store, openCards: openCardRows, live: (threadId, requestId) => askMessageByRequest.has(`${threadId}:${requestId}`), waiting: () => personWaits.waiting(), send: (notification) => { broadcast({ kind: "notify", notification: logNotification(notification) }); }, sees: (auth, threadId) => visibleTo(viewerFor(auth)).thread(threadId), mayAnswer: (auth, threadId, requestId) => cardAnswerRefusal(auth, threadId, requestId, "allow") === null, viewer: (auth) => placeInboxViewer(auth, { personal: false, owner: cloudOwnerSession, personOf: personKey }), guestOf: () => { return null; }, guestName: (threadId) => guestNameIn(store.messagesFor(threadId)), handedBy: (threadId) => { const from = delegatorOf(threadId); return from && from.threadId !== threadId ? from.botId ?? store.botByThread(from.threadId)?.id ?? null : null; } }), team: null, dataDir: DATA_DIR, store, confined: (threadId) => cloudGuestDriven(threadId), people: teamOwners.people, personName: teamHost.personName, audienceOf: teamHost.audienceOf, starters: threadStarters, notify, sees: (person) => visibleTo(person.role === "member" ? { kind: "member", email: person.email } : { kind: "all", email: person.email }), inbox: { askedPerson: teamOwners.routing.askedPerson, delivered: (item, delivery) => teamAway.delivered(item, delivery), changed: (threadId) => { const bot = store.botByThread(threadId); if (bot) broadcast({ kind: "bot", bot: wireBot(bot) }); }, ensureOwnBot: (email) => { ensureDefaultBot(store, { dataDir: DATA_DIR, person: email, team: null, opened: (made) => void mausbotOwnChat.claim(made) }); }, handedFrom: (threadId) => { const from = delegatorOf(threadId); return from && from.threadId !== threadId ? from.threadId : null; }, continueTurn: relayedTurn({ store, startTurn, state: (botId, threadId) => ({ atCapacity: botAtThreadCapacity(botId, threadId), threadBusy: threadBusy(botId, threadId), groupTurn: roomTurnHolds(activeGroupTurnForBot(botId), threadId, false), parksBehindCoordination: parksBehindCoordination(botId, threadId) }) }), representative: { generate: async (botId, prompt) => (await sideJobs.text("representative", botId)?.generateText(prompt, { timeoutMs: 60_000 })) ?? null, busy: createPersonCalendar({ access: (person) => teamConnections.personApps().includes("googlecalendar") ? teamConnections.people.appsAccess(person) : null, connected: async (access) => (await composio.connectedServices(...teamConnections.via(access))).googlecalendar?.connected === true, relay: (payload, session, signal, access) => composio.relayMcp(teamConnections.via(access)[0], payload as never, session, undefined, signal, teamConnections.via(access)[1]) }).busy } } });
-function imageTarget(name?: string, bot?: BotRecord | null): ImageTarget | null {
+function botAllowsAsyncImages(bot: BotRecord) {
+  const scope = bot.toolScope;
+  return !bot.toolsOff?.includes("images") &&
+    allowsTool(scope, { kind: "mcp", server: "agents", name: "generate_image_async" }) &&
+    allowsTool({ deny: scope?.deny ?? [] }, { kind: "mcp", server: "agents", name: "generate_image" });
+}
+
+function imageTarget(name?: string, bot?: BotRecord | null, checkTools = true): ImageTarget | null {
   if (!name) return null;
   const entry = parseStoredMcpServer(name, cfg.mcpServers?.[name]);
   if (!entry.ok || !isRemoteMcpServer(entry.server) || entry.server.type !== "http" || entry.server.runsOn || !entry.server.enabled) return null;
-  if (bot && ((entry.server.bot && entry.server.bot !== bot.id) || (bot.mcpServers && !bot.mcpServers.includes(name)) ||
-      bot.toolsOff?.includes("images") || !allowsTool(bot.toolScope, { kind: "mcp", server: "agents", name: "generate_image_async" }) ||
-      !allowsTool({ deny: bot.toolScope?.deny ?? [] }, { kind: "mcp", server: "agents", name: "generate_image" }))) return null;
+  if (bot && ((entry.server.bot && entry.server.bot !== bot.id) || (bot.mcpServers && !bot.mcpServers.includes(name)))) return null;
+  if (bot && checkTools && !botAllowsAsyncImages(bot)) return null;
   if (!managedPolicy.filterMcp({ [name]: entry.server })[name]) return null;
   const resolved = mcpKeys.resolve(name, entry.server, bot?.id);
   if (!resolved.ok || !isRemoteMcpServer(resolved.server)) return null;
@@ -2528,10 +2535,16 @@ async function imageConnection(target: ImageTarget) {
 }
 
 const asyncImages = new AsyncImageJobs({ store, dataDir: DATA_DIR, environment: ENVIRONMENT_ID, connection: imageConnection,
+  warm: async name => {
+    if (name !== cfg.imageGen?.asyncMcp) return;
+    const stored = parseStoredMcpServer(name, cfg.mcpServers?.[name]);
+    if (stored.ok && stored.server.enabled) await mcpKeys.warm(name, stored.server);
+  },
+  delivered: (id, thread) => { const bot = store.bot(id); if (bot) markTaskContextExternallyUpdated(bot, thread); },
   maxPerTurn: () => cfg.imageGen?.maxPerTurn ?? IMAGE_MAX_PER_TURN_DEFAULT,
   target: id => { const bot = store.bot(id); return bot ? imageTarget(cfg.imageGen?.asyncMcp, bot) : null; },
 });
-const imageTools = createImageToolRoutes({ config: () => cfg, reserveDaily: () => syncImageReservation(ENVIRONMENT_ID, DATA_DIR), dataDir: DATA_DIR, liveTurn: (threadId) => liveTurnByThread.get(threadId), key: turnAttachmentKey, images: (key) => (turnAttachmentsByTurn.get(key) ?? []).filter((item) => item.kind === "image").length, park: (key, image) => { const saved = saveImage(image.bytes, image.mime); turnAttachmentsByTurn.set(key, [...turnAttachmentsByTurn.get(key) ?? [], { kind: "image", path: saved.path, mime: saved.mime }]); } });
+const imageTools = createImageToolRoutes({ config: () => cfg, reserveDaily: () => syncImageReservation(ENVIRONMENT_ID, DATA_DIR), asyncSlots: thread => { const source = directRequestOwners.get(thread)?.messageId; return source ? imageSlotsUsed(ENVIRONMENT_ID, thread, source) : 0; }, dataDir: DATA_DIR, liveTurn: (threadId) => liveTurnByThread.get(threadId), key: turnAttachmentKey, images: (key) => (turnAttachmentsByTurn.get(key) ?? []).filter((item) => item.kind === "image").length, park: (key, image) => { const saved = saveImage(image.bytes, image.mime); turnAttachmentsByTurn.set(key, [...turnAttachmentsByTurn.get(key) ?? [], { kind: "image", path: saved.path, mime: saved.mime }]); } });
 const noAiNotice = createNoAiNotice({ team: null, dataDir: DATA_DIR, people: () => teamOwners.people?.list() ?? [], personName: teamHost.personName, inbox: () => teamMessages.inbox, language: personLanguages.forLine, threadLanguage: conversationLanguage });
 const botNameClash = createBotNameClash({ store, people: () => teamMessages.people(), profileName: () => cfg.profile?.name });
 const refusedHandoffs = createRefusedHandoffs({ bots: () => store.bots, hides: (from, target) => personalReach.hides(from, target), runOf: (threadId) => (routines?.isActiveThread(threadId) ? routines.runForThread(threadId) ?? undefined : undefined), writerOf: () => undefined, askedPerson: teamOwners.routing.askedPerson, theirOwn: (threadId, person) => audienceMember(teamHost.audienceOf(threadId)) === person, inbox: () => teamMessages.inbox, language: conversationLanguage }); const perf = createPerfHost({ dataDir: DATA_DIR, bus, store, limits: () => limitClock.report(), engines: () => engineMemory.enginePids(), wholeMachine: false }); const settingNudges = createSettingNudges({ dataDir: DATA_DIR, store }); const devsReports = createDevsReports({ dataDir: DATA_DIR, store, installId: ENVIRONMENT_ID, performance: perf.lines, appVersion: serverVersion(), runsOn: DESKTOP_MANAGED ? "desktop app" : "self-hosted server", recentLog: captureRecentLog(), send: devsReportSender(bugReportEndpoint(process.env)), askStatus: devsStatusAsker(bugReportEndpoint(process.env), null), statusEveryMs: Number(process.env.OMB_DEVS_STATUS_MS) || undefined, tell: (threadId, text) => { const group = store.groupByThread(threadId), bot = group ? store.bot(group.memberIds[0] ?? "") : store.botByThread(threadId); if (bot) notify({ ...buildNoticeNotification(bot, threadId, text), ...(group ? { groupId: group.id } : {}) }); }, working: (threadId) => { const group = store.groupByThread(threadId), bot = group ? null : store.botByThread(threadId); return group ? Boolean(group.busyBotId) || groupThreadIsWorking(group.id, threadId) : Boolean(bot && threadBusy(bot.id, threadId)); }, automated: (threadId) => Boolean(routines?.isActiveThread(threadId)), engine: (instanceId) => (registry.get(instanceId) ? { name: engineName(instanceId), snapshot: registry.lastSnapshot(instanceId) } : null), appsReady: () => composio.configured(cfg), sessions: () => sessions.list(), ownerKey: null, team: false, profileEmail: () => cfg.profile?.email, language: appLanguage, lineLanguage: personLanguages.forLine });
@@ -11382,7 +11395,7 @@ ROUTES.push(createBotMessageRoutes({
     { emoji, name: person.name ?? person.email, at: Date.now() }),
 }));
 const liveRoots = (threadId: string, botId: string | undefined) => { const bot = botId ? store.bot(botId) : store.botByThread(threadId); return bot ? messageFileRootsForThread(bot.id, threadId).filter((root) => root !== ATTACHMENTS_DIR) : null; }; const chatApps = createChatApps({ store, dataDir: DATA_DIR, liveRows: liveAppRows, liveRoots, paused: () => workspaceMaintenance.active || retiredCopy.frozen() });
-const chatAppsMcp = createChatAppsMcp({ store, apps: chatApps, dataDir: DATA_DIR, keys: mcpKeys, storedServers: () => cfg.mcpServers ?? {}, mountedServers: (bot) => teamConnections.engineMcp(bot), personMcp: teamConnections.personMcp, probeAs: (server) => mcpServersHost.probeAs(server), oauth: mcpOAuth });
+const chatAppsMcp = createChatAppsMcp({ store, apps: chatApps, dataDir: DATA_DIR, keys: mcpKeys, storedServers: () => Object.fromEntries(Object.entries(cfg.mcpServers ?? {}).filter(([name]) => !dedicatedImageConnection(cfg, name))), mountedServers: (bot) => teamConnections.engineMcp(bot), personMcp: teamConnections.personMcp, probeAs: (server) => mcpServersHost.probeAs(server), oauth: mcpOAuth });
 ROUTES.push(createChatAppRoutes({ store, apps: chatApps, threadRefusal: () => null, mcpRpc: chatAppsMcp.rpc, threadVisible: (auth, threadId) => (auth.kind !== "session" || sessions.isLive(auth.session.id)) && visibleTo(viewerFor(auth)).thread(threadId) }));
 const { react } = createReactions({
   store, reply: (input) => teamMessages.reactedIn(input.auth, input.threadId, input.target.id, input.answer, { sendId: input.sendId, sender: messageSender(input.auth) }) ?? personReplies.deliver({ ...input, about: "message" }),
@@ -11650,7 +11663,7 @@ ROUTES.push(createBotToolCatalogRoutes({
     const caps = registry.get(bot.modelSelection.instanceId)?.adapter.capabilities;
     const threadId = botMainThread(bot.id) ?? bot.threadId;
     const env = agentsServerEnv(
-      { bot, threadId, room: false, host: agentsCatalogHost(bot) },
+      { bot, threadId, room: false, host: { ...agentsCatalogHost(bot), asyncImages: Boolean(imageTarget(cfg.imageGen?.asyncMcp, bot, false)) } },
       { generation: "", depth: 0, skillAuthoring: false }, () => "", "",
     );
     return {
@@ -11664,7 +11677,7 @@ ROUTES.push(createBotToolCatalogRoutes({
       apps: composio.configured(cfg),
     };
   },
-  servers: () => mcpServerResponse().servers,
+  servers: () => mcpServerResponse().servers.filter(s => !dedicatedImageConnection(cfg, s.name)),
   apps: async () => {
     const [tools, services] = await Promise.all([composio.listConnectorTools(cfg), composio.connectedServices(cfg)]);
     return { tools, connected: new Set(Object.keys(services).filter((slug) => services[slug]?.connected)) };
@@ -11963,6 +11976,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (await imageJobRoutes({ method, path, res, json, body: () => readBody(req), device: () => imageDevice(auth),
       visible: thread => visible.thread(thread), recheck: (thread, card) => asyncImages.recheck(thread, card),
       probe: async name => {
+        const stored = parseStoredMcpServer(name, cfg.mcpServers?.[name]);
+        if (stored.ok) await mcpKeys.warm(name, stored.server);
         const target = imageTarget(name);
         if (!target) return false;
         const bridge = new ImageBridge(await imageConnection(target), AbortSignal.timeout(10_000));
@@ -12211,7 +12226,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const source = imageSource(botId, threadId, generation);
         if (!source) return json(res, 403, { error: "Ask for an image from a paired device in a private chat." });
         const turn = liveTurnByThread.get(threadId);
-        const parked = turn ? turnAttachmentsByTurn.get(turnAttachmentKey(threadId, turn))?.filter(file => file.kind === "image").length : 0;
+        const parked = turn ? imageTools.occupied(threadId, turn) : 0;
         return json(res, 202, asyncImages.enqueue(botId, threadId, source, generation, body, parked));
       }
       const botFolders = async () => ({ roots: messageFileRootsForThread(internalSender.id, internalCapability.threadId).filter((root) => root !== ATTACHMENTS_DIR), vmWorkspace: (await attachmentVmForTurn(internalCapability))?.workspaceDir ?? null }); if (await lentMcp.route({ method, path, req, res, json, turn: internalCapability, readBody: readInternalBody }) !== PASS || await internalToolRoutes({ method, path, res, json, botId: internalSender.id, threadId: internalCapability.threadId, readBody: readInternalBody, folders: botFolders }) !== PASS || await waitRoutes({ method, path, res, json, botId: internalSender.id, threadId: internalCapability.threadId, readBody: readInternalBody, ...waitTurnChecks(internalCapability, internalSender) }) !== PASS || await teamMessages.internal({ method, path, res, json, botId: internalSender.id, threadId: internalCapability.threadId, readBody: readInternalBody }) !== PASS || await devsReports.internal({ method, path, res, json, botId: internalSender.id, threadId: internalCapability.threadId, readBody: readInternalBody }) !== PASS || await imageTools.internal({ method, path, res, json, readBody: readInternalBody, threadId: internalCapability.threadId, requireActive: requireActiveInternalCapability, personTurn: turnOrigin(internalCapability).kind === "user" || (Boolean(roomRun(internalCapability.generation)?.requestMessageId) && guestDrivenTurns.get(internalCapability.threadId) !== internalCapability.generation) }) !== PASS) return; const callSignal = turnCallSignals.signal(internalCapability, res); if (await publishedPages.internal({ method, path, res, json, botId: internalSender.id, threadId: internalCapability.threadId, readBody: readInternalBody, requireActive: requireActiveInternalCapability, signal: callSignal, folders: botFolders, post: (text, publishedPage, bundle) => { const source = connectorThread(internalSender.id, internalCapability.threadId); return !source ? null : (bundle && publishedPages.show({ threadId: internalCapability.threadId, card: publishedPage, bundle, bot: internalSender })) || store.appendMessage(internalCapability.threadId, { role: "bot", kind: "text", text, publishedPage, ...(source.group ? { from: { botId: internalSender.id, name: internalSender.name, color: internalSender.color } } : {}) }).id; } }) !== PASS) return;

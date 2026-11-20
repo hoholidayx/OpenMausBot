@@ -23,7 +23,7 @@ import { PROVIDER_ICON_PRESETS, providerIconError } from "../shared/provider-ico
 import { loopGuardConfigSchema, type LoopGuardConfig } from "./host/loop-guard.ts";
 import { migrateLegacyFeatureFlags } from "./legacy-feature-flags.ts";
 import { settledFileCache, settledFileStamp } from "./settled-file.ts";
-import { isRemoteMcpServer, mcpServerServes, parseStoredMcpServer } from "./mcp-registry.ts"; import { postizKeyHeaders } from "./postiz/connection.ts";
+import { imageMcpUrls, dedicatedImageConnection, isRemoteMcpServer, mcpServerServes, parseStoredMcpServer } from "./mcp-registry.ts"; import { postizKeyHeaders } from "./postiz/connection.ts";
 import { parseJson, schemaIssue, type JsonObject, type JsonValue } from "./schema.ts";
 import { deciderConfigSchema, type DeciderConfig } from "./decider/config.ts";
 import { fishKeyFromLiveKey, liveConfigSchema, liveConfigWithEnv, liveSettingEnv, type LiveConfig } from "./live-config.ts";
@@ -1208,6 +1208,7 @@ function skipMcpEntry(name: string, why: string): void {
 
 export function customMcpServers(cfg: AppConfig, only?: string[], botId?: string): Record<string, CustomMcpServer> {
   const out: Record<string, CustomMcpServer> = {};
+  const images = imageMcpUrls(cfg);
   for (const [name, raw] of Object.entries(cfg.mcpServers ?? {})) {
     if (only && !only.includes(name)) continue;
     const parsed = parseStoredMcpServer(name, raw);
@@ -1215,7 +1216,7 @@ export function customMcpServers(cfg: AppConfig, only?: string[], botId?: string
       skipMcpEntry(name, `${parsed.error} Expected { "command": "npx", "args": [...], "env": { ... } } or { "type": "http", "url": "https://…", "headers": { ... } }`);
       continue;
     }
-    if (name === cfg.imageGen?.asyncMcp || (isRemoteMcpServer(parsed.server) && parsed.server.purpose === "async_image")) continue;
+    if (dedicatedImageConnection(cfg, name, images)) continue;
     if (!parsed.server.enabled || parsed.server.runsOn || !mcpServerServes(parsed.server, botId)) continue; // another computer's or bot's own
     out[name] = isRemoteMcpServer(parsed.server)
       ? { type: parsed.server.type, url: parsed.server.url, headers: { ...parsed.server.headers, ...postizKeyHeaders(cfg.postiz, name, parsed.server) } }

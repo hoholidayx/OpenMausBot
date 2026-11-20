@@ -67,7 +67,7 @@ export function restoreSteeredMessages(): void {
     const { via, callId, origin: storedOrigin, ...payload } = row.payload;
     const origin = workOriginSchema.safeParse(storedOrigin);
     entry.items.push({
-      ...payload, memoryDevice: undefined, imageDevice: undefined,
+      ...payload, memoryDevice: undefined,
       ...spokenLineFields(via, callId),
       ...(origin.success ? { origin: origin.data } : {}),
       messageId: row.id,
@@ -128,6 +128,7 @@ export function queueSteeredMessage(
     ...(options.origin ? { origin: options.origin } : {}),
     sender: options.sender,
     trigger: options.trigger,
+    ...(options.imageDevice ? { imageDevice: options.imageDevice } : {}),
     queuedAt: options.queuedAt ?? Date.now(),
     ...spokenLineFields(options.via, options.callId),
     ...(options.fromApp ? { fromApp: options.fromApp } : {}),
@@ -141,7 +142,7 @@ export function queueSteeredMessage(
   // whose request runs, where several people write), ahead of everyone else's too.
   const ahead = options.first ? entry.items.findIndex((other) => other.peerAsk !== undefined || other.unattended === true || other.queuedAt > item.queuedAt
     || (options.aheadOfOthers !== undefined && other.sender?.id !== options.aheadOfOthers)) : -1;
-  const queued = { ...item, memoryDevice: options.memoryDevice, imageDevice: options.imageDevice };
+  const queued = { ...item, memoryDevice: options.memoryDevice };
   if (ahead < 0) entry.items.push(queued);
   else entry.items.splice(ahead, 0, queued);
   queues.set(threadId, entry);

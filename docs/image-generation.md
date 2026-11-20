@@ -1,13 +1,45 @@
 # Image generation
 
-Bots can create images in a chat: ask "make an image of…" and the bot calls
-its `generate_image` tool, on any engine. Bot avatars use the same providers.
-The image is attached to the bot's reply when its turn ends, like a voice note.
+In private chat, an image can arrive while you continue the conversation.
+Choose a dedicated MCP connection for background generation, or use the
+configured image providers to attach an image when the bot finishes its reply.
+The avatar editor uses the configured image providers.
 
-## Setup
+## Background images in private chat
 
-Open **Settings → Image generation** (an AI page shown in Advanced mode; a
-link from the avatar editor opens it in Simple mode too). Choose:
+1. Open **Apps → MCP servers** in the sidebar. Add and enable the image server.
+   For ComfyImageBridge, use its Streamable HTTP `/mcp` address as seen by the
+   Maus host. If the server requires authentication, enter its MCP access
+   credential in the connection. The image supplier's API key belongs with the
+   service that calls the supplier.
+2. Open **Settings → AI → Images** in Advanced mode and choose that connection under
+   **Private chat images**. Maus checks the server's tool list when you select
+   it. This check uses no image credit. The connection is reserved for image
+   jobs. Bots with an explicit list of connections need this connection in
+   their list, along with permission for the Images tool group.
+3. Ask for a picture in a private bot conversation. A queued card appears
+   under the request. You can send your next question, close the app, or open
+   the same conversation on another paired device. The finished PNG appears
+   on the original card and opens in the usual preview and download controls.
+
+The host runs up to two concurrent MCP operations. It resumes jobs after a
+restart, shares the installation's daily quota with synchronous chat images,
+and checks the result's size, PNG structure, dimensions and SHA-256 before
+delivery. A card awaiting confirmation can be checked again after automatic
+retries pause. Checking a card looks up the same task. Revoking one device
+removes its access while other authorized devices can still see the result.
+
+ComfyImageBridge provides `image_submit`, `image_status` and `image_result`.
+The bot receives `generate_image_async` in eligible private turns. Chat-only
+devices may request an image in a visible conversation. Changing the
+connection requires settings access. Selecting a dedicated connection makes the bot’s image tool available in
+manually initiated private chats. Select **Use image providers below** to use
+synchronous generation in chats and in replies to a person in a room. [Implementation and verification](verification/async-image-mcp.md)
+
+## Synchronous image providers
+
+Open **Settings → AI → Images** in Advanced mode. A link from the avatar
+editor also opens it in Simple mode.
 
 - **Base provider**: used first for every image.
 - **Backup provider** (optional): used only when the base could not start.
@@ -36,8 +68,8 @@ link from the avatar editor opens it in Simple mode too). Choose:
   says when the account has no credit, since image models are paid. For the
   other providers the model is only checked when the first image is made.
 
-Bots are shown `generate_image` only while the base or the backup has what it
-needs, so a bot never spends a turn finding out it cannot make images.
+With synchronous chat images selected, bots see `generate_image` when the
+base or backup provider is configured.
 
 | Provider | Key | Default model | Endpoint |
 | --- | --- | --- | --- |
@@ -77,8 +109,8 @@ only that provider is tried; it must be the base or the backup. When the base
 and the backup are the same provider, naming it keeps the normal base-then-backup
 order.
 
-A generation stops when the bot's tool call goes away (the turn is stopped or
-the engine gives up on the call), and nothing is attached.
+Synchronous generation stops if the turn or the engine's tool call ends before
+the provider responds.
 
 ## Custom gateway compatibility
 
@@ -98,6 +130,6 @@ redirects, and asynchronous job responses are not supported.
 
 ## Limits
 
-Each decoded image is limited to 10 MiB, the response to 15 MiB, and
-generation to two minutes. Provider error bodies are never shown or stored:
+Each decoded image is limited to 10 MiB. Synchronous providers have a 15 MiB
+response limit and a two-minute generation timeout. Provider error bodies are never shown or stored:
 an error names only the provider, the HTTP status and the model ID.

@@ -9992,7 +9992,7 @@
   "imageGen.test.unexpected": "The provider gave an unexpected answer.",
   "imageGen.test.noUrl": "Add the base URL first, so the key is only sent to your endpoint.",
   "imageJob.connection": "Private chat images",
-  "imageJob.connectionHelp": "Choose a Streamable HTTP connection from Integrations to receive images while you keep chatting.",
+  "imageJob.connectionHelp": "Choose a Streamable HTTP connection from Apps → MCP servers to receive images while you keep chatting.",
   "imageJob.direct": "Use image providers below",
   "imageJob.selected": "Private chat images use {name}.",
   "imageJob.queued": "Image queued.",

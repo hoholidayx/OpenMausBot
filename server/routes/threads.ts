@@ -1,3 +1,4 @@
+import { imageDownloadVisible } from "../image-job-store.ts";
 import { userError } from "../user-errors.ts";
 import { basename, join } from "node:path";
 
@@ -26,6 +27,13 @@ import type { BotRecord, GroupRecord, Message, Store } from "../store.ts";
 import { answerAsleep, backgroundWhileAsleep } from "../cloud-power.ts";
 import { createJobRoutes } from "./jobs.ts";
 import { PASS, type RouteContext, type RouteHandler } from "./table.ts";
+
+function mediaReadRefusal(file: { name: string; mime: string }, image: boolean, video: boolean, visible: (thread: string) => boolean) {
+  if (!imageDownloadVisible(file.name, visible)) return { status: 404, error: "Attachment not found" };
+  if (image && !file.mime.startsWith("image/")) return { status: 415, error: "only images can be previewed here" };
+  if (video && !STREAMABLE_VIDEO_MIMES.has(file.mime)) return { status: 415, error: "only videos can be played here" };
+  return null;
+}
 
 const UPLOADED_NAME = /^[A-Za-z0-9-]+\.[A-Za-z0-9]{1,10}$/;
 
@@ -280,13 +288,11 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
           return json(res, 200, listing);
         }
       }
-      if ((streamsMessageImage || botAttachment?.kind === "image") && !file.mime.startsWith("image/")) {
+      const mediaError = mediaReadRefusal(file, streamsMessageImage || botAttachment?.kind === "image", Boolean(asksMediaLink || mediaGrant),
+        id => visibleTo(viewerFor(auth)).thread(id));
+      if (mediaError) {
         await file.handle.close();
-        return json(res, 415, { error: "only images can be previewed here" });
-      }
-      if ((asksMediaLink || mediaGrant) && !STREAMABLE_VIDEO_MIMES.has(file.mime)) {
-        await file.handle.close();
-        return json(res, 415, { error: "only videos can be played here" });
+        return json(res, mediaError.status, { error: mediaError.error });
       }
       if (asksMediaLink) {
         await file.handle.close();

@@ -65,6 +65,26 @@ afterEach(() => {
 });
 
 describe("Image generation settings", () => {
+  it("checks the selected local HTTP connection before saving it for private chats", async () => {
+    const configured = { configured: false, ready: false };
+    const servers = [
+      { name: "pictures", type: "http", enabled: true },
+      { name: "old", type: "sse", enabled: true },
+      { name: "disabled", type: "http", enabled: false },
+      { name: "elsewhere", type: "http", enabled: true, runsOn: { id: "other" } },
+    ];
+    fixture.api.mockImplementation(async (url: string) => url === "/api/mcp/servers" ? { servers } : {});
+    const view = await mount(configured);
+    const select = view.querySelector<HTMLSelectElement>('[data-testid="image-async-mcp"]')!;
+    expect(Array.from(select.options).map(o => o.value)).toEqual(["", "pictures"]);
+    await choose("Private chat images", "pictures");
+    const operations = fixture.api.mock.calls.filter(([, options]) => options?.method).map(([url, options]) => [url, JSON.parse(options.body)]);
+    expect(operations).toEqual([
+      ["/api/images/mcp-test", { name: "pictures" }],
+      ["/api/config", { imageGen: { asyncMcp: "pictures" } }],
+    ]);
+  });
+
   it("says nothing is set up and asks for the base key on a fresh install", async () => {
     const view = await mount({ configured: false, primary: { provider: "openai", model: "gpt-image-2", configured: false }, fallback: null, ready: false });
     expect(view.textContent).toContain("Not set up");

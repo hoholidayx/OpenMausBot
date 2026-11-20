@@ -1,6 +1,8 @@
 # Maus 私聊接入 ComfyImageBridge 异步生图
 
-状态为待实施。首版支持用户在本地单所有者部署的 bot 私聊中主动发起文生图。用户发「画一张雨夜车站」，Maus 持久保存请求并立即回「图片已排队」。生成期间用户可以在同一私聊问车次，图片完成后更新第一条请求下的卡片。从另一台有权查看该私聊的设备打开，也能看到同一张卡。
+2026-11-20 已完成三个实施阶段并通过隔离验收。在单所有者部署的 bot 私聊发送「画一张雨夜车站」，Maus 保存请求并显示排队卡。另一台获准设备可以在出图前继续问车次，图片完成后两台设备都能从第一问的原卡下载。ComfyImageBridge 直连、OpenAI 实图、强制重启和桌面窄屏的结果见[验收记录](../verification/async-image-mcp.md)。
+
+上线所需配置见[生图设置](../image-generation.md)。实现由[后台任务](../../server/async-image-jobs.ts)、[持久化与额度](../../server/image-job-store.ts)及 [MCP 客户端](../../server/image-bridge.ts)负责。下文保留实施前的技术基线和设计约定，验收记录描述实际采用的路径。
 
 ## 系统分工与验证结论
 
@@ -16,7 +18,7 @@
 - **Maus 私聊可在后台工作期间继续。** 隔离服务中，工作搭档被暂停时，同一私聊的第二个问题先得到回答。另两个用例覆盖切换分支后投回原分支、纯附件交付且能进入后续对话。三项定向用例均通过。[私聊异步用例](../../server/work-partner.e2e.test.ts)
 - **聊天权限设备可以使用已配置的生图。** 在新版隔离 Maus 配对一台全权限设备和一台仅有 `client` 权限的设备。后者没有所有者 `userId`，修改图片配置返回 403。在可见 bot 的私聊中，它用现有 `generate_image` 成功生成并下载图片，模拟供应商收到一次请求。把同一 bot 改为仅管理员可见后，原附件对聊天设备返回 404，全权限设备仍读到 200。此项验证覆盖现有同步入口，异步入口应保留这套行为。[本地身份验证](../verification/local-owner.md) · [生图路由](../../server/routes/image-tools.ts) · [可见性实现](../../server/host/visibility-host.ts)
 
-现有 `generate_image` 仍会等图片生成，并要求原轮次保持活动才能挂载附件。需要新增的是把**一次本地受理、一个 Bridge 任务、一张原消息卡**连起来的 Maus 客户端流程。完整私聊生图以阶段 1 的端到端用例验收。本次 Bridge 互通未使用真实 GPU。此前 3 × 2 PNG 的测试连接的是另一个服务 `aion-openai-image-mcp`，上面的 Bridge 结论来自单独的直连测试。[现有生图路由](../../server/routes/image-tools.ts)
+同步工具 `generate_image` 等待供应商后在原轮次挂载附件。新增的 `generate_image_async` 把一次本地受理、一个远端任务和一张原消息卡关联起来。上述早期 Bridge 基线使用模拟 ComfyUI。实施后的真实 OpenAI 请求由符合相同契约的独立适配器完成。[同步生图路由](../../server/routes/image-tools.ts) · [两条路径的端到端验收](../verification/async-image-mcp.md)
 
 ## 单所有者安装中的权限与归属
 
@@ -72,7 +74,7 @@
 | 2 · 重启与去重 | 分别在受理后、远端接单但回执丢失、文件落盘但卡片未更新时重启。每案断言一次底层 `/prompt`、一个附件、一张原卡、一次额度结算。覆盖同键异参、多图乱序、跨设备与跨 bot 共用日限额、跨午夜及额度用尽。把备份恢复到另一安装，确认已交付图可读、在途任务对 Bridge 的调用数为零。 |
 | 3 · 设备、分支与异常 | 仅有 `client` 权限的设备可在可见 bot 私聊手动发起，修改设置返回 403，bot 改为仅管理员可见后，事件流、历史及附件均按新范围过滤。分别在受理前后撤销设备 A，验证拒绝新请求及已受理任务对设备 B 的交付。覆盖脚本、Bot API、群聊和转派入口，切分支、删来源、停用生图及换连接。模拟队列满、待确认转完成、结果过期及摘要错误。桌面与窄屏验收预览、下载和键盘操作，回归同步生图与头像入口。 |
 
-在本仓库可用以下命令复跑现有身份与宿主异步基线，端到端用例各自启动隔离 Maus。阶段 1 需另加上述图片专用端到端用例。[隔离验证入口](../verification/README.md) · [聊天 UI 验证](../verification/chat-ui.md)
+在本仓库可用以下命令复跑身份与宿主异步基线。图片专用端到端用例、浏览器复验命令及真实图片摘要见[生图验收](../verification/async-image-mcp.md)。端到端用例各自启动隔离 Maus。[隔离验证入口](../verification/README.md)
 
 ```sh
 pnpm exec vitest run server/local-identity.e2e.test.ts server/sessions.test.ts server/person-key.test.ts

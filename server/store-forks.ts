@@ -9,7 +9,21 @@ import type { ApprovalMode } from "../shared/approval-mode.ts";
 function forkHistory(path: Message[], messageId: string): Message[] | null {
   const anchor = path.findIndex((message) => message.id === messageId);
   if (anchor < 0 || path[anchor]?.kind !== "text" || !["user", "bot"].includes(path[anchor]!.role)) return null;
-  return structuredClone(path.slice(0, anchor + 1));
+  const kept: Message[] = [];
+  const skipped = new Map<string, string | null>();
+  for (const row of path.slice(0, anchor + 1)) {
+    const parentId = row.parentId ? (skipped.has(row.parentId) ? skipped.get(row.parentId)! : row.parentId) : null;
+    if (row.imageJob && row.imageJob.state !== "done" && row.imageJob.state !== "failed") {
+      if (row.id === messageId) return null;
+      skipped.set(row.id, parentId);
+      continue;
+    }
+    const copy = structuredClone(row);
+    if (row.parentId && skipped.has(row.parentId)) copy.parentId = parentId;
+    if (copy.replyToId && skipped.has(copy.replyToId)) copy.replyToId = skipped.get(copy.replyToId) ?? undefined;
+    kept.push(copy);
+  }
+  return kept;
 }
 
 function registerImportedFork<T extends { threadId: string }>(task: T, history: Message[], messageId: string,

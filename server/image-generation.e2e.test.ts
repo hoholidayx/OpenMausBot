@@ -4,6 +4,7 @@ import { expect, it } from "vitest";
 import { z } from "zod";
 import { launchVerificationServer, runControlOmb } from "../scripts/control-omb.ts";
 import { request } from "../scripts/mcp-server.ts";
+import { fixtureChatReply, fixtureChatSelection, startLoopbackChat } from "./testing/loopback-chat.ts";
 import { startFakeImageApi, type FakeImageApi } from "./testing/fake-image-api.ts";
 
 const botSchema = z.object({ bot: z.object({ id: z.string(), activeTaskId: z.string() }) });
@@ -26,6 +27,7 @@ const messagesSchema = z.object({
 
 interface ImageFixture {
   images: FakeImageApi;
+  url: string;
   configure: (patch: unknown) => Promise<void>;
   newBot: (name: string) => Promise<z.infer<typeof botSchema>["bot"]>;
   ask: (bot: { id: string; activeTaskId: string }, text: string) => Promise<string>;
@@ -50,7 +52,7 @@ async function withImageFixture(test: (f: ImageFixture) => Promise<void>) {
   try {
     images = await startFakeImageApi();
     await test({
-      images,
+      images, url: session.info.url,
       api,
       typed: (path, body) => request(path, { method: "POST", body: JSON.stringify(body), headers: { origin: new URL(session.info.url).origin } }, session.info.url),
       configure: async (patch) => { await api("/api/config", patch, "PUT"); },
@@ -130,31 +132,42 @@ async function newRoom(f: ImageFixture, name: string, lead: { id: string }, help
   })).group;
 }
 
+async function withImageRoom(f: ImageFixture, goal: boolean, verify: (id: string, outcomes: string[]) => Promise<void>) {
+  const outcomes: string[] = [];
+  const chat = await startLoopbackChat(request => {
+    const last = request.messages.at(-1);
+    if (last?.role === "tool") {
+      outcomes.push(String(last.content));
+      return fixtureChatReply(goal ? 'Done.\n<openmaus-goal>{"status":"blocked","detail":"Ask for this picture in a private chat."}</openmaus-goal>' : "Here it is.");
+    }
+    const tool = request.tools?.find(t => t.function.name.endsWith("generate_image"));
+    return tool ? fixtureChatReply("", { name: tool.function.name, args: { prompt: "A lighthouse at dusk" } }) : fixtureChatReply("Done.");
+  });
+  try {
+    await chat.connect(f.url);
+    const lead = await f.newBot("Room painter"), helper = await f.newBot("Room helper");
+    for (const bot of [lead, helper]) await f.api("/api/bots/" + bot.id, { modelSelection: fixtureChatSelection(), approvalMode: "full", computer: "off", toolScope: { allow: ["mcp:agents:generate_image"] } }, "PATCH");
+    const room = await newRoom(f, "Image room", lead, helper);
+    await f.api("/api/groups/" + room.id + "/setup", { action: "skip" }, "PATCH");
+    await verify(room.id, outcomes);
+  } finally { await chat.close(); }
+}
+
 it("makes an image for a person's line in a room and attaches it to the member's reply", async () => withImageFixture(async (f) => {
   await f.configure({ imageGen: { primary: { provider: "custom", model: "fixture-image" }, customUrl: f.images.url } });
-  const lead = await f.newBot("Room painter");
-  const helper = await f.newBot("Room helper");
-  f.savePlan({ [lead.id]: { steps: [{ tool: "generate_image", arguments: { prompt: "a lighthouse at dusk" } }], reply: "Here it is." } });
-  const room = await newRoom(f, "Image room", lead, helper);
-  await f.typed(`/api/groups/${room.id}/messages`, { text: "Make a lighthouse picture", sendId: "room_send_image_1234" });
-  await expect.poll(async () => (await roomOf(f, room.id)).messages.flatMap((message) => message.attachments ?? []).filter((attachment) => attachment.kind === "image").length, { timeout: 30_000 }).toBe(1);
-  expect(f.images.requests).toHaveLength(1);
+  await withImageRoom(f, false, async id => {
+    await f.typed(`/api/groups/${id}/messages`, { text: "Make a lighthouse picture", sendId: "room_send_image_1234" });
+    await expect.poll(async () => (await roomOf(f, id)).messages.flatMap(message => message.attachments ?? []).filter(a => a.kind === "image").length, { timeout: 30_000 }).toBe(1);
+    expect(f.images.requests).toHaveLength(1);
+  });
 }), 90_000);
 
 it("makes no image for a goal's coordinator, whose files never reach the room's public reply", async () => withImageFixture(async (f) => {
   await f.configure({ imageGen: { primary: { provider: "custom", model: "fixture-image" }, customUrl: f.images.url } });
-  const lead = await f.newBot("Goal lead");
-  const helper = await f.newBot("Goal helper");
-  f.savePlan({
-    [lead.id]: {
-      steps: [{ tool: "generate_image", arguments: { prompt: "a private sketch" }, expectError: true }],
-      reply: "Done.\n<openmaus-goal>{\"status\":\"completed\",\"detail\":\"Sketch made.\"}</openmaus-goal>",
-    },
+  await withImageRoom(f, true, async (id, outcomes) => {
+    await f.api(`/api/groups/${id}/messages`, { text: "Make a sketch", mode: "goal", sendId: "goal_send_image_1234" });
+    await expect.poll(() => outcomes.join(" "), { timeout: 20_000 }).toContain("Images are made only for a person's own message");
+    expect(f.images.requests).toHaveLength(0);
+    expect((await roomOf(f, id)).messages.flatMap(m => m.attachments ?? []).filter(a => a.kind === "image")).toHaveLength(0);
   });
-  const room = await newRoom(f, "Goal room", lead, helper);
-  await f.api(`/api/groups/${room.id}/messages`, { text: "Make a sketch", mode: "goal", sendId: "goal_send_image_1234" });
-  await expect.poll(async () => (await roomOf(f, room.id)).messages.find((message) => message.kind === "goal.run")?.goalRun?.status, { timeout: 30_000 }).toBe("completed");
-  expect(f.turnOf(lead.id).evidence.find((entry) => entry.step)?.response?.result.content[0]?.text).toContain("Images are made only for a person's own message");
-  expect(f.images.requests).toEqual([]);
-  expect((await roomOf(f, room.id)).messages.flatMap((message) => message.attachments ?? []).filter((attachment) => attachment.kind === "image")).toEqual([]);
 }), 90_000);

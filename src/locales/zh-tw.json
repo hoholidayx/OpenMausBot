@@ -9169,7 +9169,7 @@
   "imageGen.test.unexpected": "供應商給出了非預期的回應。",
   "imageGen.test.noUrl": "請先新增基礎網址，讓金鑰只會傳送到你的端點。",
   "imageJob.connection": "私聊生圖",
-  "imageJob.connectionHelp": "選擇「整合」中的 Streamable HTTP 連線，即可在等候圖片時繼續聊天。",
+  "imageJob.connectionHelp": "選擇「應用程式 → MCP 伺服器」中的 Streamable HTTP 連線，即可在等候圖片時繼續聊天。",
   "imageJob.direct": "使用下方圖片供應商",
   "imageJob.selected": "私聊生圖使用 {name}。",
   "imageJob.queued": "圖片已排入佇列。",

@@ -114,6 +114,7 @@ export interface ImageTurnStore {
   key: (threadId: string, turnId: string) => string;
   images: (key: string) => number;
   park: (key: string, image: GeneratedImage) => void;
+  asyncSlots?: (threadId: string) => number;
 }
 
 export function imageTurn(store: ImageTurnStore, threadId: string, requireActive: () => void): ImageTurn | null {
@@ -123,7 +124,7 @@ export function imageTurn(store: ImageTurnStore, threadId: string, requireActive
   const key = store.key(threadId, turnId);
   return {
     key,
-    parked: () => store.images(key),
+    parked: () => store.images(key) + (store.asyncSlots?.(threadId) ?? 0),
     attach: (image) => {
       requireActive();
       if (store.liveTurn(threadId) !== turnId) return false;
@@ -137,6 +138,10 @@ export function createImageToolRoutes(deps: ImageTurnStore & { config: () => Ima
   const inFlight = new Map<string, number>();
   const daily = createImageDailyCap(deps.dataDir);
   return {
+    occupied(threadId: string, turnId: string) {
+      const key = deps.key(threadId, turnId);
+      return deps.images(key) + (inFlight.get(key) ?? 0);
+    },
     async internal(ctx: ImageRouteContext): Promise<typeof PASS | void> {
       if (ctx.method !== "POST" || ctx.path !== "/api/internal/images/generate") return PASS;
       const turn = imageTurn(deps, ctx.threadId, ctx.requireActive);

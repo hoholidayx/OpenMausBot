@@ -53,7 +53,7 @@ function open(): DatabaseSync {
     slot INTEGER NOT NULL, turn TEXT NOT NULL, card TEXT NOT NULL, attachment TEXT NOT NULL UNIQUE,
     server TEXT NOT NULL, fingerprint TEXT NOT NULL, paramsHash TEXT NOT NULL, prompt TEXT NOT NULL, size TEXT NOT NULL,
     phase TEXT NOT NULL, day TEXT NOT NULL, nextAt INTEGER, claim TEXT NOT NULL DEFAULT '',
-    errors INTEGER NOT NULL DEFAULT 0, troubleSince INTEGER NOT NULL DEFAULT 0, digest TEXT NOT NULL DEFAULT '',
+    errors INTEGER NOT NULL DEFAULT 0, troubleSince INTEGER NOT NULL DEFAULT 0, digest TEXT NOT NULL DEFAULT '', seedUsed TEXT,
     UNIQUE(environment, bot, thread, source, slot), UNIQUE(thread, card)
   );
   CREATE INDEX IF NOT EXISTS image_jobs_due ON image_jobs(environment, nextAt) WHERE nextAt IS NOT NULL;
@@ -130,6 +130,7 @@ function open(): DatabaseSync {
     );
     CREATE INDEX IF NOT EXISTS notification_log_at ON notification_log(at);
   `);
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('image_jobs') WHERE name='seedUsed'").get()) db.exec("ALTER TABLE image_jobs ADD COLUMN seedUsed TEXT");
   const notificationColumns = db.prepare("PRAGMA table_info(notification_log)").all() as Array<{ name: string }>;
   for (const added of ["for_person", "read_by"]) if (!notificationColumns.some((column) => column.name === added)) db.exec(`ALTER TABLE notification_log ADD COLUMN ${added} TEXT`);
   ensureRecallIndex(db);
@@ -235,7 +236,7 @@ export interface FollowupPayload {
   trigger?: UsageTrigger;
   origin?: WorkOrigin;
   queuedAt?: number;
-  rowId?: string; mentions?: string[];
+  rowId?: string; mentions?: string[]; imageDevice?: string;
 }
 export type FollowupStatus = "pending" | "dispatching" | "interrupted" | "cancelled";
 export interface ChatFollowup {

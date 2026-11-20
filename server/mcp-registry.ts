@@ -74,6 +74,30 @@ export interface RemoteMcpServerListing {
 }
 export type McpServerListing = StdioMcpServerListing | RemoteMcpServerListing;
 
+type ImageRegistry = { imageGen?: { asyncMcp?: string }; mcpServers?: Record<string, unknown> };
+
+function registryUrl(entry: unknown): string | undefined {
+  if (!entry || typeof entry !== "object" || !("url" in entry) || typeof entry.url !== "string") return undefined;
+  try { return new URL(entry.url).href; } catch { return undefined; }
+}
+
+export function imageMcpUrls(cfg: ImageRegistry): Set<string> {
+  const urls = new Set<string>();
+  for (const [name, entry] of Object.entries(cfg.mcpServers ?? {})) {
+    const dedicated = entry && typeof entry === "object" && "purpose" in entry && entry.purpose === "async_image";
+    if (!dedicated && name !== cfg.imageGen?.asyncMcp) continue;
+    const url = registryUrl(entry);
+    if (url) urls.add(url);
+  }
+  return urls;
+}
+
+export function dedicatedImageConnection(cfg: ImageRegistry, name: string, urls = imageMcpUrls(cfg)): boolean {
+  if (name === cfg.imageGen?.asyncMcp) return true;
+  const url = registryUrl(cfg.mcpServers?.[name]);
+  return url !== undefined && urls.has(url);
+}
+
 export function isRemoteMcpServer(server: McpServerSpec): server is RemoteMcpSpec {
   return "url" in server;
 }
@@ -418,7 +442,7 @@ export function mcpServerBody(body: unknown): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (!body || typeof body !== "object") return out;
   const record = body as Record<string, unknown>;
-  for (const key of ["command", "args", "env", "type", "url", "headers", "oauth", "enabled", "resultBudget", "runsOn"]) {
+  for (const key of ["command", "args", "env", "type", "url", "headers", "oauth", "enabled", "resultBudget", "runsOn", "purpose"]) {
     if (record[key] !== undefined) out[key] = record[key];
   }
   return out;

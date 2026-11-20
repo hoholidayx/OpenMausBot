@@ -322,7 +322,7 @@ const Bubble = memo(function Bubble({
   onReply: (message: Message) => void;
 }) {
   const { botId, threadId, botName, voiceId, tts, localVoice, bots, mentionPeers, mentionPerson, focus, dispatch, onBranch, bubbleStyle, simple, canReact, speakerViewer, phone } = useChatRows(), busy = use(ChatBusyContext);
-  const forkAction = !phone && message.kind === "text" && !message.id.startsWith("optimistic-")
+  const forkAction = canForkMessage(message, phone)
     ? [forkMessageItem({ kind: "bot", ownerId: botId, threadId, messageId: message.id }, dispatch, busy)] : [];
   const remoteClient = window.ogb?.remoteClient?.active === true;
   const peer = peerLine(message) ?? peerRequest(message, botId);
@@ -794,6 +794,11 @@ const MessagesList = memo(function MessagesList({
 });
 
 const CHATHEAD_PILL = `flex min-w-0 items-center gap-2 rounded-full py-0.5 pl-1.5 text-ink ${ELEVATED_FLOAT}`;
+
+function canForkMessage(message: Message, phone?: boolean) {
+  return !phone && message.kind === "text" && !message.id.startsWith("optimistic-") &&
+    (!message.imageJob || message.imageJob.state === "done" || message.imageJob.state === "failed");
+}
 
 function ImageJobStatus({ message, threadId }: { message: Message; threadId: string }) {
   const [checking, setChecking] = useState(false);
