@@ -47,6 +47,27 @@ function imageTestText(provider: ImageProvider, result: ImageProviderTest): { ok
 }
 type ImageGenStatus = NonNullable<ConfigStatus["imageGen"]>;
 
+function ImageConnectionStatus({ status, primary, asyncReady }: {
+  status?: ImageGenStatus; primary: NonNullable<ImageGenStatus["primary"]>; asyncReady: boolean;
+}) {
+  let tone: "success" | "warning" | null = null;
+  let text = t("imageGen.status.notReady");
+  if (status?.asyncMcp) {
+    tone = asyncReady ? "success" : "warning";
+    text = t(asyncReady ? "imageJob.selected" : "imageJob.unavailable", { name: status.asyncMcp });
+  } else if (status?.ready && primary.configured) {
+    tone = "success";
+    text = t("imageGen.status.ready", { provider: PROVIDER_LABEL[primary.provider] });
+  } else if (status?.ready && status.fallback) {
+    tone = "warning";
+    text = t("imageGen.status.backupOnly", { provider: PROVIDER_LABEL[status.fallback.provider] });
+  }
+  return <span role="status" data-testid="image-gen-status" className="inline-flex items-center">
+    {tone ? <StatusDot tone={tone} /> : <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 rounded-full bg-ink/20" />}
+    {text}
+  </span>;
+}
+
 function keyConfigured(status: ImageGenStatus | undefined, provider: ImageProvider): boolean {
   if (provider === "openai") return status?.openaiConfigured === true;
   if (provider === "xai") return status?.xaiConfigured === true;
@@ -107,19 +128,11 @@ export function ImageGenerationSettings() {
 
   const providers = [primary.provider, ...(fallback ? [fallback.provider] : [])].filter((provider, index, all) => all.indexOf(provider) === index);
 
-  const statusText = status?.asyncMcp ? t("imageJob.selected", { name: status.asyncMcp }) : status?.ready
-    ? primary.configured
-      ? t("imageGen.status.ready", { provider: PROVIDER_LABEL[primary.provider] })
-      : t("imageGen.status.backupOnly", { provider: PROVIDER_LABEL[fallback!.provider] })
-    : t("imageGen.status.notReady");
   return (
     <>
       <SettingsGroup label={t("settings.ai.images")} block="images"
         description={<>{t("imageGen.introShort")}{" "}<LearnMore onClick={() => setMore((open) => !open)} /></>}
-        footnote={<span role="status" data-testid="image-gen-status" className="inline-flex items-center">
-          {status?.asyncMcp || status?.ready ? <StatusDot tone={status?.asyncMcp || primary.configured ? "success" : "warning"} /> : <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 rounded-full bg-ink/20" />}
-          {statusText}
-        </span>}>
+        footnote={<ImageConnectionStatus status={status} primary={primary} asyncReady={state.config?.toolGroups?.includes("images") === true} />}>
         {more && <p data-image-gen-more="" className="px-4 text-[12px] leading-4 text-ink-secondary">{t("imageGen.intro")}</p>}
         <SettingsRows selectWidth={200}>
           <SettingRow title={t("imageJob.connection")} subtitle={t("imageJob.connectionHelp")}>

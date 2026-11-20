@@ -484,7 +484,8 @@ describe("Store", () => {
     const database = new DatabaseSync(join(DATA_DIR, "messages.db"));
     const failReceipts = () => database.exec("CREATE TRIGGER reject_test_receipt BEFORE INSERT ON command_receipts BEGIN SELECT RAISE(ABORT, 'fixture receipt failure'); END");
     const allowReceipts = () => database.exec("DROP TRIGGER reject_test_receipt");
-    const append = () => store.appendMessage(threadId, { role: "bot", kind: "text", text: "Recorded work" }, { kind: "test.append", key: threadId });
+    const onWrite = vi.fn();
+    const append = () => store.appendMessage(threadId, { role: "bot", kind: "text", text: "Recorded work" }, { kind: "test.append", key: threadId }, onWrite);
     try {
       failReceipts();
       expect(append).toThrow("fixture receipt failure");
@@ -492,12 +493,14 @@ describe("Store", () => {
       expect(mdb.readThread(threadId, "/nonexistent").messages).toEqual(before);
       expect(changes).not.toHaveBeenCalled();
       allowReceipts();
+      onWrite.mockClear();
       const message = append();
       expect(append()).toEqual(message);
+      expect(onWrite).toHaveBeenCalledTimes(1);
       expect(store.messagesFor(threadId)).toHaveLength(before.length + 1);
       expect(changes).toHaveBeenCalledTimes(1);
       changes.mockClear();
-      const patch = () => store.patchMessage(threadId, message.id, { text: "Updated evidence" }, { kind: "test.patch", key: message.id });
+      const patch = () => store.patchMessage(threadId, message.id, { text: "Updated evidence" }, { kind: "test.patch", key: message.id }, onWrite);
       failReceipts();
       expect(patch).toThrow("fixture receipt failure");
       expect(store.messagesFor(threadId).at(-1)?.text).toBe("Recorded work");

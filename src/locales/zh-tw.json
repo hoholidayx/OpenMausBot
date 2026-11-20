@@ -9172,6 +9172,7 @@
   "imageJob.connectionHelp": "選擇「應用程式 → MCP 伺服器」中的 Streamable HTTP 連線，即可在等候圖片時繼續聊天。",
   "imageJob.direct": "使用下方圖片供應商",
   "imageJob.selected": "私聊生圖使用 {name}。",
+  "imageJob.unavailable": "生圖連線 {name} 無法使用。請在「應用程式 → MCP 伺服器」查看連線。",
   "imageJob.queued": "圖片已排入佇列。",
   "imageJob.running": "正在產生圖片…",
   "imageJob.done": "圖片已就緒。",

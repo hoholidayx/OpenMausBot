@@ -17,6 +17,7 @@ import type { WebhookRequestCardData } from "./webhook-request.ts"; import type 
 import type { AppEventAttempt, AppTrigger, AppTriggerRequestCardData, AppTriggerService } from "./app-triggers.ts";
 import type { ProfileRequestCardData } from "./profile-request.ts";
 import type { ServerTextLine, ServerTextParams } from "./server-text.ts";
+import type { MessageAttachmentFields } from "./message-attachments.ts";
 import type { WireTool } from "./wire-tool.ts";
 import type { ModelRequestCardData } from "./model-request.ts";
 import type { ConnectorCardData } from "./connector-card.ts"; import type { McpChangeRequest } from "./mcp-request.ts"; import type { AppSettingCardField, WindowPrefFrame } from "./app-settings.ts";
@@ -428,7 +429,7 @@ export type CardAnswerer = (
 export const EXCERPT_SUMMARY_HEADER = "Historical excerpts in chronological order; newer corrections override older requests. These excerpts may omit earlier details.";
 
 /** One transcript line, serialized as stored. */
-export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCardFields, WaitLineField, BugReportField {
+export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCardFields, WaitLineField, BugReportField, MessageAttachmentFields {
   roomRequest?: { id: string; phase: "request" | "result" };
   id: string;
   role: "bot" | "user";
@@ -440,16 +441,6 @@ export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCard
   hostCompaction?: true;
   compaction?: { summary: string; firstKeptId: string; foldedThroughId: string; tokensBefore: number; by: "person" | "harness"; legacyMemoryExcluded?: true;
     /** The divider "Start fresh" leaves: no summary, and a provider reads nothing before it. */ fresh?: true };
-  /** Renderers receive only the allowlisted /api/attachments URL. `file` entries are opened through the message-scoped
-   * file route, never by path. `source`: a bot attach-file copy's original path on the server, for Show in folder.
-   * `fromTool`: an image a tool's result returned while the bot worked, which it did not make or send. */
-  attachments?: Array<
-    | { kind: "image"; path: string; mime: string; name?: string; source?: string; fromTool?: true }
-    | { kind: "file"; path: string; mime: string; name: string; source?: string }
-    /** `text` is the words the note speaks (secret-redacted when stored): clients show it behind a
-     * collapsed transcript, never as message body, and the model's replay folds it back after `text`. */
-    | { kind: "audio"; path: string; mime: string; durationMs?: number; text?: string }
-  >;
   card?: OptionCardData;
   /** widget rows (kind "widget"): a bot-authored UI tree. `text` is its
    * readable fallback for clients that do not know the kind. */
@@ -544,8 +535,6 @@ export interface WireMessage extends ServerTextLine, HelperIntroField, SetupCard
   partnerRelayReceipt?: { rootId: string; attempt: number };
   partnerRelayFailure?: { rootId: string; attempt: number; retried?: boolean };
   partnerResultId?: string;
-  /** A host-delivered image request. The remote task identifier stays on the server. */
-  imageJob?: { state: "queued" | "running" | "done" | "failed" | "review"; reason?: string; recheck?: true };
   /** The durable Dots receipt that produced this row. */
   dotsEventId?: string;
   /** Hosted files are downloaded through the message that grants access to them. */

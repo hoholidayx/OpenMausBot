@@ -9,18 +9,26 @@ const tools = { image_submit: ["request_id", "prompt"], image_status: ["task_id"
 export async function fixtureImageBridge(png = fixturePng) {
   const sha256 = createHash("sha256").update(png).digest("hex");
   const tasks = new Map<string, string>();
+  const failures = new Map<string, string>();
   const calls: Array<{ name: string; id: string }> = [];
   const control = { complete: false, refusal: "", badDigest: false, loseReceipt: false };
   const error = (error_code: string) => ({ isError: true, content: [], structuredContent: { error_code } });
   const remote = await startFakeHttpMcp({
-    tools: Object.entries(tools).map(([name, keys]) => ({
-      name,
-      inputSchema: {
-        type: "object",
-        required: keys,
-        properties: Object.fromEntries(keys.map((k) => [k, { type: "string" }])),
-      },
-    })),
+    pageSize: 2,
+    tools: [
+      { name: "info", inputSchema: { type: "object" } },
+      ...Object.entries(tools).map(([name, keys]) => ({
+        name,
+        inputSchema: {
+          type: "object",
+          required: keys,
+          additionalProperties: false,
+          properties: Object.fromEntries(
+            (name === "image_submit" ? [...keys, "size"] : keys).map((k) => [k, { type: "string" }]),
+          ),
+        },
+      })),
+    ],
     callResult(params) {
       const { name, arguments: args } = params as { name: string; arguments: Record<string, string> };
       const id = args.request_id ?? args.task_id;
@@ -33,7 +41,8 @@ export async function fixtureImageBridge(png = fixturePng) {
       }
       if (!tasks.has(id)) return error("task_not_found");
       const state = control.complete ? "completed" : tasks.get(id);
-      if (name !== "image_result") return { structuredContent: { task_id: id, state }, content: [] };
+      if (name !== "image_result")
+        return { structuredContent: { task_id: id, state, error_code: failures.get(id) }, content: [] };
       if (state !== "completed") return error("result_not_ready");
       return {
         structuredContent: {
@@ -47,5 +56,5 @@ export async function fixtureImageBridge(png = fixturePng) {
       };
     },
   });
-  return { tasks, calls, control, url: remote.url, close: remote.close, sha256 };
+  return { tasks, failures, calls, control, url: remote.url, close: remote.close, sha256 };
 }

@@ -15,8 +15,8 @@ const { ImageGenerationSettings } = await import("./ImageGenerationSettings");
 let root: Root | null = null;
 let container: HTMLElement;
 
-async function mount(config: NonNullable<ConfigStatus["imageGen"]>) {
-  fixture.config = { imageGen: config } as ConfigStatus;
+async function mount(config: NonNullable<ConfigStatus["imageGen"]>, toolGroups: ConfigStatus["toolGroups"] = []) {
+  fixture.config = { imageGen: config, toolGroups } as ConfigStatus;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -65,6 +65,13 @@ afterEach(() => {
 });
 
 describe("Image generation settings", () => {
+  it.each([[false, "pictures is unavailable"], [true, "Private chat images use pictures."]] as const)(
+    "shows whether the saved image connection is available (%s)", async (enabled, statusText) => {
+      fixture.api.mockResolvedValue({ servers: [{ name: "pictures", type: "http", enabled }] });
+      const view = await mount({ configured: false, ready: false, asyncMcp: "pictures" }, enabled ? ["images"] : []);
+      expect(view.querySelector("[data-testid='image-gen-status']")?.textContent).toContain(statusText);
+    },
+  );
   it("checks the selected local HTTP connection before saving it for private chats", async () => {
     const configured = { configured: false, ready: false };
     const servers = [

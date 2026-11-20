@@ -1155,8 +1155,8 @@ export class Store {
   appendMessage(threadId: string, message: Omit<Message, "id" | "at"> & { at?: number }, command?: Command, onWrite?: (message: Message) => void): Message {
     const t = this.thread(threadId);
     const full: Message = { id: newId(), at: Date.now(), parentId: t.activeLeafId, ...redactBotAuthored(message) };
-    const persist = () => { mdb.appendMessage(threadId, full); return full; };
-    const committed = onWrite ? mdb.transaction(() => { onWrite(full); return persist(); }) : command ? runCommand(command, persist) : persist();
+    const persist = () => { onWrite?.(full); mdb.appendMessage(threadId, full); return full; };
+    const committed = command ? runCommand(command, persist) : onWrite ? mdb.transaction(persist) : persist();
     if (committed.id !== full.id) return committed;
     t.messages.push(full); this.threads.grew(threadId, full);
     t.activeLeafId = full.id;
@@ -1266,8 +1266,8 @@ export class Store {
     const next = { ...t.messages[idx], ...patch, card: patch.card ?? t.messages[idx].card };
     // Persist before memory: a failed write must not mark a card answered that a restart shows pending.
     let applied = false;
-    const persist = () => { mdb.updateMessage(threadId, next); applied = true; return next; };
-    const committed = onWrite ? mdb.transaction(() => { onWrite(); return persist(); }) : command ? runCommand(command, persist) : persist();
+    const persist = () => { onWrite?.(); mdb.updateMessage(threadId, next); applied = true; return next; };
+    const committed = command ? runCommand(command, persist) : onWrite ? mdb.transaction(persist) : persist();
     if (!applied) return committed;
     if (!movesThreadToTop(t.messages[idx]) && movesThreadToTop(next)) this.noteThreadActivity(threadId, next.at, true, next.turnCompletedAt ?? next.at);
     this.threads.grew(threadId, next, t.messages[idx]); t.messages[idx] = next;

@@ -9716,6 +9716,7 @@
   "imageJob.connectionHelp": "选择「应用 → MCP 服务器」中的 Streamable HTTP 连接，即可在等图时继续聊天。",
   "imageJob.direct": "使用下方图片供应商",
   "imageJob.selected": "私聊生图使用 {name}。",
+  "imageJob.unavailable": "生图连接 {name} 不可用。请在「应用 → MCP 服务器」查看连接。",
   "imageJob.queued": "图片已排队。",
   "imageJob.running": "正在生成图片…",
   "imageJob.done": "图片已就绪。",

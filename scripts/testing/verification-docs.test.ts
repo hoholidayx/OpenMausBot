@@ -34,7 +34,7 @@ const ROUTES_DIR = join(ROOT, "server", "routes");
 const routeModules = readdirSync(ROUTES_DIR, { recursive: true, encoding: "utf8" })
   .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts")).sort()
   .map((name) => join(ROUTES_DIR, name));
-const featureRouteModules = ["data/routes.ts", "workspace-backup-http.ts"].map((name) => join(ROOT, "server", name));
+const featureRouteModules = ["data/routes.ts", "dots/routes.ts", "workspace-backup-http.ts"].map((name) => join(ROOT, "server", name));
 const serverSource = [join(ROOT, "server", "index.ts"), ...routeModules, ...featureRouteModules]
   .map((file) => readFileSync(file, "utf8")).join("\n");
 const hooksSource = readFileSync(join(ROOT, "server", "webhook-ingress.ts"), "utf8");
@@ -64,7 +64,11 @@ describe("docs/verification recipes cite things that exist", () => {
   it("cite test files that exist", () => {
     const refs = cited(/(?<![\w/.-])([\w./-]+\.test\.(?:ts|mjs))(?![\w/])/g);
     expect(refs.length).toBeGreaterThan(20);
-    expect([...new Set(refs.filter((hit) => !existsSync(join(ROOT, target(hit)))))]).toEqual([]);
+    const missing = refs.filter(hit => {
+      const path = target(hit);
+      return !existsSync(resolve(path.startsWith(".") ? DOCS : ROOT, path));
+    });
+    expect([...new Set(missing)]).toEqual([]);
   });
 
   it("cite API routes the server registers", () => {

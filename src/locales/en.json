@@ -9995,6 +9995,7 @@
   "imageJob.connectionHelp": "Choose a Streamable HTTP connection from Apps → MCP servers to receive images while you keep chatting.",
   "imageJob.direct": "Use image providers below",
   "imageJob.selected": "Private chat images use {name}.",
+  "imageJob.unavailable": "The image connection {name} is unavailable. Check it in Apps → MCP servers.",
   "imageJob.queued": "Image queued.",
   "imageJob.running": "Generating image…",
   "imageJob.done": "Image ready.",

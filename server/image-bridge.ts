@@ -5,6 +5,7 @@ import { IMAGE_MAX_BYTES } from "./attachments.ts";
 import type { RemoteMcpSpec } from "./contracts.ts";
 import { decodeGeneratedImage } from "./generated-image.ts";
 import { McpHttpError, RemoteMcpClient } from "./mcp-http.ts";
+import { readRemoteCatalog } from "./mcp-probe.ts";
 
 export const imageRequest = z.object({
   prompt: z.string().trim().min(1).max(4000),
@@ -36,6 +37,12 @@ const state = z.enum([
   "submission_uncertain",
 ]);
 const imageState = z.object({ task_id: z.string(), state, error_code: z.string().optional() });
+const toolHeader = z.object({ name: z.string(), inputSchema: z.unknown() });
+const toolInput = z.object({
+  properties: z.record(z.string(), z.unknown()),
+  required: z.array(z.string()).optional(),
+  additionalProperties: z.unknown().optional(),
+});
 const metadata = z.object({
   task_id: z.string(),
   width: z.number().int().positive(),
@@ -46,23 +53,29 @@ const metadata = z.object({
     .regex(/^\d{1,20}$/)
     .optional(),
 });
-const safeCodes = new Set([
+export const unmadeImageCodes: ReadonlySet<string> = new Set([
   "invalid_request",
-  "request_conflict",
-  "queue_full",
+  "invalid_size",
   "backend_unavailable",
   "worker_unavailable",
-  "task_not_found",
-  "result_not_ready",
-  "result_expired",
-  "output_unavailable",
-  "output_invalid",
   "generation_failed",
   "provider_auth",
   "provider_quota",
   "provider_rate_limited",
   "provider_policy",
   "provider_model_unavailable",
+  "provider_request_rejected",
+]);
+const safeCodes = new Set([
+  ...unmadeImageCodes,
+  "request_conflict",
+  "queue_full",
+  "task_not_found",
+  "result_not_ready",
+  "result_expired",
+  "output_unavailable",
+  "output_invalid",
+  "output_source_denied",
 ]);
 export const safeImageError = (code?: string) => (code && safeCodes.has(code) ? code : "generation_failed");
 
@@ -111,28 +124,19 @@ export class ImageBridge {
     return this.client.close();
   }
   async check() {
-    const list = z
-      .object({
-        tools: z.array(
-          z.object({
-            name: z.string(),
-            inputSchema: z.object({
-              properties: z.record(z.string(), z.unknown()),
-              required: z.array(z.string()).optional(),
-            }),
-          }),
-        ),
-      })
-      .parse(await this.client.request("tools/list", {}, this.signal));
+    const catalog = await readRemoteCatalog(this.client, this.signal);
+    const tools = z.array(toolHeader).safeParse(catalog?.tools);
+    if (!tools.success) throw new ImageBridgeError("invalid_contract");
     for (const [name, keys] of Object.entries({
       image_submit: ["request_id", "prompt"],
       image_status: ["task_id"],
       image_result: ["task_id"],
     })) {
-      const schema = list.tools.find((tool) => tool.name === name)?.inputSchema;
+      const schema = toolInput.safeParse(tools.data.find((tool) => tool.name === name)?.inputSchema).data;
       if (
         !schema ||
         !keys.every((key) => key in schema.properties) ||
+        (name === "image_submit" && schema.additionalProperties === false && !("size" in schema.properties)) ||
         schema.required?.some((key) => !keys.includes(key))
       ) {
         throw new ImageBridgeError("invalid_contract");

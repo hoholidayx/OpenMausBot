@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { IMAGE_DAILY_CAP, IMAGE_DAY_FILE, localDay } from "./image-daily-cap.ts";
-import { prepared, transaction } from "./message-db.ts";
+import { prepared, readMessage, transaction } from "./message-db.ts";
 
 export type ImagePhase = "queued" | "submitting" | "polling" | "fetching" | "done" | "failed" | "review";
 export interface ImageJob {
@@ -131,26 +131,32 @@ export function updateImageJob(job: ImageJob, patch: ImageJobUpdate) {
 export function recheckImageJob(environment: string, thread: string, card: string) {
   return Boolean(
     prepared(
-      "UPDATE image_jobs SET phase='polling', errors=0, troubleSince=0, nextAt=0 WHERE environment=? AND thread=? AND card=? AND phase='review'",
+      `UPDATE image_jobs SET phase=CASE WHEN digest='' THEN 'polling' ELSE 'fetching' END, errors=0, troubleSince=0, nextAt=0
+       WHERE environment=? AND thread=? AND card=? AND phase='review'`,
     ).run(environment, thread, card).changes,
   );
 }
 export function pendingImageFiles() {
-  return prepared("SELECT attachment FROM image_jobs WHERE phase='fetching'")
+  return prepared("SELECT attachment FROM image_jobs WHERE phase='fetching' OR (phase='review' AND digest!='')")
     .all()
     .map((row) => String(row.attachment) + ".png");
 }
 export function imageDownloadVisible(name: string, visible: (thread: string) => boolean) {
-  const state = imageFileState(name);
-  if (!state) return true;
-  if (state !== "done") return false;
+  const canonical = name.toLowerCase();
+  if (!canonical.endsWith(".png")) return true;
+  const job = prepared("SELECT phase,thread,card FROM image_jobs WHERE attachment=?").get(canonical.slice(0, -4));
+  if (!job) return true;
+  if (job.phase !== "done" || name !== canonical) return false;
+  const source = String(job.thread);
+  if (
+    visible(source) &&
+    readMessage(source, String(job.card))?.attachments?.some(
+      (item) => item.kind === "image" && item.path.replaceAll("\\", "/").endsWith("/" + name),
+    )
+  )
+    return true;
   const threads = prepared(
     "SELECT DISTINCT m.thread_id FROM messages m, json_each(m.json,'$.attachments') a WHERE instr(m.json, ?) > 0 AND json_extract(a.value,'$.kind')='image' AND substr(replace(json_extract(a.value,'$.path'), char(92), '/'), -length(?))=?",
   ).all(name, "/" + name, "/" + name);
   return threads.some((row) => visible(String(row.thread_id)));
-}
-export function imageFileState(name: string) {
-  if (!name.endsWith(".png")) return undefined;
-  return prepared("SELECT phase FROM image_jobs WHERE attachment=?").get(name.slice(0, -4))?.phase as
-    ImagePhase | undefined;
 }

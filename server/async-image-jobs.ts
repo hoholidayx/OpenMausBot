@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { ATTACHMENTS_DIR, readAttachment, saveImage } from "./attachments.ts";
 import type { RemoteMcpSpec } from "./contracts.ts";
 import { startDueTimer, type DueTimer } from "./due-timer.ts";
-import { ImageBridge, ImageBridgeError, imageDigest, imageRequest, safeImageError } from "./image-bridge.ts";
+import { ImageBridge, ImageBridgeError, imageDigest, imageRequest, safeImageError, unmadeImageCodes } from "./image-bridge.ts";
 import { localDay } from "./image-daily-cap.ts";
 import {
   claimImageJobs,
@@ -286,7 +286,7 @@ export class AsyncImageJobs {
     switch (result.state) {
       case "failed": {
         const reason = safeImageError(result.error_code);
-        return this.finish(job, "failed", reason, !["output_unavailable", "output_invalid"].includes(reason));
+        return this.finish(job, "failed", reason, unmadeImageCodes.has(result.error_code ?? ""));
       }
       case "expired":
         return this.finish(job, "failed", "result_expired");
@@ -317,6 +317,8 @@ export class AsyncImageJobs {
     } else if (
       [
         "output_invalid",
+        "output_unavailable",
+        "output_source_denied",
         "result_expired",
         "access_changed",
         "invalid_request",

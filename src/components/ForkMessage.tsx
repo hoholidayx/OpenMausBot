@@ -2,9 +2,14 @@ import { GitFork } from "lucide-react";
 import type { Dispatch } from "react";
 import { ACTION_ICON, type MessageMenuItem } from "./MessageActions";
 import { t } from "@/lib/i18n";
-import { useStore, type Action } from "@/state/store";
+import { useStore, type Action, type Message } from "@/state/store";
 
 type Owner = { kind: "bot" | "group"; ownerId: string; threadId: string; messageId: string };
+
+export function canForkMessage(message: Message, phone?: boolean) {
+  return !phone && message.kind === "text" && !message.id.startsWith("optimistic-") &&
+    (!message.imageJob || message.imageJob.state === "done" || message.imageJob.state === "failed");
+}
 
 export function forkMessageItem(owner: Owner, dispatch: Dispatch<Action>, disabled: boolean): MessageMenuItem {
   return {

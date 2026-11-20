@@ -22,19 +22,27 @@ The avatar editor uses the configured image providers.
    the same conversation on another paired device. The finished PNG appears
    on the original card and opens in the usual preview and download controls.
 
-The host runs up to two concurrent MCP operations. It resumes jobs after a
-restart, shares the installation's daily quota with synchronous chat images,
-and checks the result's size, PNG structure, dimensions and SHA-256 before
-delivery. A card awaiting confirmation can be checked again after automatic
-retries pause. Checking a card looks up the same task. Revoking one device
-removes its access while other authorized devices can still see the result.
+The host runs up to two concurrent MCP operations. It follows active jobs
+every two seconds and resumes after a restart. If the service cannot
+confirm an outcome for 20 minutes, automatic checks pause. **Check again**
+on the card resumes the original task. When the host already has a verified
+local copy, it can finish delivery even after the remote result expires.
+
+The host checks the PNG structure, dimensions, size and SHA-256 before
+publishing the attachment. Chat images share one installation-wide allowance
+of 50 per local day. An async request reserves a slot when Maus accepts it.
+A confirmed rejection releases it. A lost response, unreadable output or
+unknown failure keeps the reservation. Revoking one device removes its
+access while other authorized devices can still see the picture.
 
 ComfyImageBridge provides `image_submit`, `image_status` and `image_result`.
 The bot receives `generate_image_async` in eligible private turns. Chat-only
 devices may request an image in a visible conversation. Changing the
-connection requires settings access. Selecting a dedicated connection makes the bot’s image tool available in
-manually initiated private chats. Select **Use image providers below** to use
-synchronous generation in chats and in replies to a person in a room. [Implementation and verification](verification/async-image-mcp.md)
+connection requires settings access. If the saved connection is disabled
+or removed, Settings shows it as unavailable. Select **Use image providers
+below** to use synchronous generation in chats and in replies to a person
+in a room. Connections previously dedicated to image jobs keep that
+designation when you change modes. [Implementation and verification](verification/async-image-mcp.md)
 
 ## Synchronous image providers
 

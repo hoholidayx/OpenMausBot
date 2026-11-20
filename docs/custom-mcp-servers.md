@@ -1,6 +1,6 @@
 # Bring your own MCP servers
 
-Open **Plugins → MCP servers → Add server** to give your bots tools from an
+Open **Apps → MCP servers → Add server** to give your bots tools from an
 MCP server you trust. Paste what you were given into the one box: the
 server's link, a `claude mcp add …` or `claude mcp add-json …` command, an
 `npx`, `uvx` or `docker run` line, or an `mcpServers` JSON block. OpenMausBot
@@ -28,9 +28,14 @@ you to sign in opens its sign-in page. A click on a server's switch in the
 moment after a passing test turned it on keeps it on (*it passed its test a
 moment ago*): it was aimed at the Off you saw, never at switching it straight
 back off.
-Compatible bots get it on their next task; no app restart is needed. On a
-Team Cloud everyone on the team can use a server an Admin adds; **Only for
-me**, offered for a server with one key, keeps that key as the Admin's own.
+Compatible bots get it on their next task. A connection selected for
+**Private chat images** is reserved for the Maus host, including other
+registry entries with the same URL. Eligible bots use the local image tool.
+[Set up background image generation](image-generation.md#background-images-in-private-chat)
+
+On a single-owner installation, devices with settings access manage the
+host connection. Chat-only devices can request pictures in a visible bot's
+private chat once the connection is configured.
 
 A server you run as a command keeps running between a bot's tasks. A bot that
 changes the server's code reloads it with `mcp_server` action `restart`, which

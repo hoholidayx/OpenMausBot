@@ -494,12 +494,10 @@ describe("agents-proxy MCP surface", () => {
     const credential = list.result.tools.find((entry: { name: string }) => entry.name === "request_credential");
     expect(credential.description).toContain("you resume when they save or decline");
     expect(credential.description).not.toContain("apply the change immediately");
-    for (const name of ["manage_room"]) {
-      const description = list.result.tools.find((entry: { name: string }) => entry.name === name).description;
-      expect(description).toContain("Follow the tool result under the effective access level");
-      expect(description).not.toContain("If peer approval is enabled");
-      expect(description).toContain("without trying another route");
-    }
+    const room = list.result.tools.find((entry: { name: string }) => entry.name === "manage_room");
+    expect(room.description).toContain("reachable API bots");
+    expect(room.description).toContain("Busy rooms, pending approvals and team-goal leads are protected");
+    expect(room.description).toContain("Report any refusal");
   });
 
   it.each(proposalCases)("continues after an applied $tool result without a duplicate approval", async ({ tool, args }) => {
@@ -661,9 +659,10 @@ describe("agents-proxy MCP surface", () => {
     ]);
     const tool = (name: string) => list.result.tools.find((entry: { name: string }) => entry.name === name);
     const coordinate = tool("coordinate_bots");
-    expect(coordinate.description).toContain("The one way to hand work on");
-    expect(coordinate.description).toContain("Results return here and resume you, so end your turn after sending");
-    expect(coordinate.description).toContain("Never target whoever assigned you this work or anyone above it");
+    expect(coordinate.description).toContain("Room members work in the room");
+    expect(coordinate.description).toContain("nonmembers receive the brief in a direct work thread");
+    expect(coordinate.description).toContain("Results return here and resume you. End your turn after sending");
+    expect(coordinate.description).toContain("Your reply reaches whoever assigned you this work");
     expect(coordinate.inputSchema.properties.reply.description).toContain("one-way notice");
     expect(coordinate.inputSchema.properties.consult.description).toContain("acting on nothing");
     expect(Object.keys(coordinate.inputSchema.properties)).toEqual(["group_id", "bot_ids", "message", "reason", "rework", "thread", "title", "in_my_folder", "reply", "consult", "done_when", "answers", "files"]);

@@ -23,6 +23,7 @@ import {
   claimImageQuota,
   findImageJob,
   imageDownloadVisible,
+  pendingImageFiles,
   releaseImageQuota,
   syncImageReservation,
   type ImageJob,
@@ -147,6 +148,46 @@ it("replays the original UUID after an unknown submission and only queries a pre
   remote.tasks.set(known.id, "completed");
   expect(worker.recheck(known.thread, known.card)).toBe(true);
   await wait(() => phase(known)).toBe("done");
+  expect(usage()).toBe(2);
+});
+
+it("keeps a verified local PNG during a delivery pause and completes a manual recheck directly from disk", async () => {
+  const line = source();
+  const job = add(line);
+  const filename = job.attachment + ".png";
+  saveImage(fixturePng, "image/png", job.attachment);
+  prepared("UPDATE image_jobs SET phase='review', digest=?, nextAt=NULL WHERE id=?").run(remote.sha256, job.id);
+  expect(pendingImageFiles()).toContain(filename);
+  expect(imageDownloadVisible(filename, () => true)).toBe(false);
+  expect(imageDownloadVisible(filename.toUpperCase(), () => true)).toBe(false);
+  remote.tasks.set(job.id, "expired");
+  worker.start();
+  expect(worker.recheck(job.thread, job.card)).toBe(true);
+  await wait(() => phase(job)).toBe("done");
+  expect(remote.calls).toEqual([]);
+  expect(usage()).toBe(1);
+  expect(pendingImageFiles()).not.toContain(filename);
+  expect(imageDownloadVisible(filename, (thread) => thread === job.thread)).toBe(true);
+  expect(imageDownloadVisible(filename, () => false)).toBe(false);
+  expect(imageDownloadVisible(job.attachment.toUpperCase() + ".png", () => false)).toBe(false);
+});
+
+it("releases a provider refusal and retains quota for a lost output or an unknown remote failure", async () => {
+  const line = source();
+  const codes = ["provider_request_rejected", "output_source_denied", "unrecognized_failure"];
+  const jobs = codes.map((code, index) => {
+    const job = add(line, index + 1);
+    remote.tasks.set(job.id, "failed");
+    remote.failures.set(job.id, code);
+    return job;
+  });
+  worker.start();
+  await wait(() => jobs.map(phase)).toEqual(["failed", "failed", "failed"]);
+  expect(jobs.map((job) => readMessage(job.thread, job.card)?.imageJob?.reason)).toEqual([
+    "provider_request_rejected",
+    "output_source_denied",
+    "generation_failed",
+  ]);
   expect(usage()).toBe(2);
 });
 

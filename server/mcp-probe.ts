@@ -121,6 +121,7 @@ function catalogPages() {
   const tools: unknown[] = [];
   let partial = false;
   return {
+    tools,
     page(items: unknown[], cursor: unknown): string | undefined {
       const remaining = MAX_CATALOG_TOOLS - tools.length;
       tools.push(...items.slice(0, remaining));
@@ -207,15 +208,15 @@ async function callsNeedSignIn(client: RemoteMcpClient, url: string, listed: unk
   return real !== undefined && await signInCheck(client, url, real, signal) === "sign-in";
 }
 
-async function readRemoteCatalog(client: RemoteMcpClient, signal: AbortSignal, secrets: readonly string[]): Promise<McpProbeResult> {
+export async function readRemoteCatalog(client: RemoteMcpClient, signal: AbortSignal) {
   const catalog = catalogPages();
   let cursor: string | undefined;
   do {
     const page = await client.request("tools/list", cursor ? { cursor } : {}, signal) as { tools?: unknown; nextCursor?: unknown } | null;
-    if (!Array.isArray(page?.tools)) return { ok: false, error: "The server did not return a valid MCP tools list." };
+    if (!Array.isArray(page?.tools)) return null;
     cursor = catalog.page(page.tools, page.nextCursor);
   } while (cursor);
-  return catalog.result(secrets);
+  return catalog;
 }
 
 function remoteProbeSecrets(server: StoredRemoteMcpServer): string[] {
@@ -264,7 +265,10 @@ async function probeRemoteMcpServer(
   try {
     await client.initialize("OpenMausBot", combined, options.extension ? { extensions: { [APP_EXTENSION_KEY]: UI_EXTENSION } } : {});
     const secrets = remoteProbeSecrets(server);
-    if (options.catalogOnly) return await readRemoteCatalog(client, combined, secrets);
+    if (options.catalogOnly) {
+      const catalog = await readRemoteCatalog(client, combined);
+      return catalog?.result(secrets) ?? { ok: false, error: "The server did not return a valid MCP tools list." };
+    }
     const result = await client.request("tools/list", {}, combined);
     const tools = result && typeof result === "object" ? (result as { tools?: unknown }).tools : undefined;
     if (!Array.isArray(tools)) return { ok: false, error: "The server did not return a valid MCP tools list." };

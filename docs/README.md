@@ -7,6 +7,7 @@
 - [Move or recover a workspace with an encrypted backup](../apps/docs/content/docs/self-hosting/data-and-backups.mdx#move-a-workspace-to-another-installation)
 - [Configure tools and approvals](tool-selection.md) and [manage private Mem0 memory and read-only bot notes](memory.md)
 - [Integrate through the Bot API](bot-api.md), [MCP server](mcp-server.md), [custom MCP servers](custom-mcp-servers.md), or [custom engines](custom-engines.md)
+- [Set up background image generation in private chat](image-generation.md#background-images-in-private-chat)
 - [接入 Dots 工作端并在主会话派活](verification/dots-work-partner.md)
 
 ## Develop and verify
