@@ -1,3 +1,4 @@
+import { BotMemoryCard } from "./BotMemoryCard";
 import { useEffect, useState } from "react";
 import { browserUnavailableReason } from "@/lib/feature-flags";
 import { ChevronDown, ChevronRight, FolderOpen, Plus } from "lucide-react";
@@ -786,6 +787,7 @@ export function AccessSection({
       </div>}
 
       {shows("phone") && <PhoneAppsCard bot={bot} patch={patch} />}
+      {shows("mcp") && <BotMemoryCard bot={bot} supported={derived.engine?.capabilities?.customMcp === true} />}
       {shows("mcp") && <McpServersCard bot={bot} patch={patch} />}
       {shows("tools") && (onOpenTools ? (
         <div className="rounded-xl bg-card"><NavRow title={t("botAccess.toolGroups.title")} aria-haspopup="dialog" onClick={onOpenTools} /></div>

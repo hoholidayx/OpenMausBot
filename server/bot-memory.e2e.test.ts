@@ -7,7 +7,7 @@ import { fixtureChatReply, fixtureChatSelection, startLoopbackChat } from "./tes
 import { fixtureMemory } from "./testing/memory-mcp.ts";
 
 it("grants six tools to owner-device private turns and confines records and deletion approvals to the mounted bot", async () => {
-  const fixture = await launchVerificationServer();
+  const fixture = await launchVerificationServer({}, undefined, undefined, undefined, undefined, { scripted: true });
   const { url, dataDir, logPath } = fixture.info;
   const upstream = fixtureMemory();
   const mem = await upstream.start();
@@ -108,8 +108,57 @@ it("grants six tools to owner-device private turns and confines records and dele
     expect((await run(a, laptop, "memory_get", { memoryId: id })).result).toContain(fact);
     expect((await run(a, phone, "memory_delete", { all: true, confirm: true })).result).toContain("partition");
     expect(deletes()).toBe(before);
+    const spare = await device("Revocable fixture");
+    const { current } = await api("GET", "/api/auth/sessions", undefined, spare);
+    await run(other, spare, "memory_delete", { memoryId: id }, async () => {
+      await api("DELETE", "/api/auth/sessions/" + current, undefined, laptop);
+    });
+    expect(deletes()).toBe(before);
+    expect(upstream.rows.has(id)).toBe(true);
+    await api("GET", settings(a), undefined, spare, 401);
     expect((await run(a, laptop, "memory_delete", { memoryId: id })).result).toContain(id);
     expect(upstream.rows.size).toBe(0);
+    action = undefined;
+    const assertNoMemory = async (from: number, label: string) => {
+      await expect.poll(() => provider.requests.slice(from).some(r => r.stream), { timeout: 15_000 }).toBe(true);
+      const names = provider.requests.slice(from).flatMap(r => r.tools?.map(tool => tool.function.name) ?? []);
+      expect(names.some(name => name.startsWith(BOT_MEMORY_SERVER + "_")), label).toBe(false);
+      evidence.push({ source: label, memoryTools: [] });
+    };
+    const catalog = await api("GET", "/api/bots/" + a.id + "/tool-catalog");
+    expect(catalog.sources.find((source: any) => source.name === BOT_MEMORY_SERVER)?.tools).toHaveLength(6);
+    const room = (await api("POST", "/api/groups", { name: "Fixture room", memberIds: [a.id] })).group;
+    await api("PATCH", "/api/groups/" + room.id + "/setup", { action: "skip" });
+    let from = provider.requests.length;
+    await control("send-channel", "--channel", room.id, "--text", "Room fixture");
+    await control("wait", "--channel", room.id, "--timeout", "15");
+    await assertNoMemory(from, "room");
+    from = provider.requests.length;
+    const routine = (await api("POST", "/api/routines", { name: "Fixture routine", prompt: "Routine fixture", botId: a.id,
+      enabled: false, schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 } })).routine;
+    const scheduled = (await api("POST", "/api/routines/" + routine.id + "/run", {})).run;
+    await expect.poll(async () => (await api("GET", "/api/routines")).runs.find((item: any) => item.id === scheduled.id)?.status,
+      { timeout: 20_000 }).toBe("completed");
+    await assertNoMemory(from, "routine");
+    from = provider.requests.length;
+    const caller = await api("POST", "/api/bots/" + a.id + "/bot-api", { enabled: true });
+    await api("POST", "/api/bots/" + a.id + "/bot-api/acts-as-owner", { enabled: true });
+    const external = await fetch(caller.url, { method: "POST", headers: { authorization: "Bearer " + caller.key, "content-type": "application/json" }, body: JSON.stringify({ message: "External fixture", wait: 15 }) });
+    expect(external.status).toBe(200);
+    await assertNoMemory(from, "bot-api-as-owner");
+    from = provider.requests.length;
+    const sender = (await control("new-bot", "--name", "Delegator")).bot;
+    writeFileSync(join(dataDir, "room-plan.json"), JSON.stringify({ [sender.id]: { steps: [{ tool: "coordinate_bots", arguments: {
+      bot_ids: [a.id], message: "Delegated fixture", thread: "new" } }], reply: "Sent", resumeReply: "Received" } }));
+    await control("send", "--bot", sender.id, "--task", sender.activeTaskId, "--text", "Delegate fixture task");
+    await assertNoMemory(from, "delegation");
+    await control("wait", "--bot", sender.id, "--task", sender.activeTaskId, "--timeout", "15");
+    const narrowed = await api("PATCH", "/api/bots/" + a.id, { toolScope: { allow: ["mcp:maus_memory:memory_get"] } });
+    expect(narrowed.bot.toolScope.allow).toEqual(["mcp:maus_memory:memory_get"]);
+    expect((await run(a, laptop)).tools).toEqual(["maus_memory_memory_get"]);
+    const copy = (await api("POST", "/api/bots", { name: "A copy", modelSelection: fixtureChatSelection(), settings: { toolScope: narrowed.bot.toolScope } })).bot;
+    expect(await api("GET", settings(copy))).toMatchObject({ configured: false, enabled: false });
+    expect((await run({ id: copy.id, thread: copy.threadId }, laptop)).tools).toEqual([]);
     for (const secret of [roleA, roleB]) {
       expect(JSON.stringify(provider.requests)).not.toContain(secret);
       expect(readFileSync(logPath, "utf8")).not.toContain(secret);

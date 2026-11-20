@@ -1,3 +1,4 @@
+import { BOT_MEMORY_SERVER, BOT_MEMORY_TOOLS, type BotMemoryStatus } from "../../shared/bot-memory.ts";
 import type { BotToolBlock, BotToolCatalog, BotToolEntry, BotToolSource } from "../../shared/bot-tool-catalog.ts";
 import { connectorAccessDecision } from "../../shared/connector-scopes.ts";
 import { EMAIL_MCP_SERVER } from "../../shared/email.ts";
@@ -50,6 +51,7 @@ interface CatalogFacts {
 export interface BotToolCatalogDeps {
   bot(id: string): BotRecord | null;
   facts(bot: BotRecord): CatalogFacts;
+  memory?(botId: string): BotMemoryStatus;
   servers(): readonly CatalogServer[];
   apps(): Promise<{ tools: Record<string, readonly NamedTool[]>; connected: ReadonlySet<string> }>;
   appBlock(slug: string): BotToolBlock | "turn-dependent" | undefined;
@@ -150,8 +152,15 @@ export function createBotToolCatalogRoutes(deps: BotToolCatalogDeps): RouteHandl
     }
     const servers = deps.servers().filter((server) => mcpServerServes(server, bot.id));
     if (!match[3]) {
+      const binding = deps.memory?.(bot.id);
+      const sources = builtInToolSources(bot, facts);
+      if (binding?.configured) sources.push({
+        kind: "mcp", id: `mcp:${BOT_MEMORY_SERVER}`, name: BOT_MEMORY_SERVER, notice: binding.failed ? "connection-failed" : "turn-dependent",
+        blocked: !binding.enabled ? "disabled" : !facts.caps?.customMcp ? "engine" : undefined,
+        tools: entries(BOT_MEMORY_SERVER, BOT_MEMORY_TOOLS.map(name => ({ name }))),
+      });
       const catalog: BotToolCatalog = {
-        sources: [...builtInToolSources(bot, facts), ...servers.map((server) => mcpSource(server, bot, facts.caps))],
+        sources: [...sources, ...servers.map((server) => mcpSource(server, bot, facts.caps))],
         apps: facts.apps,
       };
       return json(res, 200, catalog);

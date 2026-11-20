@@ -217,7 +217,7 @@ export class BotMemory {
     if (["userId", "agentId", "scope", "longTerm", "all", "confirm"].some(key => Object.hasOwn(args, key))) return reply(rejected("Use the memory partition assigned to this bot."));
     const identity = { userId: this.status(botId).userId, agentId: botId };
     if (name === "memory_delete" && Object.hasOwn(args, "memoryId")) {
-      const id = z.uuid().safeParse(args.memoryId);
+      const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).safeParse(args.memoryId);
       if (!id.success || Object.keys(args).length !== 1) return reply(rejected("Delete one memory by its exact ID."));
       if (!await input.confirm(id.data, signal)) return reply(rejected("Deletion was not approved."));
     }

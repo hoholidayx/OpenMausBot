@@ -451,6 +451,7 @@ export interface InstanceInfo extends InstanceEndpointInfo {
     backgroundText?: boolean;
     contextCompactionOwner?: "provider";
     roomChat?: boolean;
+    customMcp?: boolean;
     modelSystemPrefix?: boolean;
   };
   access?: "subscription" | "custom" | "api";

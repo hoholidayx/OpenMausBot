@@ -39,7 +39,7 @@ export const BOT_SECTIONS: Array<{
   { id: "routines", label: "Routines", labelKey: "botSettings.sections.routines", icon: CalendarClock, keywords: ["schedule", "routines", "cron", "tasks"] },
   { id: "access", label: "Access", labelKey: "botSettings.sections.access", icon: Network, keywords: ["works on", "computer", "vm", "cloud", "vps", "folder", "workspace", "browser", "connected apps", "composio", "webhooks", "always allow", "grants", "tool selection", "tools", "mcp", "allow", "exclude"], headingKeys: [
     "computer.worksOn", "botAccess.folder.title", "botAccess.apps.title", "botAccess.grants.header", "botAccess.phone.title",
-    "research.title", "connectors.tab.mcp", "botAccess.tools.title", "botAccess.browser.title", "botAccess.recordSteps.title",
+    "botMemory.title", "research.title", "connectors.tab.mcp", "botAccess.tools.title", "botAccess.browser.title", "botAccess.recordSteps.title",
     "botAccess.webhooks.title", "botAccess.always.title",
   ] },
   { id: "model", label: "Model", labelKey: "botSettings.sections.model", icon: Cpu, keywords: ["engine", "model", "provider", "cli", "effort"] },

@@ -1,3 +1,4 @@
+import { BotMemoryCard } from "../bot-settings/BotMemoryCard";
 import { useState, type ReactNode } from "react";
 import { FolderOpen, Plus, Server } from "lucide-react";
 
@@ -89,6 +90,7 @@ export function AppsPage({ bot, derived }: PageContext) {
           </div>
         ))}
       </Card>
+      <BotMemoryCard bot={bot} supported={derived.engine?.capabilities?.customMcp === true} />
       {(servers.length > 0 || mcpError) && (
         <Card label={t("connectors.tab.mcp")}>
           {mcpError && <NoteRow>{t("botAccess.mcpRefreshError")}</NoteRow>}

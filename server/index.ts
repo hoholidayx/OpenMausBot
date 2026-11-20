@@ -11593,6 +11593,7 @@ ROUTES.push(createMcpServerRoutes({
   fallbackPublicUrl: FALLBACK_PUBLIC_URL,
   mcpServerResponse, savedCustomDomain, appCatalog: chatAppsMcp, config: mcpConfig, lender: sessionLendingPrincipal, connectionHealth, ownsVault: () => true, place: (server, auth) => lentMcp.place(server, { principal: sessionLendingPrincipal(auth), ...(auth.kind === "session" ? { session: auth.session.id } : {}), newest: true }) }));
 ROUTES.push(createBotToolCatalogRoutes({
+  memory: id => botMemory.status(id),
   bot: (id) => store.bot(id),
   facts: (bot) => {
     const caps = registry.get(bot.modelSelection.instanceId)?.adapter.capabilities;

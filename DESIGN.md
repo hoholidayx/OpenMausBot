@@ -52,6 +52,8 @@ where they belong instead of adding new places.
 - **No new asks.** No new permission asks, approval cards, confirm dialogs,
   nags or waits that interrupt the person, and no default below Full access.
   A bot gets on with the work; a change that needs undoing gets **Undo**.
+  Mem0 permanently deletes records on a separate server. The owner confirms
+  the exact record ID in chat, including on Full access.
 - **Bots set themselves up.** A new bot asks its questions in chat
   (`/setup`). Don't add form fields for things the bot can learn by asking.
 - **Simple mode comes first.** It is the default for new installs. Design the
