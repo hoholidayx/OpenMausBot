@@ -15,7 +15,9 @@ const enabled = process.env.OMB_UI_E2E === "1";
 const build = process.env.OMB_WEB_APP_BUILD || join(root, "dist");
 const userText = "请帮我把这段较长的消息按手机的可用宽度显示。".repeat(5);
 const botText = "这是一段较长的机器人回复，用来确认手机上的聊天气泡有足够的空间让中文自然换行。".repeat(5);
+const formattedReply = `${botText}\n\n- **排版**：长回复和列表共享聊天栏宽度。`;
 const shortBotText = "收到。";
+const tableReply = `更新摘要\n\n| 项目 | 说明 |\n| --- | --- |\n| 排版 | ${"表格中的说明随可用宽度换行。".repeat(6)} |`;
 if (!enabled) console.log("skipping web app UI: build the UI and set OMB_UI_E2E=1 for browser qualification");
 
 async function connect(url: string) {
@@ -61,7 +63,7 @@ async function connect(url: string) {
   try {
     const tools = await ensureUiBrowser();
     if (!tools.chrome) throw new Error("This recipe needs the pinned Chrome for Testing");
-    fixture = await launchVerificationServer({ FAKE_CLAUDE_REPLIES: JSON.stringify([[botText, shortBotText]]) }, undefined, undefined, undefined, undefined, undefined, [], undefined, build);
+    fixture = await launchVerificationServer({ FAKE_CLAUDE_REPLIES: JSON.stringify([[formattedReply, shortBotText, tableReply]]) }, undefined, undefined, undefined, undefined, undefined, [], undefined, build);
     const { url, dataDir, logPath } = fixture.info;
     const api = fixtureApi(url);
     const { bots } = await api("GET", "/api/bots") as { bots: Array<{ id: string; defaultBot?: object }> };
@@ -93,7 +95,7 @@ async function connect(url: string) {
       localStorage.setItem('grok-move-2026-11', '1');
       localStorage.setItem('omb-email-gate', 'skipped');
       localStorage.setItem('omb-language', 'en');
-      localStorage.setItem('omb-advanced-mode', '0');
+      if (localStorage.getItem('omb-advanced-mode') === null) localStorage.setItem('omb-advanced-mode', '0');
       localStorage.setItem('omb-skin', 'system');
       localStorage.setItem('omb-simple-mode-prompt', '1');
     ` });
@@ -166,11 +168,10 @@ async function connect(url: string) {
       bubbleLayouts.push({ width, layout });
       const [user, bot] = layout;
       expect(user.width / user.rowWidth, `user bubble at ${width}px`).toBeGreaterThanOrEqual(0.85);
-      expect(bot.width / bot.rowWidth, `bot bubble at ${width}px`).toBeGreaterThanOrEqual(0.85);
       expect(user.endGap).toBeCloseTo(0);
       expect(bot.startGap).toBeCloseTo(0);
       expect(user.startGap).toBeGreaterThan(0);
-      expect(bot.endGap).toBeGreaterThan(0);
+      expect(bot.endGap, `bot reply fills the row at ${width}px`).toBeCloseTo(0);
       for (const row of [user, bot]) {
         expect(row.wrapStyle).toBe("auto");
         expect(row.firstLineFill).toBeGreaterThanOrEqual(0.9);
@@ -203,11 +204,32 @@ async function connect(url: string) {
       await request("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
       await request("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     };
+    await runControlOmb(["send", "--bot", bot.id, "--task", bot.activeTaskId, "--text", "用表格汇总。", "--url", url]);
+    await runControlOmb(["wait", "--bot", bot.id, "--task", bot.activeTaskId, "--timeout", "25", "--url", url]);
+    const tableBubble = `document.querySelector('[data-reply-bubble]:has([data-reply-table])')`;
+    await expect.poll(() => evaluate(`Boolean(${tableBubble})`)).toBe(true);
+    const tableWidth = () => evaluate(`(${tableBubble}).getBoundingClientRect().width`);
+    const tableRowWidth = await evaluate(`(${tableBubble}).closest('[data-message-row]').getBoundingClientRect().width`);
+    expect(await tableWidth()).toBeCloseTo(tableRowWidth);
+    await tap(`(${tableBubble}).querySelector('p')`);
+    await expect.poll(() => evaluate(`(${tableBubble}).parentElement.querySelector('.chat-message-actions').dataset.shown`)).toBe("true");
+    expect(await tableWidth()).toBeCloseTo(tableRowWidth);
     await tap(userBubble);
     await expect.poll(() => evaluate(`(${userActions}).dataset.shown`)).toBe("true");
     expect(await evaluate(`(${userBubble}).getBoundingClientRect().width`)).toBeCloseTo(bubbleLayouts.at(-1)!.layout[0].width);
     await tap(`(${userActions}).querySelector('button[aria-haspopup="menu"]')`);
     await expect.poll(() => evaluate(`Boolean((${userActions}).querySelector('[role="menu"]'))`)).toBe(true);
+    await evaluate("localStorage.setItem('omb-advanced-mode', '1')");
+    await request("Page.reload");
+    await expect.poll(() => evaluate(`(${botBubble})?.matches('[data-chat-bubble=""]') && Boolean((${botBubble}).querySelector('ul'))`), { timeout: 15_000 }).toBe(true);
+    for (const [width, height] of [[390, 844], [844, 390]] as const) {
+      await request("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: true });
+      const endGap = await evaluate(`(() => {
+        const bubble = ${botBubble};
+        return bubble.closest('[data-message-row]').getBoundingClientRect().right - bubble.getBoundingClientRect().right;
+      })()`);
+      expect(endGap, `formatted reply fills the row at ${width}px`).toBeCloseTo(0);
+    }
     expect(await evaluate("caches.keys()" )).toEqual([]);
     expect(await evaluate("navigator.serviceWorker.getRegistrations().then(items=>items.length)")).toBe(0);
     writeFileSync(`${logPath}.web-app.json`, JSON.stringify({ installability, bubbleLayouts, platform: process.platform }, null, 2));
