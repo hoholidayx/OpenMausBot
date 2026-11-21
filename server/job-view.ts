@@ -23,7 +23,7 @@ export interface JobNode {
   threadId: string;
   threadTitle?: string;
   groupId?: string;
-  status: Assignment["status"];
+  status: Exclude<Assignment["status"], "awaiting_receipt">;
   outcome?: Assignment["outcome"];
   outcomeDetail?: string;
   question?: string;
@@ -73,6 +73,7 @@ export interface JobInput {
 const RESULT_CLIP = 280;
 const NODES_SHOWN = 500;
 const ended = (a: Assignment) => a.status === "completed" || a.status === "failed" || a.status === "cancelled";
+const jobStatus = (row: Assignment): JobNode["status"] => row.status === "awaiting_receipt" ? "waiting" : row.status;
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const names = (rows: readonly Assignment[], label: (row: Assignment) => string) => {
@@ -99,7 +100,7 @@ export function jobView(input: JobInput): JobView {
   };
   const scoped = input.rows.filter((row) => starts.has(row.id));
   const live = input.scope === "turn"
-    ? scoped.filter((row) => !ended(row) && row.status !== "waiting")
+    ? scoped.filter((row) => !ended(row) && jobStatus(row) !== "waiting")
     : input.rows.filter((row) => !ended(row) && counts(row));
   const parked = live.filter((row) => row.status === "needs_input");
   const asking = live.filter((row) => row.status === "running" && input.activityOf(row) === "waiting-on-you");
@@ -127,11 +128,11 @@ export function jobView(input: JobInput): JobView {
     reason = conversation.busy ? `${leadName} is working`
       : teammates.length ? `Waiting on ${plural(teammates.length, "teammate task", "teammate tasks")}: ${names(teammates, label)}`
       : conversation.queued > 0 ? "A message is waiting its turn"
-      : `${leadName} is about to continue`;
+      : `${leadName} ${live.some(row => row.status === "awaiting_receipt") ? "is waiting for a reply" : "is about to continue"}`;
   } else if (!lead) {
     state = "idle";
     reason = "Nothing is running in this conversation";
-  } else if (lead.status === "completed" || lead.status === "waiting") {
+  } else if (["completed", "waiting"].includes(jobStatus(lead))) {
     state = "completed";
     const failed = input.rows.filter((row) => row.id !== lead.id && (row.status === "failed" || row.status === "cancelled"));
     reason = `${leadName} finished${failed.length ? `; ${plural(failed.length, "teammate task", "teammate tasks")} did not complete (${names(failed, label)})` : ""}`;
@@ -145,9 +146,10 @@ export function jobView(input: JobInput): JobView {
   const ordered = [...listed.filter((row) => starts.has(row.id)), ...listed.filter((row) => !starts.has(row.id))];
   const tally = { queued: 0, running: 0, waiting: 0, needsInput: 0, completed: 0, failed: 0, cancelled: 0 };
   for (const row of input.rows) {
-    if (row.status === "needs_input") tally.needsInput += 1;
-    else if (row.status === "resume") tally.queued += 1;
-    else tally[row.status] += 1;
+    const status = jobStatus(row);
+    if (status === "needs_input") tally.needsInput += 1;
+    else if (status === "resume") tally.queued += 1;
+    else tally[status] += 1;
   }
   const version = createHash("sha256").update(JSON.stringify([
     state, conversation.busy, conversation.activity ?? "", conversation.queued, asking.map((row) => row.id),
@@ -161,7 +163,7 @@ export function jobView(input: JobInput): JobView {
       id: row.id, rootId: row.rootId, ...(row.parentId ? { parentId: row.parentId } : {}), depth: row.depth,
       botId: row.assignee.botId, botName: nameOf(row.assignee.botId), threadId: destination.threadId,
       ...(title ? { threadTitle: title } : {}), ...(destination.groupId ? { groupId: destination.groupId } : {}),
-      status: row.status, ...(row.outcome ? { outcome: row.outcome } : {}), ...(row.outcomeDetail ? { outcomeDetail: row.outcomeDetail } : {}),
+      status: jobStatus(row), ...(row.outcome ? { outcome: row.outcome } : {}), ...(row.outcomeDetail ? { outcomeDetail: row.outcomeDetail } : {}),
       ...(row.question ? { question: row.question } : {}), mode: row.mode, reply: row.reply,
       awaited: input.scope === "job" ? counts(row) : starts.has(row.id),
       createdAt: row.createdAt, ...(row.startedAt !== undefined ? { startedAt: row.startedAt } : {}),

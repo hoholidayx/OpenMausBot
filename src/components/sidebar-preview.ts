@@ -3,6 +3,7 @@ import type { Bot, Group, InstanceInfo, Message } from "@/state/store";
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import { peerLine } from "@/lib/peer-message";
 import { isReceipt } from "@/lib/receipts";
+import { displayDotsProgress } from "@/lib/activity-runs";
 import { activityPreview, botEngine, failedTurnCause, STATUS_MARKER } from "@/lib/failed-turn";
 import { t } from "@/lib/i18n";
 import { sidebarConnectorPreview, sidebarGoalRunPreview } from "@/lib/sidebar-layout";
@@ -32,6 +33,7 @@ function plainStep(message: Message): boolean {
 
 /** Simple mode quotes the bot: a step that went fine gives way to the newest thing said since the person last wrote. */
 function quotedLine(messages: readonly Message[], last: Message, advanced: boolean): Message {
+  last = displayDotsProgress(last);
   if (advanced || !plainStep(last)) return last;
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;

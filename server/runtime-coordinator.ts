@@ -10,7 +10,7 @@ import { openRuntimeStore, type RuntimeStore } from "./runtime/store.ts";
 import { personOnly, requesterDecides, withDefault } from "./runtime/questions.ts";
 import { isStatusOnly, mayBeStatusOnly, statusReplyPrompt } from "./runtime/status-reply.ts";
 import { answersSender, childrenSince, clip, isTerminal, ownThread, path } from "./runtime/tree.ts";
-import type { Answerer, Assignee, Assignment, EndResult, Origin, Owner, Reply, Requester, RunInput, RunResult, StatusView, TurnRunner } from "./runtime/types.ts";
+import type { Answerer, Assignee, Assignment, EndResult, Origin, Owner, ReceiptResult, Reply, Requester, RunInput, RunResult, StatusView, TurnRunner } from "./runtime/types.ts";
 import { sameRequest } from "./same-request.ts";
 
 const NOT_RUNNING = "The originating room task is no longer running";
@@ -99,9 +99,14 @@ export function needsInputQuestion(text: string): string | undefined {
   return question || undefined;
 }
 
+function handoffStatus(a: Assignment): HandoffView["status"] {
+  if (hostFirstTurn(a)) return "source";
+  return a.status === "needs_input" || a.status === "awaiting_receipt" ? "waiting" : a.status;
+}
+
 export function view(a: Assignment, parent?: Assignment): HandoffView {
   const groupId = a.assignee.destination.groupId;
-  const status: HandoffView["status"] = hostFirstTurn(a) ? "source" : a.status === "needs_input" ? "waiting" : a.status;
+  const status = handoffStatus(a);
   const node: HandoffView = {
     id: a.id, rootId: a.rootId, threadId: a.assignee.destination.threadId, botId: a.assignee.botId, key: a.assignee.botId,
     text: a.brief, createdAt: a.createdAt, status, result: a.result, reported: a.reportedAt !== undefined, executions: a.executions,
@@ -213,6 +218,11 @@ export class RuntimeCoordinator implements Coordinator {
     this.ready();
     const a = this.store.get(id);
     return a && this.project(a);
+  }
+
+  completeReceipt(id: string, result: ReceiptResult): boolean {
+    this.ready();
+    return this.runtime.completeReceipt(id, result);
   }
 
   retryPartnerRelay(rootId: string, attempt: number): boolean {
@@ -487,12 +497,12 @@ export class RuntimeCoordinator implements Coordinator {
   }
 
   /** With no reason given, the stop is the person's, unless it is part of a stop already under way: see stopFor. */
-  stopAwaitingDirect(threadId: string, reason?: string): void {
+  stopAwaitingDirect(threadId: string, reason?: string, rootIds?: ReadonlySet<string>): void {
     this.ready();
     const cause = reason ?? this.stopCause ?? STOPPED_BY_USER;
-    const stopping = cause === STOPPED_BY_USER ? this.live().filter(n => n.assignee.destination.threadId === threadId) : [];
+    const stopping = cause === STOPPED_BY_USER ? this.live().filter(n => n.assignee.destination.threadId === threadId && (!rootIds || rootIds.has(n.rootId))) : [];
     const trees = stopping.map(n => ({ root: this.store.get(n.rootId), work: this.subtree(n).filter(a => !isTerminal(a)) }));
-    this.stopFor(cause, () => this.runtime.stopRequester({ threadId }, cause));
+    this.stopFor(cause, () => this.runtime.stopRequester({ threadId }, cause, rootIds));
     for (const { root, work } of trees) if (root) this.rememberStop(root, work);
   }
 
@@ -636,6 +646,7 @@ export class RuntimeCoordinator implements Coordinator {
   private runner(): TurnRunner {
     const host = this.host;
     return {
+      receiptState: a => host.receiptState?.(view(a)),
       validate: (a, parent) => host.validate(view(a, parent), parent && this.project(parent)),
       committedRelay: a => host.committedRelay?.(view(a)),
       canStart: a => {
@@ -704,11 +715,11 @@ export class RuntimeCoordinator implements Coordinator {
     const evidence = (result: HostTurnResult) => result.evidence ? { evidence: result.evidence } : {};
     const result = await this.host.run(node, resumed, signal, this.composeTurn(a, node, parent, input));
     if (signal.aborted) return { kind: "failed", outcome: "stopped", text: result.text };
+    if (result.receipt) return result.receipt;
     if (result.cap) return { kind: "continue", text: result.text, note: result.cap.note, ...(result.cap.handoffPath ? { handoffPath: result.cap.handoffPath } : {}), ...evidence(result) };
     if (result.cards) return { kind: "needs_input", question: result.cards.question, cards: result.cards.ids, ...evidence(result) };
     const question = root || a.partner?.dots ? undefined : needsInputQuestion(result.text);
     if (!root && a.origin.kind === "person" && result.approvalAsk && !result.stalled && question === undefined) return { kind: "needs_input", question: result.approvalAsk, ...evidence(result) };
-    if (a.partner?.dots && result.providerEnd) return { kind: "failed", outcome: result.providerEnd === "expired" ? "expired" : "interrupted", remoteCancelled: result.providerEnd === "cancel", text: result.text };
     if (!result.ok) return { kind: "failed", outcome: result.stalled ? "stalled" : "provider_error", text: result.text, ...(result.failure ? { failure: result.failure } : {}), ...evidence(result) };
     if (question === undefined) return { kind: "completed", text: result.text, ...(await this.statusOnly(a, parent, input.turn, result, signal) ? { statusOnly: true } : {}), ...evidence(result) };
     const named = withDefault(question);

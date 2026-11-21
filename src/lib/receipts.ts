@@ -1,5 +1,11 @@
-export function isReceipt(message: { kind: string }): boolean {
-  return message.kind === "digest" || message.kind === "compaction" || message.kind === "call";
+type ReceiptRow = { kind: string; tool?: { rescue?: { instanceId: string } } };
+
+export function isDotsRescue(message: ReceiptRow): boolean {
+  return message.kind === "activity" && message.tool?.rescue?.instanceId === "dots";
+}
+
+export function isReceipt(message: ReceiptRow): boolean {
+  return message.kind === "digest" || message.kind === "compaction" || message.kind === "call" || isDotsRescue(message);
 }
 
 export function lastNonReceipt<T extends { kind: string }>(messages: readonly T[] | undefined): T | undefined {

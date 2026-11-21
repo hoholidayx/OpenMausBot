@@ -58,10 +58,10 @@ export interface HeldSteerQueue {
   items: QueueEntry["items"];
 }
 
-export function restoreSteeredMessages(): void {
+export function restoreSteeredMessages(inboxThread?: string): void {
   queues.clear();
   for (const row of chatFollowups("bot")) {
-    if (row.status !== "pending") continue;
+    if (row.status !== "pending" || row.threadId === inboxThread) continue;
     const entry = queues.get(row.threadId) ?? { botId: row.ownerId, items: [] };
     if (entry.botId !== row.ownerId) throw new Error("queued task belongs to another bot");
     const { via, callId, origin: storedOrigin, ...payload } = row.payload;

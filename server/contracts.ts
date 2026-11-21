@@ -137,8 +137,6 @@ export interface HostChatContext {
 }
 
 export interface SendTurnInput {
-  /** Authorized original message for the dedicated Dots host. */
-  dots?: import("./dots/inbox.ts").DotsTurn;
   threadId: ThreadId;
   /** Drivers namespace process-level resources (broker socket, CLI session) by botId too: threadIds may coincide across bots. */
   botId?: string;

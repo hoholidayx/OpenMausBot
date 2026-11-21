@@ -1940,7 +1940,19 @@ function requestedTaskBot(botId: string, rawThreadId: unknown): BotRecord {
   return task;
 }
 
-async function interruptDirectThread(botId: string, threadId: string, cause?: string): Promise<void> {
+function dotsStopRoots(threadId: string) {
+  if (!dotsHost) return;
+  const pending = coordinator.outstandingDirect(threadId);
+  if (!pending.some(work => work.partner?.dots)) return;
+  const owner = directRequestOwners.get(threadId);
+  if (owner) return owner.generations;
+  const roots = new Set(pending.map(work => work.rootId));
+  if (roots.size > 1) throw requestConflict("Choose the Dots request to stop.");
+  return roots;
+}
+
+async function interruptDirectThread(botId: string, threadId: string, cause?: string, scope: "request" | "thread" = "request"): Promise<void> {
+  const roots = scope === "request" ? dotsStopRoots(threadId) : undefined;
   conversationContext.forget(threadId, botId);
   if (store.taskByThread(botId, threadId)?.activity === "parked.computer") store.setTaskActivity(botId, threadId, "idle");
   const requestOwner = directRequestOwners.get(threadId);
@@ -1949,7 +1961,7 @@ async function interruptDirectThread(botId: string, threadId: string, cause?: st
     if (requestOwner.messageId) store.patchMessage(threadId, requestOwner.messageId, { requestCancelled: true });
   }
   stopParkedCards(threadId);
-  coordinator.stopAwaitingDirect(threadId, cause);
+  coordinator.stopAwaitingDirect(threadId, cause, roots);
   const owner = botForThread(botId, threadId);
   const generation = directTurnGenerationByThread.get(threadId);
   cancelDirectTurnDispatch(botId, threadId);
@@ -1975,7 +1987,7 @@ async function interruptAllDirectThreads(botId: string): Promise<void> {
     cancelDirectTurnDispatch(botId, task.threadId);
     revokeInternalCapabilitiesForThread(task.threadId);
   }
-  await Promise.all(threads.map((task) => interruptDirectThread(botId, task.threadId)));
+  await Promise.all(threads.map((task) => interruptDirectThread(botId, task.threadId, undefined, "thread")));
 }
 const retiredProviderTurns = new RetiredTurnRegistry();
 const pendingCancelledProviderHandshakes = new PendingTurnCancellations();
@@ -2583,13 +2595,13 @@ for (const pending of startupCatalogs) {
   }, () => {});
 }
 testedAi.seed({ defaultBot: true }); if (!retiredCopy.frozen()) ensureDefaultBot(store, { dataDir: DATA_DIR });
-const dots = dotsHost && !retiredCopy.frozen() ? connectDots(dotsHost, store, () => dotsHost.inbox.ownerMatches(ownerId), thread => coordinator.progress(thread), turn => {
+const dots = dotsHost && !retiredCopy.frozen() ? connectDots(dotsHost, store, () => dotsHost.inbox.ownerMatches(ownerId), (id, result) => coordinator.completeReceipt(id, result), turn => {
   const child = coordinator.node(turn.id);
   if (!child) return undefined;
   const parent = child.parentId ? coordinator.node(child.parentId) : undefined;
-  return child.botId === dotsHost.inbox.botId && child.threadId === turn.threadId && child.partner?.dots === true &&
-    child.partner.messageId === turn.parent?.messageId && parent?.botId === turn.parent?.botId && parent?.threadId === turn.parent?.threadId &&
-    child.outcome !== "stopped" && (child.status !== "cancelled" || child.outcome === "interrupted");
+  if (child.botId !== dotsHost.inbox.botId || child.threadId !== turn.threadId || !child.partner?.dots ||
+    child.partner.messageId !== turn.parent?.messageId || parent?.botId !== turn.parent?.botId || parent?.threadId !== turn.parent?.threadId) return false;
+  return !child.outcome || dotsHost.receiptMatches(turn.id, child.outcome);
 }) : undefined;
 
 
@@ -3641,6 +3653,7 @@ function requestRelay(capability: InternalCapability, sender: BotRecord, reason:
 }
 
 function publishPartnerResult(child: HandoffView, parent: HandoffView, stage: "worker-finished" | "relay-fallback") {
+  if (child.partner?.dots && child.outcome === "stopped") dotsHost?.stopWaiting(child.id);
   const files = child.partner?.dots && dotsHost ? { dotsFiles: dotsHost.inbox.files(dotsHost.inbox.get(child.id)?.result) } : handoffFiles.returnedWith(child, parent);
   return deliverPartner(store, child, parent, maySharePartner(child, parent), files,
     serverLine(threadLanguage(parent.threadId), "server.partner.empty"), markTaskContextExternallyUpdated, stage);
@@ -3718,6 +3731,11 @@ const handoffTicks = createHandoffTicks(), coordinator: Coordinator = createCoor
   },
   host: { holdReason: (node) => queuedStatus(node), statusReply: (requester, prompt, signal) => sideJobs.text("status-reply", requester)?.generateText(prompt, { signal, timeoutMs: STATUS_REPLY_TIMEOUT_MS }) ?? Promise.resolve(undefined),
     committedRelay: root => committedPartnerRelay(store, root),
+    receiptState: node => {
+      if (!dotsHost || node.botId !== dots?.botId) return;
+      const job = node.parentId ? dotsHost.inbox.get(node.id) : dotsHost.inbox.forRoot(node.id);
+      return job && job.turn.threadId === node.threadId ? dotsHost.receiptState(job) : undefined;
+    },
     validate: (node, parent) => node.mode === "notify" && node.status !== "queued" ? undefined
       : !node.parentId && node.groupId ? roomRootProblem(node)
       : node.partner && parent && !maySharePartner(node, parent) ? "The work can no longer be shared with this conversation." : roomHandoffProblem(node, parent),
@@ -3795,7 +3813,7 @@ const handoffTicks = createHandoffTicks(), coordinator: Coordinator = createCoor
       if (!node.parentId && dots && bot.id === dots.botId) {
         const saved = dotsHost?.inbox.forRoot(node.id);
         if (!saved || !dots.permitted(saved.turn)) return { ok: false, text: "Dots request unavailable." };
-        return dotsHost!.run(saved.turn, signal);
+        return { ok: true, text: "", receipt: dotsHost!.receiptState(saved) };
       }
       if (!node.parentId && !group && !resumed) return runRootTurn(node, bot, signal, composed);
       if (!node.parentId && group && !resumed) return runRoomRootTurn(node, group, bot, signal, composed);
@@ -3823,7 +3841,8 @@ const handoffTicks = createHandoffTicks(), coordinator: Coordinator = createCoor
         const turn = saved?.turn ?? { id: node.id, rootId: node.rootId, threadId: node.threadId, sourceId: source.id,
           parent: { botId: parent.botId, threadId: parent.threadId, messageId: node.partner.messageId },
           ...dotsInput(node.text, (source.attachments ?? []).flatMap(f => f.kind === "audio" ? [] : [{ path: f.path, mime: f.mime, name: f.name ?? basename(f.path) }])) };
-        return dotsHost.run(turn, signal);
+        signal.throwIfAborted();
+        return { ok: true, text: "", receipt: dotsHost.receiptState(dotsHost.inbox.enqueue(turn)) };
       }
       markInternalTurn(node.threadId);
       usageTrace.expect(node.threadId, { node: node.id, ...(resumed ? { resumed } : {}) });
@@ -4376,6 +4395,41 @@ store.onChange((change) => {
 });
 
 const DEFAULT_PAGE = 50;
+
+function ownerDotsInbox(auth: RequestAuth, botId: string, threadId: string) {
+  if (!dots || botId !== dots.botId || threadId !== dots.inboxThread) return;
+  if (!localOwnerRequest(auth) || !dots.available()) throw Object.assign(new Error("Dots inbox access required."), { status: 403 });
+  return dots.direct;
+}
+
+async function serveGuardedRequest(res: ServerResponse, auth: RequestAuth, botId: string, threadId: string, sendId: string,
+  expected?: Parameters<typeof assertRequestTarget>[1]) {
+  res.setHeader("cache-control", "private, no-store");
+  const direct = ownerDotsInbox(auth, botId, threadId);
+  if (direct) {
+    const snapshot = direct.snapshot(sendId);
+    if (!expected) return json(res, 200, snapshot);
+    assertRequestTarget(snapshot, expected);
+    if (!direct.stop(snapshot.executionId)) throw requestConflict("This Dots request has already settled.");
+    return json(res, 200, { ok: true, outcome: "stopped" });
+  }
+  const snapshot = guardedRequestSnapshot(botId, threadId, sendId);
+  if (!expected) return json(res, 200, snapshot);
+  assertRequestTarget(snapshot, expected);
+  const owner = directRequestOwners.get(threadId);
+  if (snapshot.phase === "untracked" || !owner || owner.messageId !== snapshot.messageId) {
+    return json(res, 409, { error: "This continuation cannot be safely stopped from this interface", code: "guarded_request_untracked" });
+  }
+  if (snapshot.phase === "settled") throw requestConflict("This request has already settled");
+  const notYours = runOwners.stopRefusal(threadId, runActor(auth));
+  if (notYours) return json(res, 403, { error: notYours, code: "stop_not_yours" });
+  // No await between comparing the exact lease and revoking it.
+  owner.stopped = true;
+  handoffs.stoppedByPerson(threadId); personStops.stop(threadId, liveTurns.running(threadId), directTurnDispatchClaims.has(threadId), messageSender(auth));
+  const free = idleThreads.stopping(botId, threadId);
+  try { await interruptDirectThread(botId, threadId); } finally { free(); }
+  return json(res, 200, { ok: true, outcome: "stopped" });
+}
 
 function guardedRequestSnapshot(botId: string, threadId: string, sendId: string) {
   if (!store.taskByThread(botId, threadId)) throw requestConflict("No such conversation for this bot");
@@ -6116,8 +6170,7 @@ bus.subscribe((event: RuntimeEvent) => {
           .map((message) => message.text ?? "").join("\n"));
       }
       if (bot) void replyVoiceNotes.turnSettled({ bot, threadId: event.threadId, turnId: completedTurnId, stoppedByPerson: personStops.stopped(event.threadId, completedTurnId), internal, ...(event.ok ? {} : { ending: { stop: turnStops.read(event.threadId, completedTurnId), cause: turnStops.failureCause(event), interrupted: event.stopReason === "interrupted" } }) });
-      const reply = event.provider === "dots" && completedTurnId && dotsHost
-        ? dotsHost.inbox.get(completedTurnId)?.result?.text ?? "" : lastReply.get(event.threadId) ?? "";
+      const reply = lastReply.get(event.threadId) ?? "";
       if (personStops.stopped(event.threadId, completedTurnId)) pushStoppedTurn(completedTurnId);
       personStops.turnEnded(event.threadId, completedTurnId);
       lastReply.delete(event.threadId);
@@ -6129,7 +6182,7 @@ bus.subscribe((event: RuntimeEvent) => {
         turnResourceOwners.get(event.threadId)?.computerParkedOn !== undefined;
       const capContinues = !event.ok && turnStops.read(event.threadId, completedTurnId)?.handoffPath !== undefined;
       // Judged now: an assignment reports its own failure, and has ended by the time the thread settles.
-      const failed = event.provider !== "dots" && !event.ok && !stopped && !lazyClaimAlreadyReported && !computerParked && !capContinues && !routineRun && !activeRoutineRunForThread(event.threadId);
+      const failed = !event.ok && !stopped && !lazyClaimAlreadyReported && !computerParked && !capContinues && !routineRun && !activeRoutineRunForThread(event.threadId);
       const broken = failed && !coordinator.assignerOf(event.threadId) ? bot ?? (speaker ? store.bot(speaker.botId) : undefined) : undefined;
       const failureDetail = turnStops.failureCause(event) ?? "the run ended without a result";
       // Filed once the thread has settled, so the Chief's retry finds it free. A turn the person stopped is cancelled, whatever its engine said.
@@ -6722,6 +6775,23 @@ function directSendRefusal(botId: string, threadId: string): DirectSendRefused |
   return null;
 }
 
+function previousDirectSend({ botId, threadId, sendId, text, replyTo }: DirectSendInput): DirectSendReceipt | undefined {
+  if (!sendId) return;
+  if (cancelledChatFollowup("bot", botId, threadId, sendId)) {
+    throw Object.assign(new Error("this queued sendId was cancelled; send a new message to try again"), { status: 409 });
+  }
+  const accepted = acceptedSendMatch(store.messagesFor(threadId), sendId, text, replyTo?.id);
+  if (accepted.kind === "match") {
+    const receipt = { ok: true as const, threadId, message: accepted.message };
+    return accepted.message.steered ? { ...receipt, steered: true } : receipt;
+  }
+  const queued = queuedSteeredMessage(botId, threadId, sendId);
+  if (accepted.kind === "conflict" || (queued && (queued.text !== text || queued.replyToId !== replyTo?.id))) {
+    throw Object.assign(new Error("sendId already belongs to another message"), { status: 409 });
+  }
+  if (queued) return { ok: true, queued: true, queueId: queued.id, threadId, reason: queued.reason, why: waitWords.queued(threadId, queued.reason) };
+}
+
 async function acceptDirectSend(
   input: DirectSendInput,
   guardedStart?: (currentAtStart: BotRecord) => Promise<DirectSendReceipt>,
@@ -6733,31 +6803,11 @@ async function acceptDirectSend(
     sendId ? `bot:${botId}:${threadId}:${sendId}` : undefined,
     sendFingerprint(text, replyTo?.id),
     async (): Promise<DirectSendReceipt> => {
-      if (sendId) {
-        if (cancelledChatFollowup("bot", botId, threadId, sendId)) {
-          throw Object.assign(new Error("this queued sendId was cancelled; send a new message to try again"), { status: 409 });
-        }
-        const accepted = acceptedSendMatch(store.messagesFor(threadId), sendId, text, replyTo?.id);
-        if (accepted.kind === "conflict") {
-          throw Object.assign(new Error("sendId already belongs to another message"), { status: 409 });
-        }
-        if (accepted.kind === "match") {
-          const canonical = {
-            ok: true as const,
-            threadId,
-            message: accepted.message,
-          };
-          return accepted.message.steered
-            ? { ...canonical, steered: true as const }
-            : canonical;
-        }
-        const queued = queuedSteeredMessage(botId, threadId, sendId);
-        if (queued) {
-          if (queued.text !== text || queued.replyToId !== replyTo?.id) {
-            throw Object.assign(new Error("sendId already belongs to another message"), { status: 409 });
-          }
-          return { ok: true as const, queued: true as const, queueId: queued.id, threadId, reason: queued.reason, why: waitWords.queued(threadId, queued.reason) };
-        }
+      const previous = previousDirectSend(input);
+      if (previous) return previous;
+      if (botId === dots?.botId && !guardedStart) {
+        const message = await startTurn(botId, text, { threadId, sendId, replyTo, sender, trigger, via, dataContext, app });
+        return { ok: true, threadId, message };
       }
 
       // Provider discovery yields, probes afresh for an engine installed or signed in since, and reads a thread's own model's engines at start before it may give way; the transcript reservation after these checks must stay synchronous.
@@ -7091,7 +7141,6 @@ async function beginTurn(
     opts?.cardContinuation || opts?.unattended || opts?.automationSource || opts?.peerAsk || opts?.relayed || opts?.commsDepth || opts?.app?.context || opts?.via)) {
     throw Object.assign(new Error("Dots requires the owner's direct conversation."), { status: 403 });
   }
-  const dotsBody = isDots ? dotsInput(opts?.userMessage?.text ?? text) : undefined;
   const hostCompaction = replaysNatively(instance?.driverKind);
   if (bot.approvalGrant) {
     throw Object.assign(new Error("this bot's approval level is still being confirmed — try again"), { status: 409, code: "settling" });
@@ -7105,6 +7154,13 @@ async function beginTurn(
     throw Object.assign(new Error("this provider account is being updated — try again shortly"), { status: 409, code: "settling" });
   }
   if (!opts?.continuesRun) usageCapGate.assertTurn(botId, personWaiting({ ...opts, peerAsk: opts?.peerAsk ?? opts?.userMessage?.peerAsk }, threadStanding(botId, threadId)) || activeRoutineRunForThread(threadId)?.byPerson === true, threadLanguage(threadId));
+  if (isDots && dots) {
+    const refusal = policyModelRefusal(instance!);
+    if (refusal) throw Object.assign(new Error(refusal), { status: 409, code: "managed_policy" });
+    const message = dots.direct.send(text, opts);
+    opts?.onTurnSettled?.();
+    return message;
+  }
   if (computerLifecycleBusyBots.has(botId)) {
     const changing = "this bot's cloud computer is being changed — wait for it to finish";
     if (!answer.incident) throw Object.assign(new Error(changing), { status: 409, code: "settling" });
@@ -7136,7 +7192,7 @@ async function beginTurn(
   if (guestConfined && instance.adapter.capabilities.guestTurns !== "confined") {
     throw Object.assign(new Error(botApiThread(threadId) ? serverLine(threadLanguage(threadId), "server.botApi.engineRefusal") : guestEngineRefusal(threadId)), { status: 409, code: "guest_engine" });
   }
-  const resolvedImages = dotsBody ? { text: dotsBody.text, images: [], videos: [] } : extractTurnImages(text);
+  const resolvedImages = extractTurnImages(text);
   const usesNativeImageInput = instance.adapter.capabilities.nativeImageInput === true;
   let providerText = promptWithDataContext(usesNativeImageInput ? resolvedImages.text : text, opts?.dataContext);
   const turnImages = usesNativeImageInput ? resolvedImages.images : [];
@@ -7201,7 +7257,6 @@ async function beginTurn(
           ...(opts?.relayed ? { relayed: true } : {}), ...(automated ? { automated: true } : {}),
         });
   }
-  if (isDots && !dotsHost?.inbox.authorized(threadId, userMessage)) throw Object.assign(new Error("Dots message was not authorized by its owner."), { status: 403 });
   const personLine = !opts?.coordination && !opts?.cardContinuation && !opts?.automationSource
     && !opts?.computerSelectionContinuation && !opts?.editedMessageId && !commsDepth && !opts?.peerAsk && !userMessage.peerAsk;
   if (personLine && !userMessage.relayed && (coordinator.answer(threadId, text) || signInSettle.answerInChat(bot.id, threadId, text))) {
@@ -7249,7 +7304,7 @@ async function beginTurn(
   const continued = continuedOrigin(previousRequest, requestMessageId, opts?.cardContinuation);
   const requestOrigin = requestWorkOrigin({ trigger: opts?.automationSource, guest: guestConfined, handed: opts?.origin, continued,
     line: !continuation && requestMessageId === userMessage.id ? userMessage : undefined });
-  const manualDeviceTurn = opts && (personLine || opts.editedMessageId) && !isDots && !guestConfined &&
+  const manualDeviceTurn = opts && (personLine || opts.editedMessageId) && !guestConfined &&
     !opts.unattended && !opts.goalRunId && !opts.coordination && !opts.automaticRecoveryAttempted && !opts.peerLimitResent &&
     !botApiThread(threadId) && !store.groupByThread(threadId);
   const ownerDevice = manualDeviceTurn && opts?.memoryDevice && memoryDeviceLive(opts.memoryDevice) ? opts.memoryDevice : undefined;
@@ -7290,17 +7345,6 @@ async function beginTurn(
 
   void (async () => {
     try {
-      if (dotsBody && dotsHost) {
-        if (companyShutdown || !directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("Dots send stopped.");
-        const turn = { id: "direct-" + userMessage.id, rootId: dispatchClaimId, threadId, sourceId: userMessage.id, ...dotsBody };
-        runningTurnEngines.set(threadId, instance);
-        const { turnId } = await instance.adapter.sendTurn({ botId, threadId, text: turn.text, dots: turn });
-        const owner = directRequestOwners.get(threadId);
-        if (owner?.generation === dispatchClaimId) owner.turnId = turnId;
-        handoffs.bindTurn(threadId, dispatchClaimId, turnId);
-        clearDirectTurnDispatch(threadId, dispatchClaimId);
-        return;
-      }
       const engineRead = registry.engineRead(instance.instanceId);
       if (engineRead) {
         await engineRead;
@@ -11388,6 +11432,7 @@ ROUTES.push(botMemoryRoutes(botMemory, auth => localOwnerRequest(auth) && (auth.
 ROUTES.push(createBotMessageRoutes({
   memoryDevice, imageDevice, memorySteerAllowed,
   dotsGrant: (auth, bot, thread, text, send) => localOwnerRequest(auth) ? dots?.grant(bot, thread, text, send) : send,
+  stopDots: (auth, botId, thread, id) => ownerDotsInbox(auth, botId, thread)?.stop(id),
   dotsDirect: (auth, bot, thread, plain) => bot.modelSelection.instanceId !== "dots" && bot.id !== dots?.botId ||
     !!(dots && bot.id === dots.botId && dots.available() && thread === dots.inboxThread && plain && localOwnerRequest(auth)),
   compactContext: (bot) => compactContext(bot, bot.threadId), invalidateContext,
@@ -14068,21 +14113,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         expectedTurnId: z.string().min(1).max(200).nullable(), expectedExecutionId: id.nullable(),
       }).strict()).safeParse(body);
       if (!parsed.success) return json(res, 400, { error: "A pinned thread and exact request snapshot are required" });
-      const threadId = parsed.data.threadId;
-      const snapshot = guardedRequestSnapshot(m[1], threadId, m[2]);
-      res.setHeader("cache-control", "private, no-store");
-      if (method === "GET") return json(res, 200, snapshot);
-      assertRequestTarget(snapshot, body);
-      const owner = directRequestOwners.get(threadId);
-      if (snapshot.phase === "untracked" || !owner || owner.messageId !== snapshot.messageId) {
-        return json(res, 409, { error: "This continuation cannot be safely stopped from this interface", code: "guarded_request_untracked" });
-      }
-      if (snapshot.phase === "settled") throw requestConflict("This request has already settled"); const notYours = runOwners.stopRefusal(threadId, runActor(auth)); if (notYours) return json(res, 403, { error: notYours, code: "stop_not_yours" });
-      // No await between comparing the exact lease and revoking it.
-      owner.stopped = true;
-      handoffs.stoppedByPerson(threadId); personStops.stop(threadId, liveTurns.running(threadId), directTurnDispatchClaims.has(threadId), messageSender(auth));
-      const free = idleThreads.stopping(m[1], threadId); await interruptDirectThread(m[1], threadId); free();
-      return json(res, 200, { ok: true, outcome: "stopped" });
+      return await serveGuardedRequest(res, auth, m[1], parsed.data.threadId, m[2], method === "GET" ? undefined : body);
     }
 
     if (method === "GET" && path === "/api/connectors/catalog") {
@@ -14384,6 +14415,7 @@ console.log(describeBrand(loadBrand()));
 // Before any row below settles: an interrupted dispatch's words come back with a review notice, never to a model a second time.
 followupAtBoot("");
 for (const row of chatFollowups()) {
+  if (dots?.direct.holdQueued(row)) continue;
   if (row.kind === "aside") { settleChatFollowups([row.id], null); continue; }
   if (row.status !== "dispatching" && row.status !== "interrupted") continue;
   const owned = row.kind === "channel"
@@ -14411,7 +14443,7 @@ for (const row of chatFollowups()) {
   }
   settleChatFollowups([row.id], null);
 }
-restoreSteeredMessages();
+restoreSteeredMessages(dots?.inboxThread);
 restoreChannelMessages();
 
 {

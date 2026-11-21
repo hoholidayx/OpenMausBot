@@ -10,7 +10,7 @@ import type { RuntimeStore } from "./store.ts";
 import { answersSender, asking, awaited, childrenSince, settledSince, clip, continuations, CUT_TWICE, duration, isTerminal, loopStop, nextGuard, outwardDetail, ownsConversation, ownThread, path, restartNote, wakeOwner } from "./tree.ts";
 import { DEFAULT_LIMITS, type Answerer, type Assignment, type Assignee, type Clock, type EndResult, type EnqueueRequest, type EnqueueResult, type EnvelopeNames,
   type EventKind, type InboxItem, type InboxKind, type Level, type Limits, type LiveEdge, type Origin, type Outcome, type Owner,
-  type Reply, type Requester, type RunInput, type RunResult, type StatusView, type TurnRunner } from "./types.ts";
+  type ReceiptResult, type Reply, type Requester, type RunInput, type RunResult, type StatusView, type TurnRunner } from "./types.ts";
 
 export interface RuntimeOptions {
   /** Default: Date.now and performance.now. */
@@ -114,13 +114,7 @@ export class Runtime {
       for (const snapshot of live) {
         const n = this.store.get(snapshot.id);
         if (!n || isTerminal(n)) continue;
-        if (n.status === "needs_input") {
-          this.store.update(n, { kind: "restart_reconciled", at: now, detail: "needs_input: parked again" });
-          this.touch(n);
-          this.safe("park", () => this.runner.park(n, n.question ?? "", true));
-          continue;
-        }
-        if (!this.needsRecovery(n)) continue;
+        if (!this.needsRecovery(n, now)) continue;
         const carried = n.carrying ?? [];
         const handedOut = childrenSince(this.store, n).length > 0;
         const outward = handedOut ? [] : this.outwardOf(n);
@@ -199,7 +193,18 @@ export class Runtime {
     return this.store.prune(before);
   }
 
-  private needsRecovery(n: Assignment): boolean {
+  private needsRecovery(n: Assignment, now: number): boolean {
+    const receipt = this.runner.receiptState?.(n);
+    if (receipt) {
+      if (receipt.kind !== "awaiting_receipt" || n.status !== "awaiting_receipt") this.finishTurn(n, receipt);
+      return false;
+    }
+    if (n.status === "needs_input") {
+      this.store.update(n, { kind: "restart_reconciled", at: now, detail: "needs_input: parked again" });
+      this.touch(n);
+      this.safe("park", () => this.runner.park(n, n.question ?? "", true));
+      return false;
+    }
     if (n.status !== "running") return false;
     const reply = !n.parentId && n.executions > 1 ? this.runner.committedRelay?.(n) : undefined;
     if (reply === undefined) return true;
@@ -342,8 +347,7 @@ export class Runtime {
     for (const snapshot of [...live].sort((a, b) => b.depth - a.depth)) {
       const n = this.store.get(snapshot.id);
       if (!n || isTerminal(n)) continue;
-      const parent = n.parentId ? this.store.get(n.parentId) : undefined;
-      const problem = this.safe("validate", () => this.runner.validate(n, parent));
+      const problem = this.routeProblem(n);
       if (this.lastThrew || !problem) continue;
       this.cancelTree(n, problem, "failed", "refused");
     }
@@ -353,7 +357,7 @@ export class Runtime {
       const anchor = Math.max(this.since(root.lastActivityAt), this.rootActivity.get(rootId) ?? 0);
       if (now - anchor <= this.limits.stallMs) continue;
       const tree = this.store.all({ rootId });
-      if (tree.some(n => n.status === "needs_input" || (n.status === "queued" && (n.continuation !== undefined || this.away(n))) || (n.status === "running" && this.away(n)))) continue;
+      if (tree.some(n => n.status === "needs_input" || n.status === "awaiting_receipt" || (n.status === "queued" && (n.continuation !== undefined || this.away(n))) || (n.status === "running" && this.away(n)))) continue;
       if (now - Math.max(anchor, ...tree.map(n => this.heldAway.get(n.id) ?? 0)) <= this.limits.stallMs) continue;
       this.store.update(root, { kind: "stalled", at: now, detail: `no progress for ${duration(now - anchor)}` });
       this.cancelTree(root, `no progress for ${duration(this.limits.stallMs)}`, "failed", "stalled");
@@ -532,9 +536,22 @@ export class Runtime {
     this.decideCarried(carried);
   }
 
+  completeReceipt(id: string, result: ReceiptResult): boolean {
+    const node = this.store.get(id);
+    if (!node || isTerminal(node)) return true;
+    if (this.closing || node.status !== "awaiting_receipt") return false;
+    this.withBatch(() => this.finishTurn(node, result));
+    return true;
+  }
+
   private setDecider(n: Assignment, result: Extract<RunResult, { kind: "needs_input" }>): void {
     const choice = result.decide?.default?.trim();
     if (!n.partner && result.decide && n.parentId && !n.cards) n.decide = choice ? { default: clip(choice, BRIEF_MAX) } : {}; else delete n.decide;
+  }
+
+  private routeProblem(n: Assignment) {
+    const parent = n.parentId ? this.store.get(n.parentId) : undefined;
+    return this.safe("validate", () => this.runner.validate(n, parent));
   }
 
   private settleTurn(n: Assignment, result: RunResult, live?: LiveTurn): void {
@@ -542,9 +559,15 @@ export class Runtime {
     if (!live?.interruption) delete n.restart;
     delete n.answer; delete n.answeredBy; delete n.carrying;
     // Access is rechecked as the turn ends: a reply that lands after the route closed is never retained.
-    const parentRow = n.parentId ? this.store.get(n.parentId) : undefined;
-    const problem = this.safe("validate", () => this.runner.validate(n, parentRow));
+    const problem = this.routeProblem(n);
     if (!this.lastThrew && problem) { this.settle(n, "failed", "refused", problem); return; }
+    if (result.kind === "awaiting_receipt") {
+      n.status = "awaiting_receipt";
+      n.lastActivityAt = now;
+      this.store.update(n, { kind: "awaiting_receipt", at: now });
+      this.touch(n);
+      return;
+    }
     if (result.evidence) n.evidence = result.evidence;
     const root = n.parentId ? this.store.get(n.rootId) : n;
     if (result.kind === "continue") {
@@ -682,10 +705,10 @@ export class Runtime {
   /** The person stopped the requester's conversation, and stop means stop: everything it handed out ends with it, work
    * that never started and teammates mid-turn alike (and what they handed on), and nothing resumes the stopped
    * conversation. */
-  stopRequester(owner: Owner, reason = "Stopped by user"): void {
+  stopRequester(owner: Owner, reason = "Stopped by user", rootIds?: ReadonlySet<string>): void {
     this.withBatch(() => {
       for (const snapshot of this.store.all({ nonTerminal: true })) {
-        if (!ownsConversation(snapshot, owner)) continue;
+        if (!ownsConversation(snapshot, owner) || (rootIds && !rootIds.has(snapshot.rootId))) continue;
         const n = this.store.get(snapshot.id);
         if (!n || isTerminal(n)) continue;
         for (const child of this.store.children(n.id)) {
@@ -726,7 +749,7 @@ export class Runtime {
       if (!n.parentId) continue;
       const parent = this.store.get(n.parentId);
       if (!parent || parent.assignee.botId === n.assignee.botId) continue;
-      const state: LiveEdge["state"] = n.status === "resume" ? "waiting" : n.status as LiveEdge["state"];
+      const state: LiveEdge["state"] = n.status === "resume" || n.status === "awaiting_receipt" ? "waiting" : n.status as LiveEdge["state"];
       edges.push({ sourceBotId: parent.assignee.botId, targetBotId: n.assignee.botId, state, threadId: n.assignee.destination.threadId,
         ...(n.assignee.destination.groupId ? { groupId: n.assignee.destination.groupId } : {}) });
     }

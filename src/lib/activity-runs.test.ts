@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { describeRun, groupActivityRuns, groupTranscript, isRecoveryActivity, isToolStep, roomTurnFolds, statusActivity } from "./activity-runs";
+import { describeRun, groupActivityRuns, groupTranscript, isRecoveryActivity, isToolStep, roomTurnFolds, statusActivity, turnDurations } from "./activity-runs";
 import { setLocale } from "./i18n";
 import { toolStepLabel } from "./tool-step-label";
 import type { Message } from "@/state/store";
@@ -12,6 +12,19 @@ const tool = (name: string, ok = true): Message =>
 const running = (name: string): Message =>
   ({ id: `t${++seq}`, at: seq, role: "bot", kind: "activity", tool: { name } });
 const text = (body: string): Message => ({ id: `m${++seq}`, at: seq, role: "bot", kind: "text", text: body });
+
+it("hides legacy Dots rescue activity and displays actual progress and literal replies as messages", () => {
+  const words = "Dots didn't hear back from Dots.";
+  const rescue = { botId: "inbox", threadId: "thread", instanceId: "dots", ai: "Dots", turnId: "turn", over: true as const };
+  const notice = { ...tool("notice: " + words), tool: { name: "notice: " + words, rescue } };
+  const progress = { ...tool("Checking"), text: "Checking", dotsEventId: "first", turnId: "turn" };
+  const reply = { ...text(words), dotsEventId: "second", turnId: "turn", turnTerminal: true };
+  const rows = [notice, progress, reply];
+  expect(groupTranscript(rows)).toEqual([
+    { kind: "message", message: { ...progress, kind: "text" } }, { kind: "message", message: reply },
+  ]);
+  expect(turnDurations(rows).size).toBe(0);
+});
 
 describe("a reaction's own line", () => {
   it("draws no bubble in a conversation or a room: the reaction shows on the message it answered", () => {

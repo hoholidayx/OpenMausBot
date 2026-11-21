@@ -1,7 +1,7 @@
 import { RuntimeCoordinator } from "./runtime-coordinator.ts";
 import type { WorkOrigin } from "./peer-provenance.ts";
 import type { LegacyThreadResolver } from "./runtime/import-legacy.ts";
-import type { Answerer, Assignment, EnvelopeNames, Level, Limits, Mode, Origin, Outcome, Owner, Reply, Requester, StatusView, TurnEvidence } from "./runtime/types.ts";
+import type { Answerer, Assignment, EnvelopeNames, Level, Limits, Mode, Origin, Outcome, Owner, ReceiptResult, ReceiptState, Reply, Requester, StatusView, TurnEvidence } from "./runtime/types.ts";
 import type { ModelSelection } from "../shared/wire.ts";
 import type { PassedFile } from "./host/handoff-files.ts";
 
@@ -90,7 +90,7 @@ export interface BeginTurnRequest {
 
 /** `cap` continues the same node in place (a step cap, a seat it could not get); `cards` parks it on the person. */
 export interface HostTurnResult {
-  providerEnd?: "cancel" | "expired";
+  receipt?: ReceiptState;
   ok: boolean;
   text: string;
   evidence?: TurnEvidence;
@@ -148,6 +148,7 @@ export interface LiveHandoffEdge {
 
 /** Every method may throw; the runtime logs a throw and reads it as "not now". */
 export interface CoordinatorHost {
+  receiptState?(node: HandoffView): ReceiptState | undefined;
   committedRelay?(node: HandoffView): string | undefined;
   /** Recheck addresses and route permission immediately before every dispatch. */
   validate(node: HandoffView, parent?: HandoffView): string | undefined;
@@ -214,6 +215,7 @@ export interface Coordinator {
   runningIn(threadId: string): HandoffView[];
   beginTurn(req: BeginTurnRequest): HandoffView;
   endTurn(id: string, result: HostTurnResult): void;
+  completeReceipt(id: string, result: ReceiptResult): boolean;
   /** The parked node's next turn carries `text`, given by the person unless `by` says otherwise. */
   answerNode(id: string, text: string, by?: Answerer): boolean;
   answerRoot(id: string, text: string): boolean;
@@ -235,7 +237,7 @@ export interface Coordinator {
   awaitingTeammateThreads(): Set<string>;
   liveEdges(): LiveHandoffEdge[];
   /** The conversation stopped: its work and everything that work handed out end, and nothing resumes it. */
-  stopAwaitingDirect(threadId: string, reason?: string): void;
+  stopAwaitingDirect(threadId: string, reason?: string, rootIds?: ReadonlySet<string>): void;
   /** The next start goes on with this thread's turn, so a shutdown's "cut" line would be false. */
   continuesAfterRestart(threadId: string): boolean;
   note(id: string): string | undefined;

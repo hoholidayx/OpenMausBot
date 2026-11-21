@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import type { Store, BotRecord, Message } from "../store.ts";
 import { appendAtRequest } from "../host/work-partner.ts";
 import { DOTS_SELECTION } from "./driver.ts";
+import { directDotsMessages } from "./direct.ts";
 import type { DotsReceipt } from "./client.ts";
-import { dotsOutcome, type DotsHost } from "./host.ts";
+import { dotsText, type DotsHost, type DotsProjection } from "./host.ts";
 import type { DotsJob, DotsTurn } from "./inbox.ts";
 
-export function connectDots(host: DotsHost, store: Store, privateHome: () => boolean, progress: (threadId: string) => void,
+export function connectDots(host: DotsHost, store: Store, privateHome: () => boolean, complete: DotsProjection["complete"],
   workAvailable: (turn: DotsTurn) => boolean | undefined) {
   const { inbox } = host;
   const { botId, threadId: inboxThread } = inbox;
@@ -20,6 +21,7 @@ export function connectDots(host: DotsHost, store: Store, privateHome: () => boo
     return privateHome() && !!bot && !bot.hidden && bot.visibility === "admins" && !!task && !task.archivedAt && !store.groupByThread(thread);
   };
   const available = () => store.bot(botId)?.modelSelection.instanceId === "dots" && privateThread(botId, inboxThread);
+  const direct = directDotsMessages(host, store, available, complete);
   const line = (thread: string, id: string) => store.messagesFor(thread).find(m => m.id === id);
   const eligible = (bot: BotRecord, thread: string) => available() && bot.id !== botId && privateThread(bot.id, thread);
   const bound = (bot: BotRecord, thread: string) => eligible(bot, thread) && bot.workPartnerIds?.[0] === botId && bot.workPartnerThreadId === thread;
@@ -36,6 +38,12 @@ export function connectDots(host: DotsHost, store: Store, privateHome: () => boo
   function original(receipt: DotsReceipt, job: DotsJob | null) {
     if (receipt.kind === "push") return available() && !receipt.correlation_id && !receipt.message_id && !receipt.request_id ? inboxThread : undefined;
     return job && permitted(job.turn, receipt.id) && !(job.stopped && job.turn.parent) ? job.turn.threadId : undefined;
+  }
+  function terminalRequest(receipt: DotsReceipt, job: DotsJob | null) {
+    if (!job || job.turn.parent || receipt.id !== job.result?.id) return {};
+    const { id, sourceId, threadId } = job.turn;
+    if (line(threadId, sourceId)?.requestPending) store.patchMessage(threadId, sourceId, { requestPending: false });
+    return { turnId: id, turnTerminal: true, requestMessageId: sourceId, turnSucceeded: receipt.kind === "reply" };
   }
   function updateFiles(fileId: string) {
     for (const { receipt, op } of inbox.references(fileId)) {
@@ -57,14 +65,14 @@ export function connectDots(host: DotsHost, store: Store, privateHome: () => boo
     if (!thread) return false;
     if (receipt.kind === "progress" && job?.result && job.result.sequence < receipt.sequence) return false;
     if (receipt.kind !== "push" && receipt.kind !== "progress" && receipt.id !== job?.result?.id) return false;
+    const terminal = terminalRequest(receipt, job);
     if (store.messagesFor(thread).some(m => m.dotsEventId === receipt.id)) return true;
     const dotsFiles = inbox.files(receipt);
-    const row: Omit<Message, "id" | "at"> = { role: "bot", kind: "text", dotsEventId: receipt.id, text: dotsOutcome(receipt).text,
+    const row: Omit<Message, "id" | "at"> = { role: "bot", kind: "text", dotsEventId: receipt.id, text: dotsText(receipt),
       ...(dotsFiles.length ? { dotsFiles } : {}), ...(job ? { replyToId: job.turn.sourceId } : {}),
-      ...(job && !job.turn.parent && receipt.id === job.result?.id ? { turnId: job.turn.id, turnTerminal: true } : {}) };
-    if (receipt.kind === "progress") {
+      ...terminal };
+    if (receipt.kind === "progress" && job?.turn.parent) {
       row.kind = "activity"; row.tool = { name: receipt.text || "Dots", ok: true };
-      progress(thread);
     }
     if (job) appendAtRequest(store, thread, job.turn.sourceId, row);
     else store.appendMessage(thread, row);
@@ -72,7 +80,7 @@ export function connectDots(host: DotsHost, store: Store, privateHome: () => boo
     return true;
   }
   return {
-    botId, inboxThread, available, eligible, bound, authorized, permitted, project,
+    botId, inboxThread, available, eligible, bound, authorized, permitted, project, complete, direct, restoreQueued: direct.restoreQueued,
     workThread: (thread: string) => privateThread(botId, thread),
     canBind(bot: BotRecord, thread: string) {
       return eligible(bot, thread) && !store.bots.some(b => b.workPartnerIds?.includes(botId) && (b.id !== bot.id || b.workPartnerThreadId !== thread));

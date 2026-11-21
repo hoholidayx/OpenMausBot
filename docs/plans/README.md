@@ -7,6 +7,7 @@ This directory contains plans maintained for this fork.
 
 ## Finished plans
 
+- [Dots 私聊和委派异步收发](../finished_plans/dots-async.md)
 - [Dream 提炼陪伴与派活的核心记忆](../finished_plans/dream-core-memory.md)
 - [Maus 私聊接入 ComfyImageBridge 异步生图](../finished_plans/async-image-mcp.md)
 - [单人部署下的 Bot 长期记忆与 Mem0 分区](../finished_plans/bot-mem0.md)

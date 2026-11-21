@@ -5,6 +5,11 @@ import { activityText } from "@/lib/activity-text";
 import { failedTurnCause } from "../../shared/failed-turn";
 import { isStoppedTurnName } from "../../shared/client-cancel";
 import { localDay } from "@/lib/transcript-derivations";
+import { isDotsRescue } from "@/lib/receipts";
+
+export function displayDotsProgress(message: Message): Message {
+  return message.dotsEventId && message.kind === "activity" ? { ...message, kind: "text" } : message;
+}
 
 export type ActivityTranscriptItem =
   | { kind: "message"; message: Message }
@@ -33,7 +38,7 @@ export function isStatusActivity(message: Message): boolean {
 
 export function isToolStep(message: Message): message is Message & { tool: NonNullable<Message["tool"]> } {
   const tool = message.tool;
-  if (message.kind !== "activity" || !tool) return false;
+  if (message.kind !== "activity" || !tool || message.dotsEventId) return false;
   if (message.comm || message.threadRef || message.relay || message.dataResult || isStatusActivity(message)) return false;
   return failedTurnCause(tool.name) === null;
 }
@@ -63,7 +68,7 @@ export function turnDurations(messages: readonly Message[]): Map<string, number>
   const firstIndex = new Map<string, number>();
   const durations = new Map<string, number>();
   messages.forEach((message, index) => {
-    if (!message.turnId) return;
+    if (!message.turnId || message.dotsEventId) return;
     if (!firstIndex.has(message.turnId)) firstIndex.set(message.turnId, index);
     if (message.role !== "bot" || message.kind !== "text" || !message.turnTerminal) return;
     durations.set(message.id, Math.max(0, message.at - turnStartedAt(messages, firstIndex.get(message.turnId)!, message.at)));
@@ -83,6 +88,7 @@ function settledTurnFolds(messages: Message[], folded: (message: Message, turnId
     if (
       terminal.role !== "bot" ||
       terminal.kind !== "text" ||
+      terminal.dotsEventId ||
       !terminal.turnId ||
       !terminal.turnTerminal
     ) return;
@@ -139,7 +145,9 @@ function group(messages: Message[], foldAssistantTurns: boolean): TranscriptItem
     else for (const message of run) items.push({ kind: "message", message });
     run = [];
   };
-  for (const message of messages) {
+  for (const saved of messages) {
+    if (isDotsRescue(saved)) continue;
+    const message = displayDotsProgress(saved);
     const turn = folds.byAnchorId.get(message.id);
     if (turn) {
       flush();

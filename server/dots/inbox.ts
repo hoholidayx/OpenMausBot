@@ -77,7 +77,12 @@ export class DotsInbox {
   }
 
   stopWaiting(id: string) {
-    this.db.prepare("UPDATE jobs SET stopped=1 WHERE id=?").run(id);
+    return this.db.prepare("UPDATE jobs SET stopped=1 WHERE id=? AND stopped=0 AND result IS NULL").run(id).changes > 0;
+  }
+
+  pendingDirectIds() {
+    return this.db.prepare("SELECT id FROM jobs WHERE result IS NULL AND stopped=0 AND json_extract(input,'$.parent') IS NULL LIMIT 2")
+      .all().map(row => String(row.id));
   }
 
   projectionOf(id: string) {
@@ -88,10 +93,14 @@ export class DotsInbox {
     this.db.prepare("INSERT OR IGNORE INTO grants VALUES (?,?,?)").run(send, thread, createHash("sha256").update(text).digest("hex"));
   }
 
+  granted(thread: string, send: string, text: string) {
+    return !!this.db.prepare("SELECT 1 FROM grants WHERE thread=? AND send=? AND digest=?")
+      .get(thread, send, createHash("sha256").update(text).digest("hex"));
+  }
+
   authorized(thread: string, message: Message | undefined) {
     return !!message?.sendId && message.role === "user" && !message.automated && !message.relayed && !message.peerAsk && !message.via && !message.fromApp && !message.pointed && !message.aside &&
-      !!this.db.prepare("SELECT 1 FROM grants WHERE thread=? AND send=? AND digest=?").get(thread, message.sendId,
-        createHash("sha256").update(message.text ?? "").digest("hex"));
+      this.granted(thread, message.sendId, message.text ?? "");
   }
 
   enqueue(turn: DotsTurn) {

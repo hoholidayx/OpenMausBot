@@ -7,6 +7,7 @@ import { mimeFor } from "../message-file.ts";
 
 export interface DotsUpload { path: string; name: string; mime: string }
 const MAX_BYTES = 20 * 1024 * 1024;
+export class DotsInputError extends Error { readonly status = 400; }
 
 export function dotsInput(text: string, handoff?: readonly DotsUpload[]) {
   const files: DotsUpload[] = [];
@@ -18,12 +19,12 @@ export function dotsInput(text: string, handoff?: readonly DotsUpload[]) {
   }
   for (const file of files) {
     if (file.path !== resolve(ATTACHMENTS_DIR, basename(file.path)) || !validateAttachmentUploadId(basename(file.path, extname(file.path)))) {
-      throw new Error("Dots accepts only uploaded files from this conversation.");
+      throw new DotsInputError("Dots accepts only uploaded files from this conversation.");
     }
   }
   text = text.trim();
   if (files.length > 4 || [...text].length > 16000 || (!text && !files.length)) {
-    throw new Error("Dots accepts up to 16,000 characters and four files per request.");
+    throw new DotsInputError("Dots accepts up to 16,000 characters and four files per request.");
   }
   return { text, files };
 }

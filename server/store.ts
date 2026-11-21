@@ -1217,7 +1217,7 @@ export class Store {
     return pruned;
   }
 
-  branchMessage(threadId: string, sourceId: string, text: string, sendId?: string, sender?: Message["sender"], dataContext?: Message["dataContext"]): Message | null {
+  branchMessage(threadId: string, sourceId: string, text: string, sendId?: string, sender?: Message["sender"], dataContext?: Message["dataContext"], onWrite?: (message: Message) => void): Message | null {
     const t = this.thread(threadId);
     const source = t.messages.find((m) => m.id === sourceId);
     if (!source) return null;
@@ -1234,9 +1234,10 @@ export class Store {
       ...(sender ? { sender } : {}),
       ...(dataContext ? { dataContext } : {}),
     };
+    onWrite?.(full);
+    mdb.appendMessage(threadId, full);
     t.messages.push(full); this.threads.grew(threadId, full);
     t.activeLeafId = full.id;
-    mdb.appendMessage(threadId, full);
     this.noteThreadActivity(threadId, full.at, true);
     this.emit({ type: "message", threadId, message: full });
     // A client adopts a new message as its leaf only when it chains onto its leaf; a sibling needs this pointer.

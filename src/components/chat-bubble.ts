@@ -2,6 +2,7 @@ import { cn } from "@/lib/cn";
 import { failedTurnCause } from "@/lib/failed-turn";
 import { isStatusActivity } from "@/lib/activity-runs";
 import { peerLine, peerRequest } from "@/lib/peer-message";
+import { isDotsRescue } from "@/lib/receipts";
 import { localDay } from "@/lib/transcript-derivations";
 import type { TranscriptItem } from "@/lib/activity-runs";
 import type { Message } from "@/state/store";
@@ -59,7 +60,8 @@ export function isBotTextRow(message: Message, botId: string): boolean {
 /** A transcript row that draws nothing: a reaction, MausBot's follow-up (drawn under its intro), or a tool step or work
  * summary while tool calls are hidden. */
 export function quietRow(message: Message, showToolCalls: boolean): boolean {
-  if (message.reaction || message.helperFollowup) return true;
+  if (message.reaction || message.helperFollowup || isDotsRescue(message)) return true;
+  if (message.dotsEventId) return false;
   if (message.kind === "digest") return !showToolCalls;
   if (message.kind !== "activity" || showToolCalls) return false;
   if (message.dataResult || message.comm || message.threadRef || message.relay || isStatusActivity(message)) return false;

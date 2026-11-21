@@ -59,6 +59,7 @@ export interface BotMessageRouteDeps {
   memoryDevice?(auth: RequestAuth): string | undefined;
   dotsGrant?(auth: RequestAuth, bot: BotRecord, threadId: string, text: string, send?: string): string | undefined;
   dotsDirect?(auth: RequestAuth, bot: BotRecord, thread: string, typed: boolean): boolean;
+  stopDots?(auth: RequestAuth, botId: string, threadId: string, turnId?: string): boolean | undefined;
   store: Pick<Store,
     | "activeLeaf" | "activePath" | "appendMessage" | "bot" | "botByThread" | "bots" | "groupByThread" | "messagesFor"
     | "patchMessage" | "patchTask" | "projectBotForTask" | "setActiveLeaf" | "setTaskAskedAt" | "taskByThread" | "tasks">;
@@ -167,6 +168,12 @@ const guardedSendSchema = z.object({
     name: z.string().trim().min(1).max(120).optional(),
   }).strict().refine((who) => Boolean(who.email || who.name)).optional(),
 }).strict().refine((send) => (send.text === undefined) !== (send.reaction === undefined));
+
+function interruptTarget(threadId: unknown, turnId: unknown) {
+  if (threadId !== undefined && (typeof threadId !== "string" || !/^[\w-]+$/.test(threadId))) return { error: "threadId must be a task id" };
+  if (turnId !== undefined && (typeof turnId !== "string" || !turnId || turnId.length > 200)) return { error: "turnId must name a turn" };
+  return { threadId, turnId };
+}
 
 export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler {
   const {
@@ -775,16 +782,11 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       }
       const body = rawBody ?? {};
       requirePinnedClientThread(bot.id, body.threadId);
-      const expectedThreadId = body.threadId;
-      if (expectedThreadId !== undefined && (typeof expectedThreadId !== "string" || !/^[\w-]+$/.test(expectedThreadId))) {
-        return json(res, 400, { error: "threadId must be a task id" });
-      }
-      // The turn the person saw running. Once it is over (the second click of a double click), the Stop is done:
-      // the turn after it, often their queued message, is not theirs to stop with it.
-      const turnId = typeof body.turnId === "string" ? body.turnId : undefined;
-      if (body.turnId !== undefined && (!turnId || turnId.length > 200)) {
-        return json(res, 400, { error: "turnId must name a turn" });
-      }
+      const target = interruptTarget(body.threadId, body.turnId);
+      if (target.error) return json(res, 400, { error: target.error });
+      const { threadId: expectedThreadId, turnId } = target;
+      const stopped = deps.stopDots?.(auth, bot.id, expectedThreadId ?? bot.threadId, turnId);
+      if (stopped !== undefined) return json(res, 200, { ok: true, outcome: stopped ? "stopped" : "already-stopped" });
       const stopRefused = (threadId: string): boolean => {
         const refusal = owners.stopRefusal(auth, threadId);
         if (refusal) json(res, 403, { error: refusal, code: "stop_not_yours" });

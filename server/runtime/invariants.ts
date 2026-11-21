@@ -2,7 +2,7 @@ import type { RuntimeStore } from "./store.ts";
 import { isTerminal, wakeOwner } from "./tree.ts";
 import type { Assignment, AssignmentEvent, InboxItem, Status } from "./types.ts";
 
-const STATUSES: readonly Status[] = ["queued", "running", "needs_input", "waiting", "resume", "completed", "failed", "cancelled"];
+const STATUSES: readonly Status[] = ["queued", "running", "awaiting_receipt", "needs_input", "waiting", "resume", "completed", "failed", "cancelled"];
 const isStatus = (value: string): value is Status => (STATUSES as readonly string[]).includes(value);
 
 /** "settled" and "restart_reconciled" carry their status as the detail's first token ("failed: expired"). */
@@ -14,6 +14,7 @@ function replayStep(event: AssignmentEvent): Status | undefined {
     case "answered": return "queued";
     case "continued": return "queued";
     case "waiting": return "waiting";
+    case "awaiting_receipt": return "awaiting_receipt";
     case "resume_due": return "resume";
     case "refused": return "failed";
     case "cancelled": return "cancelled";

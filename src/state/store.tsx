@@ -113,7 +113,7 @@ export type SecretRequestCardData = Omit<import("../../shared/wire").SecretReque
 
 export type ComputerControlState = { held: boolean; helpReason: string | null; help?: import("../../shared/wire").ComputerHelpRef | null };
 
-export interface Message extends Pick<import("../../shared/wire").WireMessage, "widget" | "app" | "fromApp" | "pointed" | "routedBy" | "automation" | "publishedPage" | "sender" | "setupSuggestion" | "settingsCard" | "partnerRelayFailure" | "partnerQuestion" | "imageJob" | "partnerResultId" | "partnerResultFailed" | "dotsFiles" | "helperIntro" | "helperFollowup" | "setupOffer" | "savedSteps" | "setupChoices" | "setupChoicesPending" | "setupChoicesUpdating" | "setupRequest" | "relay" | "inbox" | "sentDirectly" | "doneWhen" | "bugReport" | "engineCompaction" | "hostCompaction" | "stoppedBy"> {
+export interface Message extends Pick<import("../../shared/wire").WireMessage, "widget" | "app" | "fromApp" | "pointed" | "routedBy" | "automation" | "publishedPage" | "sender" | "setupSuggestion" | "settingsCard" | "partnerRelayFailure" | "partnerQuestion" | "imageJob" | "partnerResultId" | "partnerResultFailed" | "dotsEventId" | "dotsFiles" | "helperIntro" | "helperFollowup" | "setupOffer" | "savedSteps" | "setupChoices" | "setupChoicesPending" | "setupChoicesUpdating" | "setupRequest" | "relay" | "inbox" | "sentDirectly" | "doneWhen" | "bugReport" | "engineCompaction" | "hostCompaction" | "stoppedBy"> {
   id: string;
   role: "bot" | "user";
   kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "signin" | "routine.run" | "goal.run" | "burst" | "digest" | "compaction" | "call" | "widget" | "app";

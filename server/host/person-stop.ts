@@ -53,14 +53,15 @@ export function createPersonStop(deps: PersonStopDeps) {
     const routines = deps.routines();
     const routine = routines?.activeBotRunForBot(botId);
     const free = deps.stopping(botId, threadId);
-    if (routine?.threadId === threadId) await routines!.cancelRun(routine.id);
-    else {
-      deps.handoffs().stoppedByPerson(threadId);
-      deps.markStopped(threadId, by);
-      deps.stopGoal(threadId);
-      await deps.interruptDirectThread(botId, threadId);
-    }
-    free();
+    try {
+      if (routine?.threadId === threadId) await routines!.cancelRun(routine.id);
+      else {
+        deps.handoffs().stoppedByPerson(threadId);
+        deps.markStopped(threadId, by);
+        deps.stopGoal(threadId);
+        await deps.interruptDirectThread(botId, threadId);
+      }
+    } finally { free(); }
   }
 
   /** Only a message made of stop words, from a person, acts as Stop: it is recorded, and never reaches the turn it ends. With no

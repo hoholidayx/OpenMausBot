@@ -86,6 +86,33 @@ function world(script?: Script, limits: Partial<Limits> = {}, store = openRuntim
   return { store, runner, clock, runtime, logs, limits };
 }
 const ok = (a: EnqueueResult): Assignment => { if (!a.ok) throw new Error(a.reason); return a.assignment; };
+
+it("releases the execution slot until an external receipt and survives silent stall windows and restarts", async () => {
+  const w = world(() => ({ kind: "awaiting_receipt" }), { turnStallMs: 100, stallMs: 200 });
+  const root = w.runtime.begin(beginReq());
+  const child = ok(w.runtime.enqueue(toBot("dots", root.id, "First job", { partner: { messageId: "source", dots: true } })));
+  w.runtime.end(root.id, { ok: true, text: "Handed off" });
+  w.runtime.tick();
+  await flush();
+  w.clock.advance(2000);
+  w.runtime.tick();
+  expect(w.store.get(root.id)?.status).toBe("waiting");
+  expect(w.store.get(child.id)?.status).toBe("awaiting_receipt");
+  expect(w.runtime.pace()).toBe("parked");
+  invariants(w);
+  w.runtime.close();
+  const next = world(undefined, w.limits, w.store);
+  next.clock.advance(3000);
+  next.runtime.tick();
+  expect(next.runner.runs).toHaveLength(0);
+  const result = { kind: "completed", text: "Original answer" } as const;
+  expect(next.runtime.completeReceipt(child.id, result)).toBe(true);
+  expect(next.runtime.completeReceipt(child.id, result)).toBe(true);
+  next.runtime.tick();
+  expect(next.store.get(root.id)?.status).toBe("completed");
+  expect(next.runner.reports.filter(report => report.a.id === child.id)).toHaveLength(1);
+  expect(next.runner.runs).toHaveLength(0);
+});
 type EnqueueResult = ReturnType<Runtime["enqueue"]>;
 const invariants = (w: World) => expect(checkInvariants(w.store, w.runner.live())).toEqual([]);
 

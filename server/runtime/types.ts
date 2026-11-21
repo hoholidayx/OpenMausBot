@@ -51,6 +51,7 @@ export type Reply = "resume" | "poll" | "none";
 export type Status =
   | "queued"          // accepted, not yet admitted
   | "running"         // a turn of the assignee is executing it
+  | "awaiting_receipt" // an outbox accepted the work and will deliver its outcome
   | "needs_input"     // parked on the person (a card or a NEEDS INPUT line)
   | "waiting"         // its turn ended after handing out work; waits on children
   | "resume"          // every child settled, or one it waits on parked a new question; owes its own follow-up turn
@@ -188,7 +189,7 @@ export interface TurnEvidence {
 
 export type EventKind =
   | "enqueued" | "refused" | "admitted" | "started" | "progress" | "parked" | "answered"
-  | "waiting" | "resume_due" | "settled" | "reported" | "woken" | "cancelled"
+  | "waiting" | "awaiting_receipt" | "resume_due" | "settled" | "reported" | "woken" | "cancelled"
   | "restart_reconciled" | "budget" | "stalled" | "continued" | "held" | "reminded";
 
 export interface AssignmentEvent {
@@ -267,6 +268,7 @@ export interface RunInput {
 }
 
 export type RunResult =
+  | { kind: "awaiting_receipt" }
   /** statusOnly: nothing in `text` for the requester to do (status-reply.ts). */
   | { kind: "completed"; text: string; evidence?: TurnEvidence; statusOnly?: boolean }
   /** failure: the system's own words for why the turn failed and the engine's stop reason, apart from anything the bot said. */
@@ -275,6 +277,9 @@ export type RunResult =
   /** The turn stopped short (a step cap, a seat it could not get) and the
    * same node continues in place with its next execution. */
   | { kind: "continue"; text: string; note: string; handoffPath?: string; evidence?: TurnEvidence };
+
+export type ReceiptResult = Extract<RunResult, { kind: "completed" | "failed" }>;
+export type ReceiptState = ReceiptResult | { kind: "awaiting_receipt" };
 
 /** How a host-run root turn ended (Runtime.end). */
 export interface EndResult {
@@ -313,6 +318,7 @@ export interface EnvelopeNames {
 
 /** What the runtime needs from the server. No method may throw into the runtime: a throw is logged and read as "not now". */
 export interface TurnRunner {
+  receiptState?(node: Assignment): ReceiptState | undefined;
   committedRelay?(node: Assignment): string | undefined;
   /** Recheck addresses and routes right before every dispatch. A string
    * refuses the assignment with that reason. */
