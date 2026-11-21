@@ -44,6 +44,8 @@ describe("sync-phone-protocol", () => {
     expect(readFileSync(join(out, "SOURCE"), "utf8")).toBe(`${head}\n`);
     const sources = git("ls-tree", "-r", "--name-only", "HEAD", "--", "packages/phone-protocol/src").split("\n")
       .filter((path) => !path.endsWith(".test.ts"));
+    const fixtures = git("ls-tree", "-r", "--name-only", "HEAD", "--", "packages/phone-protocol/fixtures/mobile-v1")
+      .split("\n").filter((path) => path.endsWith(".json"));
     for (const name of [
       "wire", "responses", "pairing-code", "app-rpc", "cursor-face-data", "failed-turn", "mention-boundary", "upload-limits",
       "markdown-plain-paths", "bot-limit", "codex-usage-limit", "cloud-hints", "waits",
@@ -53,9 +55,9 @@ describe("sync-phone-protocol", () => {
     }
     expect(Object.keys(tree(out)).sort()).toEqual([
       "SOURCE", "app-host.html", "package.json", "vectors/v1.json",
-      ...sources.map((path) => path.slice("packages/phone-protocol/".length)),
+      ...[...sources, ...fixtures].map((path) => path.slice("packages/phone-protocol/".length)),
     ].sort());
-    for (const path of sources) expect(readFileSync(join(out, path.slice("packages/phone-protocol/".length)))).toEqual(blob(path));
+    for (const path of [...sources, ...fixtures]) expect(readFileSync(join(out, path.slice("packages/phone-protocol/".length)))).toEqual(blob(path));
     expect(readFileSync(join(out, "vectors/v1.json"))).toEqual(blob("companion/src/e2e/vectors/v1.json"));
     expect(readFileSync(join(out, "app-host.html"))).toEqual(blob("shared/app-frame/app-host.html"));
     expect(readFileSync(join(out, "package.json"))).toEqual(blob("packages/phone-protocol/package.json"));

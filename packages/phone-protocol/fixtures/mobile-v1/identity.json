@@ -1,0 +1,24 @@
+{
+  "session": {
+    "kind": "session",
+    "id": "fixture-device",
+    "label": "Novia fixture",
+    "scopes": ["client"],
+    "expiresAt": 1800000000000,
+    "via": "bearer",
+    "environmentId": "fixture-environment",
+    "mobileApiVersions": [1]
+  },
+  "bootstrap": {
+    "version": 1,
+    "bots": [
+      {
+        "id": "fixture-partner",
+        "name": "Novia partner",
+        "color": "purple",
+        "avatarUrl": null,
+        "selectedThreadId": "fixture-thread"
+      }
+    ]
+  }
+}

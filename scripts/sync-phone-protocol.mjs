@@ -20,9 +20,11 @@ export function syncedFiles(ref, root = ROOT) {
   const commit = git("rev-parse", "--verify", `${ref}^{commit}`).trim();
   const source = git("ls-tree", "-r", "--name-only", "-z", commit, "--", `${PACKAGE}/src`).split("\0")
     .filter((path) => path.endsWith(".ts") && !path.endsWith(".test.ts"));
+  const fixtures = git("ls-tree", "-r", "--name-only", "-z", commit, "--", `${PACKAGE}/fixtures/mobile-v1`).split("\0")
+    .filter((path) => path.endsWith(".json"));
   const files = new Map([
     ["package.json", `${PACKAGE}/package.json`],
-    ...source.map((path) => [path.slice(PACKAGE.length + 1), path]),
+    ...[...source, ...fixtures].map((path) => [path.slice(PACKAGE.length + 1), path]),
     ["vectors/v1.json", "companion/src/e2e/vectors/v1.json"],
     ["app-host.html", "shared/app-frame/app-host.html"],
   ]);
@@ -30,7 +32,7 @@ export function syncedFiles(ref, root = ROOT) {
 }
 
 /** The top-level names this script owns in the output directory: only these are replaced. */
-const OWNED = ["SOURCE", "package.json", "src", "vectors", "app-host.html"];
+const OWNED = ["SOURCE", "package.json", "src", "fixtures/mobile-v1", "vectors", "app-host.html"];
 
 export function syncPhoneProtocol(out, ref = "HEAD", root = ROOT) {
   const { commit, files } = syncedFiles(ref, root);

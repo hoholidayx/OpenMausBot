@@ -26,6 +26,7 @@ import type { queuedSteerSnapshot } from "../steer-queue.ts";
 import type { BotRecord, GroupRecord, Message, Store } from "../store.ts";
 import { answerAsleep, backgroundWhileAsleep } from "../cloud-power.ts";
 import { createJobRoutes } from "./jobs.ts";
+import { createMobileRoutes, visibleBotsInOrder } from "./mobile.ts";
 import { PASS, type RouteContext, type RouteHandler } from "./table.ts";
 
 function mediaReadRefusal(file: { name: string; mime: string }, image: boolean, video: boolean, visible: (thread: string) => boolean) {
@@ -91,6 +92,8 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
     botComputerControlSnapshot, messageFileRootsForThread, viewerFor, visibleTo,
   } = deps;
   const mediaLinks = new MessageMediaLinks();
+  const orderedBots = (auth: RequestAuth) => deps.botOrderFor?.(auth, store.bots) ?? store.bots;
+  const mobile = createMobileRoutes(orderedBots, (auth) => visibleTo(viewerFor(auth)));
   // tasks stays explicit: clients expect [] where wireBot() would omit the key.
   const shownBot = (bot: BotRecord, visible: VisibleSet, limit: number | undefined) => {
     const wired = wireBot(bot);
@@ -124,7 +127,7 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
       try { groupUsageReader.refresh(); } catch { }
       const limit = pageSize(url.searchParams.get("messages"));
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
-      const shownBots = (deps.botOrderFor?.(auth, store.bots) ?? store.bots).filter((bot) => visible.bot(bot.id));
+      const shownBots = visibleBotsInOrder(orderedBots(auth), visible);
       const queued = publicBotQueuedMessages();
       return json(res, 200, {
         bots: shownBots.map((bot) => shownBot(bot, visible, limit)),
@@ -593,5 +596,8 @@ export function createThreadRoutes(deps: ThreadRouteDeps): RouteHandler {
     }
     return PASS;
   };
-  return async (ctx) => (await jobs(ctx) !== PASS || await handle(ctx) !== PASS ? undefined : PASS);
+  return async (ctx) => {
+    if (await mobile(ctx) !== PASS || await jobs(ctx) !== PASS || await handle(ctx) !== PASS) return;
+    return PASS;
+  };
 }

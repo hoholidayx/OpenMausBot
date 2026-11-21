@@ -118,6 +118,7 @@ import { DataSheetRegistry } from "./data/sheet.ts";
 import { DataFailure } from "./data/types.ts";
 import { isEffortLevel, type AuthPairResponse, type CardAnswerer, type LoopbackSessionResponse, type SignedInSessionResponse, type PairResponse, type ResolvedSender, type ServerFrame, type SignInRequestCardData, type WireBot, type WireGroup, type WireTask } from "../shared/wire.ts";
 import { isPersistentQuestionCard, shouldSettleRequestCard } from "../shared/ask-question.ts";
+import { MOBILE_API_VERSION } from "../packages/phone-protocol/src/mobile-v1.ts";
 import { parseToolScope } from "../shared/tool-scope.ts";
 
 
@@ -12056,6 +12057,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               expiresAt: auth.session.expiresAt,
               via: auth.via,
               environmentId: ENVIRONMENT_ID,
+              mobileApiVersions: [MOBILE_API_VERSION],
               ...(!isOwnerDevice(auth) ? { reactor: actorKey(auth) } : {}),
               ...(isOwnerDevice(auth) ? { userId: ownerId, own: true as const, ...(ownerLends() ? { lending: OWNER_LENDING } : {}) } : {}),
             } satisfies SignedInSessionResponse,

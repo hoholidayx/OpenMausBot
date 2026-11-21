@@ -2,7 +2,7 @@
 
 第一版的调用方是 Novia 的 Swift 数据层。用 iOS 测试进程与隔离 Maus 验证配对、私聊读写、消息一致性与 SSE 恢复。以后接入原生半屏和完整网页时，两者消费同一条真实私聊。每轮的客户端交付、测试入口与通过条件见同工作区的[跨仓迭代计划](../../../docs/ios-mobile-api-iterations.md)。
 
-**建议由 OpenMausBot 维护一份移动契约，首版只新增一个 HTTP 资源 `GET /api/mobile/v1/bootstrap`。** 配对、分页、发消息和 SSE 沿用已有处理器，将手机依赖的输入、输出和行为纳入同一份契约测试。所有请求进入原服务的 HTTPS origin，部署沿用原进程和端口。第一期目标是自托管 fork 加 Novia 原生客户端。下文的 bootstrap 和版本字段均为提案。
+**第一轮已交付会话版本声明和 `GET /api/mobile/v1/bootstrap`。** 两者由自托管 Maus 的原进程和端口提供。配对、分页、发消息和 SSE 沿用已有处理器，后续轮次逐步验证 Swift 对这些操作的消费。[v1 类型](../../packages/phone-protocol/src/mobile-v1.ts) · [隔离契约测试](../../server/mobile-api-v1.test.ts)
 
 ## 现有服务端已经提供什么
 
@@ -20,12 +20,12 @@
 | 手机操作 | HTTP 入口 | 契约承诺 |
 | --- | --- | --- |
 | 配对、恢复、退出 | 现有 `POST /api/auth/pair`、`GET /api/auth/session`、`POST /api/auth/logout` | 用户从自托管实例获取受限配对码。兑换使用 `{code, label, attemptId, cookie: true}`，重试沿用同一 attemptId。此模式在 `Set-Cookie` 返回凭据，JSON 包含 session 与 environment。Swift 仅在已确认的 HTTPS origin 接受对应设备 Cookie。用其值作 Bearer 与单独使用 Cookie 应读到相同的 session ID、environmentId 和授权范围。 |
-| 取得可见伙伴 | **拟新增** `GET /api/mobile/v1/bootstrap` | 返回当前会话可见的 bot 列表和各自可用的私聊入口。首屏不加载聊天历史、群数据、队列、电脑控制状态或模型配置。 |
+| 取得可见伙伴 | `GET /api/mobile/v1/bootstrap` | 按现有 bot 顺序返回设备获准查看的伙伴，略过已归档或从侧栏隐藏的 bot。每行只包含身份、外观与一个可见私聊入口。 |
 | 定位并读一条私聊 | 现有 `GET /api/bots/:botId?messages=0`（按需）、`GET /api/threads/:threadId/messages?limit=50&before=…` | 网页已在看的线程可能与服务端选中线程不同。有歧义时按单 bot 的可见任务核对归属。首屏只取当前线程最新一页，向上翻时传最早一行的消息 ID。保留 `id`、`parentId`、`activeLeafId` 和 `hasMore`。 |
 | 发送普通文本 | 现有 `POST /api/bots/:botId/messages` | 移动契约必传 `{threadId, sendId, text}`。业务层在首次发送前生成 UUID，重试保留三个值。沿用服务端对 bot/线程的权限、排队和实际派发。 |
 | 看回复和恢复 | 现有 `GET /api/events?screens=off` | 原生和网页可独立订阅。原生先处理 hello、消息新增/更新、分支变化、队列变化和助手正文增量。原始 SSE 仍包含其他已授权事件，`frames=thread` 只改变部分 bot 帧的形状，不会把订阅限于一个线程。 |
 
-**bootstrap 的建议响应**（示例值）
+**bootstrap 响应示例**
 
 ```json
 {
@@ -44,7 +44,7 @@
 
 复用现有助手排序、可见范围和成员视图，投影后只给出上面这些字段。头像引用同源已授权资源。没有可见私聊时 `selectedThreadId` 为 null，有效会话可以返回空列表。这个 ID 用于首次选择。调用方明确选中另一条有权访问的私聊时，以选中的 `botId + threadId` 为准。缓存和草稿按实例、设备会话及线程隔离。群聊、无权访问或归属尚未确认时，数据层返回没有可操作的私聊。
 
-建议给现有 `GET /api/auth/session` 的已配对响应加可选字段 `mobileApiVersions: [1]`，与 bootstrap 同批发布。新 App 确认 `kind=session`、实例和会话身份后，选双方支持的主版本。远端返回 `kind=loopback` 视为部署配置错误。旧自托管版本登录成功但缺少版本字段时，数据层返回版本不支持，后续界面可引导到完整 Maus Web。已声明 v1 的服务返回 401/403 时处理登录或权限问题。旧服务对未知路径默认要求 admin，单凭 403/404 探测版本容易误判。[作用域规则](../../server/request-auth.ts)
+`GET /api/auth/session` 的已登录响应声明 `mobileApiVersions: [1]`。Swift 核对 `kind=session`、实例和会话 ID，再请求双方支持的 v1。远端返回 `kind=loopback` 表示配置有误。旧版本缺少该可选字段时，数据层返回版本不支持。已声明 v1 的服务返回 401/403 时分别处理凭据失效与权限拒绝。[作用域规则](../../server/request-auth.ts)
 
 ## 需要冻结的行为
 
@@ -55,9 +55,9 @@
 
 ## 在哪里维护
 
-1. **Maus 持有契约。** 建议在 `packages/phone-protocol/src/mobile-v1.ts` 登记操作、方法/路径、请求、成功及失败形状和 SSE 子集。复用现有 wire 类型，只为 bootstrap 和当前缺少的公开发送回执定义新类型。对沿用的路由，契约列出客户端可以依赖的字段，服务端仍可能返回其他已授权字段。Swift 在 `Novia/MausAPI` 提供配对、伙伴、历史、发送与订阅接口。前三轮使用普通 URLSession，第四轮由 Connectivity 注入代理传输。后续网页入口运行随 Maus 发布的页面。
-2. **只提取需要的查询。** 新 bootstrap 处理器拟放在 `server/routes/mobile.ts`，经现有鉴权和 [RouteContext](../../server/routes/table.ts) 调用与 `threads.ts` 共用的可见伙伴查询。摘要查询不读消息页。按精确 method/path 登记 client 作用域，并检查当前身份、bot 和 thread 的可见性。不能用空的路径匹配结果代替权限判断。Tailscale 负责可达性，最终授权来自 Maus。后续若确需新增写操作，先从现有 handler 提取**带权限和前置校验**的应用操作，两种入口用相同身份调用。避免再经本机 HTTP 转发时落入 loopback 信任。
-3. **一套可复验的样例。** 从隔离自托管服务采集脱敏 JSON/SSE，覆盖空列表、受限 bot、多线程、已落库和排队两种回执、未知卡片及两种恢复结果。Maus CI 让候选服务跑已发布 v1 的契约断言。Novia 固定样例来源提交，用 Swift Codable 解码并测试合并。新版 App 对旧服务测版本缺省，旧解码器对新服务测附加字段。同步脚本目前按提交复制 TS，Swift 所需的自托管样例须纳入同步清单。现有 [companion 样例采集](../../scripts/capture-companion-fixtures.mjs) 继续验证桌面 sidecar 的接口。
+1. **Maus 持有契约。** 第一轮定义了版本、伙伴与摘要的公开类型。已配对会话的版本字段对旧客户端可选。后续将手机依赖的发送回执和 SSE 子集纳入同一契约。前三轮 Swift 使用普通 URLSession，第四轮由 Connectivity 注入代理传输。[移动契约](../../packages/phone-protocol/src/mobile-v1.ts) · [会话类型](../../packages/phone-protocol/src/responses.ts)
+2. **伙伴摘要。** 线程路由将现有的排序、当前身份可见范围交给移动摘要查询，只读 bot 和任务元数据。路由要求已登录的设备会话，原有权限表按精确方法和路径放行。若以后新增写操作，复用带身份、权限和前置校验的服务端操作。[摘要查询](../../server/routes/mobile.ts) · [HTTP 入口](../../server/routes/threads.ts)
+3. **脱敏样例。** 隔离服务的契约测试用实际 HTTP 响应核对会话与伙伴样例。同步工具可从指定提交导出相同 JSON，Swift 检出中保留副本与来源提交。后续轮次再扩展到消息与事件。[身份样例](../../packages/phone-protocol/fixtures/mobile-v1/identity.json) · [同步工具](../../scripts/sync-phone-protocol.mjs)
 
 ## 已验证与实施顺序
 
@@ -68,8 +68,8 @@
 | 一次配对、两种凭据呈现 | 原生拟用的 Bearer 和网页拟用的 Cookie 返回相同 session ID。撤销后两者均为 401，已打开的 SSE 关闭。 |
 | 同一文本跨入口重试 | 首次及重试均为 202，返回相同消息 ID，历史只有一条对应 `sendId` 的记录。改正文沿用同键为 409。 |
 | 历史与恢复 | 分页排除 `before` 锚点。有效游标重放同一消息，异代游标返回 `resumed=false`。 |
-| 首屏与版本发现 | 当前一个测试 bot 的 `/api/bots?messages=0` 返回了 6 个顶层字段，包括队列、群组和电脑控制。当前会话响应没有版本声明，访问拟议 bootstrap 的 client 请求为 403。 |
+| 旧版首屏与版本发现 | 在这次评估的提交上，一个测试 bot 的 `/api/bots?messages=0` 返回了 6 个顶层字段，包括队列、群组和电脑控制。当时没有版本声明，访问 bootstrap 的 client 请求为 403。 |
 
 另跑通过 5 个现有测试文件、34 项用例，涉及[配对设备的线程绑定](../../server/paired-thread-targets-api.test.ts)、[可见性联验](../../server/bot-visibility.e2e.test.ts)、[发送去重](../../server/send-idempotency.test.ts)、[事件重放缓冲](../../server/host/sse-replay.test.ts)和[companion 协议](../../companion/test/phone-protocol.test.ts)。
 
-**第一个交付点**包含会话版本声明、bootstrap、契约类型、服务端隔离测试，以及从 iOS 模拟器真实配对并读到摘要的一项 XCTest。第二轮验证固定线程、分页、发送回执和丢包重试。第三轮验证 SSE 补读、权限撤销和两种设备凭据所见数据的一致性。三个交付点通过后，才以 Tailscale 传输复跑同一组业务用例。界面与网页集成单独验收。只有实际出现带宽瓶颈，或第二个原生功能也需要同一份投影时，再考虑新增轻量历史页或窄化事件流。
+**第一轮已验收。** iOS 模拟器经临时 HTTPS 入口完成一次受限配对，两种凭据呈现返回相同设备身份和伙伴列表。Keychain 恢复、隐藏资源、无凭据 403 和撤权后 401 均通过。独立运行服务端契约用 `corepack pnpm exec vitest run server/mobile-api-v1.test.ts`，跨仓复跑用工作区的 `node demo/mobile-api/verify.mjs`。第二轮验证固定线程、分页、发送回执和丢包重试。第三轮验证 SSE 补读，随后接 Tailscale。

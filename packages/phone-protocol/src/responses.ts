@@ -179,6 +179,8 @@ export interface SignedInSessionResponse {
   expiresAt: number;
   via: "bearer" | "cookie" | "ticket";
   environmentId: string;
+  /** Mobile API major versions served at this origin. Absent on older servers. */
+  mobileApiVersions?: readonly number[];
   email?: string;
   owner?: string;
   hosted?: true;
