@@ -2,7 +2,7 @@
 
 第一版的调用方是 Novia 的 Swift 数据层。用 iOS 测试进程与隔离 Maus 验证配对、私聊读写、消息一致性与 SSE 恢复。以后接入原生半屏和完整网页时，两者消费同一条真实私聊。每轮的客户端交付、测试入口与通过条件见同工作区的[跨仓迭代计划](../../../docs/ios-mobile-api-iterations.md)。
 
-**第一轮已交付会话版本声明和 `GET /api/mobile/v1/bootstrap`。** 两者由自托管 Maus 的原进程和端口提供。配对、分页、发消息和 SSE 沿用已有处理器，后续轮次逐步验证 Swift 对这些操作的消费。[v1 类型](../../packages/phone-protocol/src/mobile-v1.ts) · [隔离契约测试](../../server/mobile-api-v1.test.ts)
+**前两轮已交付设备身份、可见伙伴和指定私聊读写。** 自托管 Maus 在原进程和端口提供版本声明及 `GET /api/mobile/v1/bootstrap`。Swift 通过已有历史、发送和队列接口完成分页与对账，后续验证 SSE 订阅与恢复。[v1 类型](../../packages/phone-protocol/src/mobile-v1.ts) · [隔离契约测试](../../server/mobile-api-v1.test.ts)
 
 ## 现有服务端已经提供什么
 
@@ -55,9 +55,9 @@
 
 ## 在哪里维护
 
-1. **Maus 持有契约。** 第一轮定义了版本、伙伴与摘要的公开类型。已配对会话的版本字段对旧客户端可选。后续将手机依赖的发送回执和 SSE 子集纳入同一契约。前三轮 Swift 使用普通 URLSession，第四轮由 Connectivity 注入代理传输。[移动契约](../../packages/phone-protocol/src/mobile-v1.ts) · [会话类型](../../packages/phone-protocol/src/responses.ts)
+1. **Maus 持有契约。** v1 定义版本、伙伴、摘要、有界历史页、固定线程的文本请求及两种 202 回执。直接发送处理器使用同一回执类型。已配对会话的版本字段对旧客户端可选。第三轮补充 SSE 子集。前三轮 Swift 使用普通 URLSession，第四轮由 Connectivity 注入代理传输。[移动契约](../../packages/phone-protocol/src/mobile-v1.ts) · [会话类型](../../packages/phone-protocol/src/responses.ts)
 2. **伙伴摘要。** 线程路由将现有的排序、当前身份可见范围交给移动摘要查询，只读 bot 和任务元数据。路由要求已登录的设备会话，原有权限表按精确方法和路径放行。若以后新增写操作，复用带身份、权限和前置校验的服务端操作。[摘要查询](../../server/routes/mobile.ts) · [HTTP 入口](../../server/routes/threads.ts)
-3. **脱敏样例。** 隔离服务的契约测试用实际 HTTP 响应核对会话与伙伴样例。同步工具可从指定提交导出相同 JSON，Swift 检出中保留副本与来源提交。后续轮次再扩展到消息与事件。[身份样例](../../packages/phone-protocol/fixtures/mobile-v1/identity.json) · [同步工具](../../scripts/sync-phone-protocol.mjs)
+3. **脱敏样例。** 隔离服务的契约测试用实际 HTTP 响应核对身份、伙伴、文本发送、直接回执与排队。Swift 检出保存对应 Git 提交的样例，历史样例另含分支和卡片。第三轮扩展到事件。[私聊样例](../../packages/phone-protocol/fixtures/mobile-v1/chat.json) · [身份样例](../../packages/phone-protocol/fixtures/mobile-v1/identity.json) · [同步工具](../../scripts/sync-phone-protocol.mjs)
 
 ## 已验证与实施顺序
 
@@ -72,4 +72,6 @@
 
 另跑通过 5 个现有测试文件、34 项用例，涉及[配对设备的线程绑定](../../server/paired-thread-targets-api.test.ts)、[可见性联验](../../server/bot-visibility.e2e.test.ts)、[发送去重](../../server/send-idempotency.test.ts)、[事件重放缓冲](../../server/host/sse-replay.test.ts)和[companion 协议](../../companion/test/phone-protocol.test.ts)。
 
-**第一轮已验收。** iOS 模拟器经临时 HTTPS 入口完成一次受限配对，两种凭据呈现返回相同设备身份和伙伴列表。Keychain 恢复、隐藏资源、无凭据 403 和撤权后 401 均通过。独立运行服务端契约用 `corepack pnpm exec vitest run server/mobile-api-v1.test.ts`，跨仓复跑用工作区的 `node demo/mobile-api/verify.mjs`。第二轮验证固定线程、分页、发送回执和丢包重试。第三轮验证 SSE 补读，随后接 Tailscale。
+**第一轮已验收。** iOS 模拟器经临时 HTTPS 入口完成一次受限配对，两种凭据呈现返回相同设备身份和伙伴列表。Keychain 恢复、隐藏资源、无凭据 403 和撤权后 401 均通过。独立运行服务端契约用 `corepack pnpm exec vitest run server/mobile-api-v1.test.ts`，跨仓复跑用工作区的 `node demo/mobile-api/verify.mjs`。
+
+**第二轮已验收。** 受限 iOS 会话向 A 发送、切换到 B，隔离测试网关在服务端返回 202 后丢弃原响应。重建 Swift 客户端从 A 的历史找回原消息，重复原请求返回同一消息 ID，A 有一条、B 为零。原键改正文返回 409。假引擎占用 A 时，第二条文本取得队列 ID，放行引擎后在 A 历史中核对到同一 sendId 和 queueId。服务端复跑用 `corepack pnpm exec vitest run server/mobile-api-v1.test.ts server/mobile-text-api.test.ts`。下一轮在同一套测试上增加 SSE 补读。[服务端读写用例](../../server/mobile-text-api.test.ts)

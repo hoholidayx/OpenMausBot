@@ -1,0 +1,21 @@
+{
+  "send": { "threadId": "thread-a", "sendId": "00000000-0000-4000-8000-000000000001", "text": "First line" },
+  "accepted": {
+    "ok": true, "threadId": "thread-a",
+    "message": { "id": "line-a", "role": "user", "kind": "text", "text": "First line", "at": 1, "parentId": null, "sendId": "00000000-0000-4000-8000-000000000001" }
+  },
+  "queued": { "ok": true, "queued": true, "threadId": "thread-a", "queueId": "queue-b" },
+  "queues": { "botQueuedMessages": { "thread-a": [{ "queueId": "queue-b", "text": "Second line" }] } },
+  "older": {
+    "messages": [{ "id": "line-a", "role": "user", "kind": "text", "text": "First line", "at": 1, "parentId": null, "sendId": "00000000-0000-4000-8000-000000000001" }],
+    "hasMore": false, "activeLeafId": "line-c"
+  },
+  "latest": {
+    "messages": [
+      { "id": "line-other", "role": "bot", "kind": "text", "text": "Other branch", "at": 2, "parentId": "line-a" },
+      { "id": "line-b", "role": "user", "kind": "text", "text": "Second line", "at": 2, "parentId": "line-a", "sendId": "00000000-0000-4000-8000-000000000002", "queueId": "queue-b" },
+      { "id": "line-c", "role": "bot", "kind": "widget", "at": 3, "parentId": "line-b", "text": "Open the card" }
+    ],
+    "hasMore": true, "activeLeafId": "line-c"
+  }
+}

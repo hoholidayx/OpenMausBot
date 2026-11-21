@@ -1,6 +1,7 @@
 // What a one-to-one send carries into acceptDirectSend (server/index.ts), and the receipt it answers with.
+import type { MobileTextReceipt } from "../packages/phone-protocol/src/mobile-v1.ts";
 import type { FollowUp } from "../shared/follow-up.ts";
-import type { ResolvedSender, SteerQueueReason } from "../shared/wire.ts";
+import type { ResolvedSender } from "../shared/wire.ts";
 import type { DataContext } from "./data-context.ts";
 import type { Message } from "./store.ts";
 import type { UsageTrigger } from "./usage-ledger.ts";
@@ -28,6 +29,4 @@ export interface DirectSendInput {
   admin?: boolean;
 }
 
-export type DirectSendReceipt =
-  | { ok: true; threadId: string; message: Message; steered?: true }
-  | { ok: true; queued: true; queueId: string; threadId: string; reason?: SteerQueueReason; why?: string };
+export type DirectSendReceipt = MobileTextReceipt<Message>;
