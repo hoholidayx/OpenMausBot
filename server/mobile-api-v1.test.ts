@@ -32,6 +32,19 @@ describe("mobile v1 projection", () => {
     expect(mobileBootstrap([], new VisibleSet([], [], viewer))).toEqual({ version: 1, bots: [] });
   });
 
+  it("selects a visible direct task the send route can still address", () => {
+    const owned = { threadId: "owned", createdAt: 1 };
+    const routine = { threadId: "run", createdAt: 2, routineRunId: "r" };
+    const view = (threadId: string, tasks: Array<typeof owned | typeof routine>) => {
+      const bot = { ...partner, threadId, tasks };
+      return mobileBootstrap([bot], new VisibleSet([bot], [], viewer)).bots[0].selectedThreadId;
+    };
+    expect(view("retired", [owned, routine])).toBe("owned");
+    expect(view("run", [routine, owned])).toBe("owned");
+    expect(view("retired", [])).toBeNull();
+    expect(view("run", [routine])).toBeNull();
+  });
+
   it("grants client scope only to the exact read operation", () => {
     expect(requiredScope("GET", MOBILE_BOOTSTRAP_PATH)).toBe("client");
     expect(requiredScope("POST", MOBILE_BOOTSTRAP_PATH)).toBe("admin");

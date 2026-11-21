@@ -14,9 +14,9 @@ export function visibleBotsInOrder<T extends { id: string }>(ordered: readonly T
 }
 
 function selectedThread(bot: PartnerRecord, visible: VisibleSet): string | null {
-  const selected = bot.threadId;
   const tasks = bot.tasks ?? [];
-  if (selected && visible.thread(selected) && !tasks.find((task) => task.threadId === selected)?.routineRunId) return selected;
+  const selected = tasks.find((task) => task.threadId === bot.threadId && !task.routineRunId);
+  if (selected && visible.thread(selected.threadId)) return selected.threadId;
   return mainThread(tasks.filter((task) => visible.thread(task.threadId)), undefined, bot.mainThreadChoice) ?? null;
 }
 
