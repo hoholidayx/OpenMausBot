@@ -2,6 +2,7 @@
 
 This directory contains plans maintained for this fork.
 
+- [Maus 移动端 API v1 与自托管设备契约](mobile-api-v1.md)
 - [单聊与群聊的会话上下文策略](context-compaction.md)
 - [MEMORY.md 只读注入与旧记忆退役](read-only-memory.md)
 
